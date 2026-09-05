@@ -1,0 +1,54 @@
+# Audiobook Factory - pipeline configuration.
+# Every stage reads this file; override the path with AF_CONFIG.
+
+[project]
+language = "pl"              # XTTS language code; drives sentence splitting and char limits
+data_dir = "data"
+
+[sample]
+# Stage 1 input: raw voice recording used for cloning.
+sample_rate = 24000          # XTTS-v2 native rate. WhisperX prefers 16k but resamples itself.
+channels = 1
+denoise = "afftdn=nf=-25"    # ffmpeg noise reduction
+loudnorm = true
+min_segment_sec = 1.5        # segments shorter than this are useless for cloning
+max_segment_sec = 15.0
+
+[clone]
+mode = "instant"             # "instant" = speaker latents from reference wavs (minutes)
+                             # "finetune" = full XTTS fine-tune (needs GPU, ~1h on RTX 5090)
+reference_count = 12         # how many segments to average into the speaker latent
+model = "tts_models/multilingual/multi-dataset/xtts_v2"
+
+[book]
+strip_front_matter = true
+strip_footnotes = true
+heading_pause_ms = 900
+paragraph_pause_ms = 350
+sentence_pause_ms = 120
+
+[chunk]
+# XTTS-v2 truncates silently past its per-language character limit, so chunks
+# are built to stay under it. Set to 0 to use the built-in limit for [project].language.
+max_chars = 0
+min_chars = 40               # merge fragments smaller than this into the neighbour
+split_on = "sentence"        # sentence | clause
+
+[synth]
+temperature = 0.70
+length_penalty = 1.0
+repetition_penalty = 2.0
+top_k = 50
+top_p = 0.85
+speed = 1.0
+retries = 2                  # re-roll a chunk if QA rejects it
+
+[assemble]
+format = "m4b"               # m4b (chaptered) | mp3 | wav
+bitrate = "64k"
+sample_rate = 24000
+channels = 1
+
+[qa]
+enabled = false              # re-transcribe generated audio and compare to source text
+max_wer = 0.15

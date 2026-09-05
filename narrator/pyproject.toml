@@ -1,0 +1,36 @@
+# Environment C - "narrator": Coqui XTTS-v2 voice cloning and synthesis.
+# Frozen legacy stack. numpy MUST stay <2.0 (1.26.4) or XTTS raises AttributeError.
+# Must NEVER contain whisperx.
+#
+# `poetry add tts==0.22.0` cannot resolve cleanly. Install order that works:
+#   poetry install                    # torch + pinned numpy/pandas/pydantic
+#   just setup-narrator-extras        # TTS --no-deps, then its real runtime deps
+[project]
+name = "narrator"
+version = "0.1.0"
+description = "XTTS-v2 voice cloning, fine-tuning and fragment synthesis"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "torch>=2.5.1",
+    "torchaudio>=2.5.1",
+    "numpy<2.0.0",
+    "pandas<2.0.0",
+    "pydantic<2.10.0",
+    "huggingface-hub<1.0.0",
+    "soundfile>=0.12.1",
+    "librosa>=0.10.0",
+    "typer>=0.12.0",
+    "tqdm>=4.66.0",
+]
+
+[tool.poetry]
+package-mode = false
+
+[[tool.poetry.source]]
+name = "pytorch-gpu"
+url = "https://download.pytorch.org/whl/cu124"
+priority = "explicit"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

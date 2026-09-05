@@ -216,3 +216,21 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- audiobook-factory ---
+# Ignore all pipeline artefacts but keep the directory skeleton. The
+# `!data/**/` line is what lets git descend into nested dirs to find .gitkeep.
+data/**
+!data/**/
+training/**
+!training/**/
+!**/.gitkeep
+
+poetry.lock
+
+# The 3.11.9 pin is a project decision, not a local preference - keep it tracked.
+!.python-version
+
+# Raw Gemini transcript: contains a private conversation URL and local paths.
+# Its conclusions live in docs/DECISIONS.md instead.
+gemini-session.md

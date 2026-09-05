@@ -1,0 +1,33 @@
+# Environment A - "transcriber": WhisperX auto-labelling.
+# Modern stack on purpose: numpy 2.x / pandas 2.x. Must NEVER contain `tts`.
+# whisperx 3.8.1 requires pandas>=2.2.3, coqui tts 0.22.0 requires pandas<2.0 -
+# that direct conflict is why this project uses split environments.
+[project]
+name = "transcriber"
+version = "0.1.0"
+description = "Voice-sample auto-labelling and audiobook QA (WhisperX)"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "torch>=2.5.1",
+    "torchaudio>=2.5.1",
+    "whisperx==3.8.1",
+    "numpy>=2.1.0",
+    "pandas>=2.2.3",
+    "pydub>=0.25.1",
+    "tqdm>=4.66.0",
+    "typer>=0.12.0",
+]
+
+[tool.poetry]
+package-mode = false
+
+# Explicit CUDA 12.4 wheel source. Leave unused on Apple Silicon (MPS);
+# on the RTX 5090 box run: just gpu-torch transcriber
+[[tool.poetry.source]]
+name = "pytorch-gpu"
+url = "https://download.pytorch.org/whl/cu124"
+priority = "explicit"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,26 @@
+# Environment B - "bookbinder": pure-Python text and container work.
+# No torch, no ML. Ingests ebooks, chunks them, muxes the final audiobook.
+# Kept separate so ebook parsing never drags spaCy/pydantic into the TTS env.
+[project]
+name = "bookbinder"
+version = "0.1.0"
+description = "Ebook ingestion, TTS chunking and audiobook assembly"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "ebooklib>=0.18",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
+    "pypdf>=4.2.0",
+    "pysbd>=0.3.4",
+    "ftfy>=6.2.0",
+    "mutagen>=1.47.0",
+    "typer>=0.12.0",
+    "rich>=13.7.0",
+]
+
+[tool.poetry]
+package-mode = false
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

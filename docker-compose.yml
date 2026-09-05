@@ -1,0 +1,36 @@
+# All three services bind-mount ./data, which is the only channel between them.
+# No GPU passthrough on Apple Silicon - on the M1 use the native poetry envs.
+services:
+  transcriber:
+    build: ./transcriber
+    volumes:
+      - ./data:/app/data
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  bookbinder:
+    build: ./bookbinder
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+
+  narrator:
+    build: ./narrator
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+      - ./training:/app/training
+      - ~/.local/share/tts:/root/.local/share/tts
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
