@@ -80,10 +80,12 @@ clone voice device="auto":
     cd narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.clone "{{voice}}" \
       --device {{device}}
 
-# Optional: full fine-tune. Needs CUDA.
-train voice epochs="10" batch="32":
+# Optional: full fine-tune. Needs CUDA; instant cloning covers most books.
+# batch x accum is the effective batch size - keep the product near 250.
+train voice language="pl" epochs="10" batch="3" accum="84":
     cd narrator && uv run python -m narrator.train "{{voice}}" \
-      --epochs {{epochs}} --batch-size {{batch}}
+      --language {{language}} --epochs {{epochs}} \
+      --batch-size {{batch}} --grad-accum {{accum}}
 
 # Stage 1 end to end.
 voice input name language="pl":

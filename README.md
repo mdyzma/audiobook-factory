@@ -57,6 +57,8 @@ just label michal                              # WhisperX cuts and transcribes
 just clone michal                              # speaker latents + audition clip
 open data/voices/michal/audition.wav           # judge the clone before committing
 
+just train michal                              # optional full fine-tune, CUDA only
+
 just ingest data/raw/books/lem.epub solaris    # epub/pdf/txt -> chapters.json
 just chunk solaris michal                      # -> chunks.jsonl with metadata
 just preview solaris michal                    # render 20 chunks as a smoke test

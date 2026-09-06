@@ -57,6 +57,13 @@ Keep segments between 1.5 and 15 seconds; XTTS is happiest around 2 to 12.
 
 Collect 30 to 60 minutes of clean recording before attempting a fine-tune.
 
+Fine-tuning is implemented in `narrator/src/narrator/train.py`. It starts from
+the XTTS v2.0.2 base files, which it caches under `training/base/`, reads the
+auto-labeller's `metadata.csv` through a local formatter, and repoints the voice
+profile at the resulting checkpoint when it finishes. Effective batch size is
+`batch_size * grad_accum`; keep the product near 250 and lower `max_audio_sec`
+first if VRAM runs short, since cost scales with the square of clip length.
+
 ## Hardware split
 
 The two stages are independent, so they can run on different machines. Labelling
