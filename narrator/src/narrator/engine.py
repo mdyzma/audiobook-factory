@@ -111,6 +111,22 @@ def load_model(profile: VoiceProfile, device: str) -> "Xtts":
     return cast("Xtts", synthesizer.tts_model)
 
 
+def load_latents(root: Path, voice: str, device: str) -> "tuple[Tensor, Tensor] | None":
+    """Return latents cached by `just clone`, if they exist.
+
+    Deriving them costs a few seconds per voice. With a multi-voice cast that
+    is paid once per voice rather than once per chunk, so the cache matters
+    more than it did for a single narrator.
+    """
+    import torch
+
+    path = root / "data" / "voices" / voice / "latents.pt"
+    if not path.exists():
+        return None
+    cached = torch.load(path, map_location=device)
+    return cached["gpt_cond_latent"].to(device), cached["speaker_embedding"].to(device)
+
+
 def compute_latents(model: "Xtts", profile: VoiceProfile) -> "tuple[Tensor, Tensor]":
     """Average the reference clips into a speaker embedding once, up front.
 

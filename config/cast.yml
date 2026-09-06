@@ -1,0 +1,32 @@
+# Which voice reads which role.
+#
+# `bookbinder.chunk` assigns a role to every paragraph: `narrator` for
+# narration, `dialogue` for speech with no named speaker, and a character name
+# where the text labels one ("Kelvin: — Wracam na Ziemię").
+#
+# Every role here needs a cloned voice of the same name, meaning
+# data/voices/<voice>.json must exist. Roles with no entry fall back to
+# `narrator`, so a single-voice audiobook needs nothing but the narrator line.
+#
+# Clone each voice first:  just voice <sample.mp3> <name>
+
+roles:
+  narrator:
+    voice: narrator
+    speed: 1.0
+
+  # A generic voice for dialogue whose speaker is not named. Comment this out
+  # to have unattributed dialogue read by the narrator.
+  dialogue:
+    voice: narrator
+    speed: 1.02
+
+  # Named characters. The key must match the speaker label in the text,
+  # lowercased with spaces turned into hyphens.
+  #
+  # kelvin:
+  #   voice: kelvin
+  #   speed: 1.0
+  # snaut:
+  #   voice: snaut
+  #   speed: 0.98

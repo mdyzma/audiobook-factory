@@ -181,3 +181,70 @@ host-dependent; the uv one is not.
 `uv.lock` is tracked for all three environments, which is what makes the CUDA
 machine install the same versions verified here. Regenerate with
 `just relock <env>`, never by hand.
+
+---
+
+# Addendum: casting, dry runs and contracts (2026-09-06)
+
+Five gaps closed after comparing this against an earlier monorepo attempt.
+
+## Roles are typographic, not semantic
+
+Dialogue is detected from quotation marks, dashes and explicit `Speaker:`
+labels. No model, no parsing of meaning.
+
+The bias is deliberate: narration read in a character's voice is far more
+jarring than dialogue left with the narrator, so ambiguous cases stay with the
+narrator. `— Witaj — powiedziała.` is mostly a narration tag, so a short line
+containing an attribution verb goes to the narrator despite opening with a dash.
+`Uwaga: ...` must not become a character called `uwaga`, so a speaker label
+counts only when the name is in the cast or the rest of the line also looks like
+dialogue.
+
+A named speaker who is not in the cast falls back to the generic dialogue voice
+rather than inventing one, and an unknown role falls back to the narrator rather
+than refusing to render.
+
+## Speaker latents are pooled per voice
+
+XTTS weights are shared across voices; only the latents differ. `VoicePool`
+loads the model once and caches a latent pair per voice, so a three-voice book
+costs three derivations rather than three per chunk.
+
+## Dry runs are the fast path
+
+Silence at each fragment's estimated duration, assembled the same way as real
+audio. Catches chapter marks in the wrong place, pauses that do not add up and
+uncast roles, in seconds instead of hours, in the environment with no torch.
+It is also what lets CI cover the pipeline end to end.
+
+Uncloned voices are a note by default and a failure under `--strict`, because
+the usual reason to dry-run is to check structure *before* cloning anything.
+
+## Chunks are strict, reports are not
+
+The manifest models validate on write, so a malformed chunk fails immediately
+rather than thousands of fragments into a render, and `read_chunks` names the
+file and line when something is wrong.
+
+Chunks forbid unknown fields, since bookbinder authors them and a typo is a bug.
+Reports ignore them, because narrator and transcriber write those by hand in
+environments that cannot import the models, and they include derived summary
+values. Rejecting those would make a report unreadable by its own schema. That
+divergence was real: the narrator's report was missing `realtime_factor` and
+`ok` until a cross-environment fixture test caught it.
+
+`just schemas-check` guards the rest.
+
+## Quality is measured by re-transcription
+
+XTTS truncates, skips and repeats without raising anything. The only signal is
+the audio disagreeing with the text, so `just verify` reads the render back with
+WhisperX and reports word error rate.
+
+Punctuation and case are stripped before comparing, and Unicode is normalised to
+composed form. Diacritics are kept: `ą` and `a` are different words in Polish,
+and folding them would hide a real mispronunciation.
+
+Expect a non-zero baseline, because the transcriber mishears too. The outliers
+are the point, and `--sample` makes a long book affordable to check.

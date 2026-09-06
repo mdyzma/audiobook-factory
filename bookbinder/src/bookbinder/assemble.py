@@ -107,11 +107,11 @@ def main(
         # ffmetadata carries chapter marks and tags into the container.
         meta_lines = [
             ";FFMETADATA1",
-            f"title={book['title']}",
-            f"artist={book['author']}",
-            f"album={book['title']}",
+            f"title={book.title}",
+            f"artist={book.author}",
+            f"album={book.title}",
             f"genre=Audiobook",
-            f"language={book['language']}",
+            f"language={book.language}",
         ]
         for i, (_, title, start) in enumerate(chapter_marks):
             end = chapter_marks[i + 1][2] if i + 1 < len(chapter_marks) else clock
@@ -145,7 +145,7 @@ def main(
     )
     size_mb = out_path.stat().st_size / 1024 / 1024
     typer.echo(
-        f"{book['title']} - {book['author']}\n"
+        f"{book.title} - {book.author}\n"
         f"{len(chapter_marks)} chapters, {format_timestamp(clock)}, {size_mb:.1f} MB\n"
         f"-> {out_path}"
     )

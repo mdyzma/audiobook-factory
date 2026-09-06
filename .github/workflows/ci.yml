@@ -80,6 +80,13 @@ jobs:
       # Each environment is type-checked against its own dependencies. That is
       # the point of the split: narrator resolves numpy 1.x and transcriber
       # numpy 2.x, and they must never be checked against one another.
+      # The models live in bookbinder; narrator and transcriber mirror their
+      # shape by hand, so a drift here is a drift between environments.
+      - name: Check exported schemas
+        if: matrix.env == 'bookbinder'
+        working-directory: bookbinder
+        run: uv run python -m bookbinder.schemas --check
+
       - name: Type-check
         working-directory: ${{ matrix.env }}
         run: uv run pyright

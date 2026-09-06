@@ -5,9 +5,13 @@ from __future__ import annotations
 
 import json
 
+import pytest
+from pydantic import ValidationError
+
 from bookbinder.manifest import (
     XTTS_CHAR_LIMITS,
     BookManifest,
+    ChapterRef,
     Chunk,
     char_limit,
     read_book,
@@ -49,7 +53,7 @@ class TestRoundTrip:
             Chunk(id="ch001_0001", chapter_index=1, chapter_title="Przybysz", order=1,
                   text="Ocean falował pod stacją."),
         ]
-        m.chapters = [{"index": 1, "title": "Przybysz", "first_chunk": 0, "chunk_count": 2}]
+        m.chapters = [ChapterRef(index=1, title="Przybysz", first_chunk=0, chunk_count=2)]
         return m
 
     def test_chunks_survive_write_and_read(self, tmp_path):
@@ -70,9 +74,9 @@ class TestRoundTrip:
         m = self._manifest()
         meta_path, _ = m.write(tmp_path)
         meta = read_book(meta_path)
-        assert meta["title"] == "Sołaris"
-        assert meta["chunk_count"] == 2
-        assert meta["language"] == "pl"
+        assert meta.title == "Sołaris"
+        assert meta.chunk_count == 2
+        assert meta.language == "pl"
 
     def test_estimated_hours_sums_chunks(self, tmp_path):
         m = BookManifest(slug="s", title="T")
@@ -84,3 +88,45 @@ class TestRoundTrip:
         meta_path, chunks_path = BookManifest(slug="s", title="T").write(tmp_path)
         assert json.loads(meta_path.read_text())["chunk_count"] == 0
         assert list(read_chunks(chunks_path)) == []
+
+
+class TestValidation:
+    """A malformed chunk must fail at write time, not mid-render."""
+
+    def test_rejects_empty_text(self):
+        with pytest.raises(ValidationError):
+            Chunk(id="a", chapter_index=1, chapter_title="T", order=0, text="")
+
+    def test_rejects_negative_order(self):
+        with pytest.raises(ValidationError):
+            Chunk(id="a", chapter_index=1, chapter_title="T", order=-1, text="x")
+
+    def test_rejects_unknown_kind(self):
+        # Invalid on purpose: pyright objects for the same reason pydantic does.
+        with pytest.raises(ValidationError):
+            Chunk(id="a", chapter_index=1, chapter_title="T", order=0, text="x",
+                  kind="song")  # type: ignore[arg-type]
+
+    def test_rejects_unknown_field(self):
+        # A typo in a hand-edited manifest should be an error, not ignored.
+        with pytest.raises(ValidationError):
+            Chunk(id="a", chapter_index=1, chapter_title="T", order=0, text="x",
+                  pause_after_msec=100)  # type: ignore[call-arg]
+
+    def test_rejects_negative_pause(self):
+        with pytest.raises(ValidationError):
+            Chunk(id="a", chapter_index=1, chapter_title="T", order=0, text="x",
+                  pause_after_ms=-1)
+
+    def test_corrupt_line_names_its_position(self, tmp_path):
+        path = tmp_path / "chunks.jsonl"
+        path.write_text('{"id":"a","chapter_index":1,"order":0,"text":"ok"}\n'
+                        '{"id":"b","chapter_index":1,"order":1}\n', encoding="utf-8")
+        with pytest.raises(ValueError, match=r"chunks\.jsonl:2"):
+            list(read_chunks(path))
+
+    def test_flags_chunks_over_the_model_limit(self):
+        c = Chunk(id="a", chapter_index=1, chapter_title="T", order=0,
+                  text="x" * 300, language="pl")
+        assert c.exceeds_model_limit
+

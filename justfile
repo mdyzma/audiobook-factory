@@ -56,6 +56,14 @@ doctor:
     @echo "== narrator ==" && cd narrator && uv run python -c \
       "import numpy, torch, transformers; print('numpy', numpy.__version__, '| torch', torch.__version__, '| transformers', transformers.__version__, '| cuda', torch.cuda.is_available())"
 
+# Regenerate docs/schemas/ from the pydantic models.
+schemas:
+    cd bookbinder && uv run python -m bookbinder.schemas
+
+# Fail if docs/schemas/ has drifted from the models. Runs in CI.
+schemas-check:
+    cd bookbinder && uv run python -m bookbinder.schemas --check
+
 # Run the test suite in every environment.
 test:
     cd bookbinder  && uv run pytest
@@ -69,8 +77,8 @@ typecheck:
     cd transcriber && uv run pyright
 
 # What to run before committing.
-check: typecheck test
-    @echo "types and tests clean"
+check: schemas-check typecheck test
+    @echo "schemas, types and tests clean"
 
 # Tests for one environment only, with output: just test-one narrator -k formatter
 test-one env *args:
@@ -119,10 +127,15 @@ ingest source slug="" language="":
       {{ if slug != "" { "--slug " + slug } else { "" } }} \
       {{ if language != "" { "--language " + language } else { "" } }}
 
-# 3. Split chapters into model-sized fragments with metadata.
+# 3. Split chapters into fragments, assigning a cast role to each.
 chunk slug voice="":
     cd bookbinder && uv run python -m bookbinder.chunk "{{slug}}" \
       {{ if voice != "" { "--voice " + voice } else { "" } }}
+
+# As above but narrate everything in one voice, ignoring config/cast.yml.
+chunk-single slug voice:
+    cd bookbinder && uv run python -m bookbinder.chunk "{{slug}}" \
+      --voice "{{voice}}" --single-voice
 
 # ------------------------------------------------ stages 4-5: the audio ----
 
@@ -136,10 +149,24 @@ preview slug voice:
     cd narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.synth "{{slug}}" \
       --voice "{{voice}}" --limit 20
 
+# Render to silence at the right durations: structure without models.
+dryrun slug strict="":
+    cd bookbinder && uv run python -m bookbinder.dryrun "{{slug}}" \
+      {{ if strict != "" { "--strict" } else { "" } }}
+
 # 5. Mux fragments, pauses and chapter marks into the finished audiobook.
 assemble slug format="":
     cd bookbinder && uv run python -m bookbinder.assemble "{{slug}}" \
       {{ if format != "" { "--fmt " + format } else { "" } }}
+
+# 6. Optional: re-transcribe the rendered audio and compare it to the source.
+verify slug sample="0":
+    cd transcriber && uv run python -m transcriber.verify "{{slug}}" \
+      {{ if sample != "0" { "--sample " + sample } else { "" } }}
+
+# Show the report from the last render.
+report slug:
+    @cat "data/audio/{{slug}}/report.json"
 
 # ----------------------------------------------------------- full runs ----
 
@@ -148,6 +175,13 @@ book source voice slug="" language="":
     just ingest "{{source}}" "{{slug}}" "{{language}}"
     just chunk "{{slug}}" "{{voice}}"
     just synth "{{slug}}" "{{voice}}"
+    just assemble "{{slug}}"
+
+# Ingest, chunk, silence, assemble: the whole structure with no model loaded.
+book-dry source slug="" language="":
+    just ingest "{{source}}" "{{slug}}" "{{language}}"
+    just chunk "{{slug}}"
+    just dryrun "{{slug}}"
     just assemble "{{slug}}"
 
 # Everything: clone a voice from a sample, then produce the audiobook.

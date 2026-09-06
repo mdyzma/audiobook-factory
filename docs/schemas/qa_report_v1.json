@@ -1,0 +1,82 @@
+{
+  "$defs": {
+    "QaFinding": {
+      "properties": {
+        "chunk_id": {
+          "minLength": 1,
+          "title": "Chunk Id",
+          "type": "string"
+        },
+        "expected": {
+          "title": "Expected",
+          "type": "string"
+        },
+        "heard": {
+          "title": "Heard",
+          "type": "string"
+        },
+        "wer": {
+          "minimum": 0,
+          "title": "Wer",
+          "type": "number"
+        }
+      },
+      "required": [
+        "chunk_id",
+        "expected",
+        "heard",
+        "wer"
+      ],
+      "title": "QaFinding",
+      "type": "object"
+    }
+  },
+  "description": "Output of re-transcribing rendered audio and comparing it to the source.",
+  "properties": {
+    "chunks_checked": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Chunks Checked",
+      "type": "integer"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/QaFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "max_wer": {
+      "default": 0.15,
+      "minimum": 0,
+      "title": "Max Wer",
+      "type": "number"
+    },
+    "mean_wer": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Mean Wer",
+      "type": "number"
+    },
+    "model": {
+      "default": "",
+      "title": "Model",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "slug": {
+      "minLength": 1,
+      "title": "Slug",
+      "type": "string"
+    }
+  },
+  "required": [
+    "slug"
+  ],
+  "title": "QaReport",
+  "type": "object"
+}

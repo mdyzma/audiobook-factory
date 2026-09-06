@@ -71,6 +71,36 @@ just preview myslug myvoice             # 20 fragments, to hear the voice
 safe and re-running continues. Use `just clean-audio <slug>` to force a full
 re-render.
 
+## Working without models
+
+The heavy path needs a 1.6 GB environment, model weights and hours of GPU time.
+Most defects are structural, so most of the time you do not need any of that:
+
+```bash
+just book-dry data/raw/books/x.epub myslug
+```
+
+That renders silence at each fragment's estimated duration and assembles it,
+catching chapter marks in the wrong place, pauses that do not add up, and roles
+mapped to voices that do not exist. It is also what lets CI cover the pipeline
+end to end in the environment with no torch in it.
+
+`just dryrun <slug> strict` turns an uncloned voice into a failure rather than a
+note, which is what you want once the cast is meant to be complete.
+
+## The contract between environments
+
+`bookbinder/src/bookbinder/manifest.py` holds pydantic models for everything
+that crosses an environment boundary. `just schemas` exports them to
+`docs/schemas/`, and `just schemas-check` fails if the exported files have
+drifted. Both run as part of `just check` and in CI.
+
+narrator and transcriber cannot import those models, since they resolve a
+different numpy. They mirror the shape by hand and write plain JSON. That is the
+one place a silent divergence can appear, so `bookbinder/tests/test_schemas.py`
+validates a copy of exactly what each of them writes. If you change a model,
+update the writer and that fixture together.
+
 ## Adding a dependency
 
 Always inside the environment that needs it, never at the repo root:

@@ -2,14 +2,16 @@
 
 [![CI](https://github.com/mdyzma/audiobook-factory/actions/workflows/ci.yml/badge.svg)](https://github.com/mdyzma/audiobook-factory/actions/workflows/ci.yml)
 
-Clone a voice from a recording, then read an ebook aloud in it.
+Clone a voice from a recording, then read an ebook aloud in it. Dialogue can
+be cast to different voices.
 
 ```
 sample.mp3 ──▶ clean ──▶ label ──▶ clone ─────────┐
                                                    │  voice profile + latents
 book.epub ──▶ ingest ──▶ chunk ──▶ synth ──▶ assemble ──▶ book.m4b
-                          │          │
-                    chunks.jsonl   wav per chunk
+                          │          │                        │
+                    chunks.jsonl   wav per chunk           verify
+                    + cast roles   + report.json          (optional)
 ```
 
 ## Quickstart
@@ -33,6 +35,15 @@ just factory data/raw/voices/michal.mp3 michal data/raw/books/lem.epub solaris p
 
 The finished audiobook lands in `data/out/solaris.m4b` with chapter marks.
 
+Check the structure first, in seconds and with no model loaded:
+
+```bash
+just book-dry data/raw/books/lem.epub solaris
+```
+
+That renders silence at each fragment's estimated duration and assembles it, so
+chapter marks, pauses and the cast are all verifiable before anything slow runs.
+
 Before committing hours to a voice, hear it first:
 
 ```bash
@@ -53,8 +64,46 @@ The commands you need day to day:
 | `just doctor` | Show what each environment resolved |
 | `just check` | Types and tests, about 7 seconds |
 | `just preview <slug> <voice>` | Render 20 fragments to sample the voice |
+| `just book-dry <source> <slug>` | Whole structure with silence, no models |
 
 Full reference: [docs/COMMANDS.md](docs/COMMANDS.md).
+
+## Casting voices
+
+Every paragraph gets a role. Narration goes to `narrator`, quoted or dashed
+speech to `dialogue`, and a line labelled with a speaker ("Kelvin: — Wracam na
+Ziemię") to that character. `config/cast.yml` maps roles to cloned voices:
+
+```yaml
+roles:
+  narrator:
+    voice: michal
+  dialogue:
+    voice: michal
+    speed: 1.02
+  kelvin:
+    voice: kelvin
+```
+
+Roles with no entry fall back to the narrator, so a single-voice audiobook needs
+nothing but the narrator line, and `just chunk-single` skips casting entirely.
+
+Detection is typographic, not semantic, and deliberately cautious: narration
+misread in a character's voice is far more jarring than dialogue left with the
+narrator, so anything ambiguous stays with the narrator.
+
+## Checking the result
+
+Synthesis fails quietly. XTTS can truncate a fragment, skip a clause or repeat
+a phrase without raising anything, and nobody listens to twenty hours before
+publishing.
+
+```bash
+just verify solaris 20     # re-transcribe every 20th fragment and compare
+```
+
+Every render also writes `data/audio/<slug>/report.json` with what was rendered,
+what was skipped, what failed, and the realtime factor.
 
 ## Why three environments
 

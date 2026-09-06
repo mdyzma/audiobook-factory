@@ -10,13 +10,22 @@ Output: data/book/<slug>/chunks.jsonl + book.json (see manifest.py).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import tomllib
 from pathlib import Path
 
 import typer
 
-from bookbinder.manifest import BookManifest, Chunk, char_limit
+from bookbinder.cast import Cast
+from bookbinder.manifest import (
+    NARRATOR_ROLE,
+    BookManifest,
+    ChapterRef,
+    Chunk,
+    char_limit,
+)
+from bookbinder.roles import assign_role
 
 app = typer.Typer(add_completion=False)
 
@@ -92,10 +101,25 @@ def pack(sentences: list[str], limit: int, min_chars: int) -> list[str]:
     return merged
 
 
+def source_sha256(path: Path) -> str:
+    """Hash the source file so a changed ebook is detectable later."""
+    if not path.exists():
+        return ""
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 @app.command()
 def main(
     slug: str = typer.Argument(..., help="Book slug under data/book/"),
-    voice: str = typer.Option("", help="Voice name to record in the manifest"),
+    voice: str = typer.Option("", help="Single-voice mode: use this voice for everything"),
+    cast_file: Path = typer.Option(None, help="Defaults to config/cast.yml"),
+    single_voice: bool = typer.Option(
+        False, help="Ignore the cast and narrate everything in one voice"
+    ),
     max_chars: int = typer.Option(0, help="0 = use the XTTS limit for the book language"),
 ) -> None:
     root = Path(__file__).resolve().parents[3]
@@ -107,6 +131,14 @@ def main(
     config = load_config(root)
     book_cfg = config.get("book", {})
     chunk_cfg = config.get("chunk", {})
+
+    # A cast turns dialogue into separate voices. Without one (or with
+    # --single-voice) every chunk stays with the narrator.
+    if single_voice:
+        cast = Cast.single(voice or NARRATOR_ROLE)
+    else:
+        path = cast_file or (root / "config" / "cast.yml")
+        cast = Cast.load(path) if path.exists() else Cast.single(voice or NARRATOR_ROLE)
 
     payload = json.loads(chapters_path.read_text(encoding="utf-8"))
     meta, chapters = payload["meta"], payload["chapters"]
@@ -123,6 +155,7 @@ def main(
         author=meta.get("author", "Unknown"),
         language=language,
         source_file=meta.get("source_file", ""),
+        source_sha256=source_sha256(Path(meta.get("source_file", ""))),
         voice=voice,
     )
 
@@ -137,12 +170,19 @@ def main(
             id=f"ch{ch_index:03d}_{order:04d}",
             chapter_index=ch_index, chapter_title=ch_title, order=order,
             text=ch_title, kind="heading", language=language,
-            pause_after_ms=heading_pause, source_ref=chapter.get("source_ref", ""),
+            role=NARRATOR_ROLE, pause_after_ms=heading_pause,
+            source_ref=chapter.get("source_ref", ""),
         ))
         order += 1
 
         for p_index, paragraph in enumerate(chapter["paragraphs"]):
-            sentences = split_sentences(paragraph, language)
+            # The whole paragraph belongs to one speaker, so decide the role
+            # before splitting: a speaker changing mid-paragraph would be a
+            # typography error, not something to guess at.
+            assignment = assign_role(paragraph, cast.known_roles)
+            spoken = assignment.text or paragraph
+
+            sentences = split_sentences(spoken, language)
             packed = pack(sentences, limit, min_chars)
             for i, text in enumerate(packed):
                 last_in_paragraph = i == len(packed) - 1
@@ -150,24 +190,28 @@ def main(
                     id=f"ch{ch_index:03d}_{order:04d}",
                     chapter_index=ch_index, chapter_title=ch_title, order=order,
                     text=text, kind="paragraph", language=language,
+                    role=assignment.role, is_dialogue=assignment.is_dialogue,
                     pause_after_ms=paragraph_pause if last_in_paragraph
                     else book_cfg.get("sentence_pause_ms", 120),
                     source_ref=f"{chapter.get('source_ref', '')}#p{p_index}",
                 ))
                 order += 1
 
-        manifest.chapters.append({
-            "index": ch_index,
-            "title": ch_title,
-            "first_chunk": first_of_chapter,
-            "chunk_count": len(manifest.chunks) - first_of_chapter,
-        })
+        manifest.chapters.append(ChapterRef(
+            index=ch_index, title=ch_title, first_chunk=first_of_chapter,
+            chunk_count=len(manifest.chunks) - first_of_chapter,
+        ))
 
+    manifest.cast = cast.mapping(manifest.roles)
     meta_path, chunks_path = manifest.write(book_dir)
+
     oversize = sum(1 for c in manifest.chunks if c.chars > limit)
+    dialogue = sum(1 for c in manifest.chunks if c.is_dialogue)
     typer.echo(
         f"{len(manifest.chunks)} chunks across {len(manifest.chapters)} chapters "
         f"(limit {limit} chars for '{language}', {oversize} oversize)\n"
+        f"{dialogue} dialogue chunks; cast: "
+        + ", ".join(f"{r}->{v}" for r, v in manifest.cast.items()) + "\n"
         f"~{manifest.est_hours} h estimated -> {chunks_path}"
     )
 

@@ -28,6 +28,8 @@ pass `""` for the ones between.
 | `just test-one <env> [args]` | One environment, verbose. Example: `just test-one narrator -k formatter`. |
 | `just doctor` | Prints ffmpeg, uv and the versions each environment resolved. |
 | `just check-narrator` | Loads XTTS-v2 for real, not just imports it. Downloads weights on first run. |
+| `just schemas` | Regenerates `docs/schemas/` from the pydantic models. |
+| `just schemas-check` | Fails if the exported schemas have drifted. Part of `just check` and CI. |
 
 ## Stage 1: clone a voice
 
@@ -44,20 +46,30 @@ pass `""` for the ones between.
 | Command | What it does |
 |---|---|
 | `just ingest <source> <slug=""> <language="">` | Parses an EPUB, PDF or text file into normalised chapters. |
-| `just chunk <slug> <voice="">` | Splits chapters into fragments under the per-language XTTS character limit, with metadata. |
+| `just chunk <slug> <voice="">` | Splits chapters into fragments under the per-language XTTS limit, assigning a cast role to each. |
+| `just chunk-single <slug> <voice>` | As above but narrates everything in one voice, ignoring `config/cast.yml`. |
 
 ## Stages 4 and 5: make the audio
 
 | Command | What it does |
 |---|---|
+| `just dryrun <slug> [strict]` | Renders silence at the right durations. No models, no GPU. Pass any value for `strict` to fail on a role whose voice is not cloned. |
 | `just preview <slug> <voice>` | Renders the first 20 fragments only, to check the voice before committing hours. |
 | `just synth <slug> <voice> <device="auto">` | Renders every fragment. Resumable: re-run to continue after an interruption. |
 | `just assemble <slug> <format="">` | Muxes fragments, pauses and chapter marks into the finished audiobook. |
+
+## Stage 6: quality
+
+| Command | What it does |
+|---|---|
+| `just verify <slug> <sample="0">` | Re-transcribes the rendered audio and flags chunks that disagree with the source. `sample=20` checks every 20th chunk. |
+| `just report <slug>` | Prints the report from the last render. |
 
 ## Whole runs
 
 | Command | What it does |
 |---|---|
+| `just book-dry <source> <slug=""> <language="">` | Ingest, chunk, silence, assemble. The whole structure with no model loaded. |
 | `just book <source> <voice> <slug=""> <language="">` | Stages 2 to 5 for a voice that is already cloned. |
 | `just factory <sample> <voice> <source> <slug> <language="pl">` | Everything: clone a voice from a sample, then produce the audiobook. |
 

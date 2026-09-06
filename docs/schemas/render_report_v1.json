@@ -1,0 +1,111 @@
+{
+  "$defs": {
+    "RenderFailure": {
+      "properties": {
+        "chunk_id": {
+          "minLength": 1,
+          "title": "Chunk Id",
+          "type": "string"
+        },
+        "error": {
+          "title": "Error",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chunk_id",
+        "error"
+      ],
+      "title": "RenderFailure",
+      "type": "object"
+    }
+  },
+  "description": "Written after every synthesis run, real or dry.\n\nFailures used to go to a text file that was easy to miss. This is the\nrecord of what a run actually produced.",
+  "properties": {
+    "audio_sec": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Audio Sec",
+      "type": "number"
+    },
+    "cast": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Cast",
+      "type": "object"
+    },
+    "chunks_rendered": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Chunks Rendered",
+      "type": "integer"
+    },
+    "chunks_skipped": {
+      "default": 0,
+      "description": "Already had audio",
+      "minimum": 0,
+      "title": "Chunks Skipped",
+      "type": "integer"
+    },
+    "chunks_total": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Chunks Total",
+      "type": "integer"
+    },
+    "device": {
+      "default": "",
+      "title": "Device",
+      "type": "string"
+    },
+    "dry_run": {
+      "default": false,
+      "title": "Dry Run",
+      "type": "boolean"
+    },
+    "elapsed_sec": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Elapsed Sec",
+      "type": "number"
+    },
+    "failures": {
+      "items": {
+        "$ref": "#/$defs/RenderFailure"
+      },
+      "title": "Failures",
+      "type": "array"
+    },
+    "finished_at": {
+      "default": "",
+      "title": "Finished At",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "slug": {
+      "minLength": 1,
+      "title": "Slug",
+      "type": "string"
+    },
+    "started_at": {
+      "default": "",
+      "title": "Started At",
+      "type": "string"
+    },
+    "voice": {
+      "default": "",
+      "title": "Voice",
+      "type": "string"
+    }
+  },
+  "required": [
+    "slug"
+  ],
+  "title": "RenderReport",
+  "type": "object"
+}

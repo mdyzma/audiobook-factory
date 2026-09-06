@@ -5,14 +5,22 @@ The chunk manifest is a JSONL file at ``data/book/<slug>/chunks.jsonl``.
 reads it again with the rendered wavs to mux the audiobook. Nothing else
 crosses the environment boundary, so the two Python stacks never have to
 agree on a library version.
+
+The models are validated rather than plain dataclasses because a malformed
+chunk should fail at write time, not thousands of fragments into a render.
+`just schemas` exports them to docs/schemas/ so the shape is reviewable and
+CI can catch a change nobody meant to make.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+
+SCHEMA_VERSION = 1
 
 # XTTS-v2 silently truncates text past these per-language limits.
 # Source: Coqui TTS xtts.py char_limits.
@@ -22,86 +30,244 @@ XTTS_CHAR_LIMITS: dict[str, int] = {
     "zh-cn": 82, "ja": 71, "hu": 224, "ko": 95, "hi": 150,
 }
 
-# Rough narration speed, characters per second. Used only for progress estimates.
+# Rough narration speed, characters per second. Used for progress estimates and
+# for the duration of dry-run silence.
 CHARS_PER_SECOND = 15.0
+
+ChunkKind = Literal["paragraph", "heading", "break"]
+
+NARRATOR_ROLE = "narrator"
 
 
 def char_limit(language: str) -> int:
     return XTTS_CHAR_LIMITS.get(language, 250)
 
 
-@dataclass
-class Chunk:
+class StrictModel(BaseModel):
+    """Reject unknown fields, so a typo in a hand-edited manifest is an error."""
+
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+
+
+class ReportModel(BaseModel):
+    """Base for files written by the other two environments.
+
+    Reports are emitted by narrator and transcriber, which cannot import these
+    models and so mirror the shape by hand, including the computed summary
+    fields. Ignoring extra keys rather than rejecting them means a report stays
+    readable here even when the writer includes a derived value. Chunks stay
+    strict, because bookbinder authors those itself and a typo there is a bug.
+    """
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True)
+
+
+class Chunk(StrictModel):
     """One synthesis unit: the smallest piece handed to the TTS model."""
 
-    id: str                       # "ch003_0042" - stable, sortable, filename-safe
-    chapter_index: int
-    chapter_title: str
-    order: int                    # position within the whole book
-    text: str                     # normalised, ready for the model
-    kind: str = "paragraph"       # paragraph | heading | break
-    language: str = "pl"
-    pause_after_ms: int = 350
-    chars: int = 0
-    est_seconds: float = 0.0
-    source_ref: str = ""          # e.g. epub item id + paragraph index, for debugging
-    audio_path: str | None = None  # filled in by narrator
-    duration_sec: float | None = None
+    id: str = Field(min_length=1, description="Stable, sortable, filename-safe")
+    chapter_index: int = Field(ge=0)
+    chapter_title: str = ""
+    order: int = Field(ge=0, description="Position within the whole book")
+    text: str = Field(min_length=1, description="Normalised, ready for the model")
+    kind: ChunkKind = "paragraph"
+    language: str = Field(default="pl", min_length=2)
+    role: str = Field(
+        default=NARRATOR_ROLE,
+        min_length=1,
+        description="Cast role; resolved to a voice through config/cast.yml",
+    )
+    is_dialogue: bool = False
+    pause_after_ms: int = Field(default=350, ge=0)
+    chars: int = Field(default=0, ge=0)
+    est_seconds: float = Field(default=0.0, ge=0)
+    source_ref: str = ""
+    # Filled in by the narrator (or the dry-run renderer).
+    audio_path: str | None = None
+    duration_sec: float | None = Field(default=None, ge=0)
 
-    def __post_init__(self) -> None:
-        self.chars = len(self.text)
+    @model_validator(mode="after")
+    def _derive(self) -> "Chunk":
+        # Assigning inside a validator would recurse under validate_assignment.
+        object.__setattr__(self, "chars", len(self.text))
         if not self.est_seconds:
-            self.est_seconds = round(self.chars / CHARS_PER_SECOND, 2)
+            object.__setattr__(self, "est_seconds", round(self.chars / CHARS_PER_SECOND, 2))
+        return self
+
+    @property
+    def exceeds_model_limit(self) -> bool:
+        return self.chars > char_limit(self.language)
 
 
-@dataclass
-class BookManifest:
-    """Book-level metadata plus its chunks."""
-
-    slug: str
+class ChapterRef(StrictModel):
+    index: int = Field(ge=0)
     title: str
-    author: str = "Unknown"
-    language: str = "pl"
-    source_file: str = ""
-    voice: str = ""
-    chapters: list[dict] = field(default_factory=list)
-    chunks: list[Chunk] = field(default_factory=list)
+    first_chunk: int = Field(ge=0)
+    chunk_count: int = Field(ge=0)
 
+
+class BookMeta(StrictModel):
+    """What `book.json` holds. Chunks live beside it in chunks.jsonl."""
+
+    schema_version: int = SCHEMA_VERSION
+    slug: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    author: str = "Unknown"
+    language: str = Field(default="pl", min_length=2)
+    source_file: str = ""
+    source_sha256: str = ""
+    voice: str = ""
+    cast: dict[str, str] = Field(
+        default_factory=dict,
+        description="role -> voice name, as resolved when the book was chunked",
+    )
+    chapters: list[ChapterRef] = Field(default_factory=list)
+    chunk_count: int = Field(default=0, ge=0)
+    est_hours: float = Field(default=0.0, ge=0)
+
+
+class BookManifest(StrictModel):
+    """Book-level metadata plus its chunks, as held in memory while chunking."""
+
+    slug: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    author: str = "Unknown"
+    language: str = Field(default="pl", min_length=2)
+    source_file: str = ""
+    source_sha256: str = ""
+    voice: str = ""
+    cast: dict[str, str] = Field(default_factory=dict)
+    chapters: list[ChapterRef] = Field(default_factory=list)
+    chunks: list[Chunk] = Field(default_factory=list)
+
+    @computed_field
     @property
     def est_hours(self) -> float:
         return round(sum(c.est_seconds for c in self.chunks) / 3600, 2)
 
+    @property
+    def roles(self) -> set[str]:
+        return {c.role for c in self.chunks}
+
+    def to_meta(self) -> BookMeta:
+        return BookMeta(
+            slug=self.slug, title=self.title, author=self.author,
+            language=self.language, source_file=self.source_file,
+            source_sha256=self.source_sha256, voice=self.voice, cast=self.cast,
+            chapters=self.chapters, chunk_count=len(self.chunks),
+            est_hours=self.est_hours,
+        )
+
     def write(self, out_dir: Path) -> tuple[Path, Path]:
         out_dir.mkdir(parents=True, exist_ok=True)
+
         chunks_path = out_dir / "chunks.jsonl"
         with chunks_path.open("w", encoding="utf-8") as fh:
             for chunk in self.chunks:
-                fh.write(json.dumps(asdict(chunk), ensure_ascii=False) + "\n")
+                fh.write(chunk.model_dump_json() + "\n")
 
         meta_path = out_dir / "book.json"
-        meta = {
-            "slug": self.slug,
-            "title": self.title,
-            "author": self.author,
-            "language": self.language,
-            "source_file": self.source_file,
-            "voice": self.voice,
-            "chapters": self.chapters,
-            "chunk_count": len(self.chunks),
-            "est_hours": self.est_hours,
-        }
-        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        meta_path.write_text(
+            self.to_meta().model_dump_json(indent=2), encoding="utf-8"
+        )
         return meta_path, chunks_path
 
 
 def read_chunks(path: Path) -> Iterator[Chunk]:
-    """Stream chunks back in. Used by narrator and by the assembler."""
+    """Stream chunks back in, validating each one."""
     with path.open(encoding="utf-8") as fh:
-        for line in fh:
+        for line_number, line in enumerate(fh, start=1):
             line = line.strip()
-            if line:
-                yield Chunk(**json.loads(line))
+            if not line:
+                continue
+            try:
+                yield Chunk.model_validate_json(line)
+            except Exception as exc:  # noqa: BLE001 - re-raised with position
+                raise ValueError(f"{path}:{line_number} is not a valid chunk: {exc}") from exc
 
 
-def read_book(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+def read_book(path: Path) -> BookMeta:
+    return BookMeta.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def json_schemas() -> dict[str, dict]:
+    """The exported contract. Written to docs/schemas/ by `just schemas`."""
+    return {
+        f"chunk_v{SCHEMA_VERSION}": Chunk.model_json_schema(),
+        f"book_meta_v{SCHEMA_VERSION}": BookMeta.model_json_schema(),
+        f"render_report_v{SCHEMA_VERSION}": RenderReport.model_json_schema(),
+        f"qa_report_v{SCHEMA_VERSION}": QaReport.model_json_schema(),
+    }
+
+
+class RenderFailure(ReportModel):
+    chunk_id: str = Field(min_length=1)
+    error: str
+
+
+class RenderReport(ReportModel):
+    """Written after every synthesis run, real or dry.
+
+    Failures used to go to a text file that was easy to miss. This is the
+    record of what a run actually produced.
+    """
+
+    schema_version: int = SCHEMA_VERSION
+    slug: str = Field(min_length=1)
+    voice: str = ""
+    cast: dict[str, str] = Field(default_factory=dict)
+    device: str = ""
+    dry_run: bool = False
+    started_at: str = ""
+    finished_at: str = ""
+    elapsed_sec: float = Field(default=0.0, ge=0)
+    chunks_total: int = Field(default=0, ge=0)
+    chunks_rendered: int = Field(default=0, ge=0)
+    chunks_skipped: int = Field(default=0, ge=0, description="Already had audio")
+    audio_sec: float = Field(default=0.0, ge=0)
+    failures: list[RenderFailure] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def realtime_factor(self) -> float:
+        """Seconds of audio produced per second of wall clock."""
+        return round(self.audio_sec / self.elapsed_sec, 2) if self.elapsed_sec else 0.0
+
+    @computed_field
+    @property
+    def ok(self) -> bool:
+        return not self.failures and self.chunks_rendered + self.chunks_skipped == self.chunks_total
+
+    def write(self, path: Path) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self.model_dump_json(indent=2), encoding="utf-8")
+        return path
+
+
+class QaFinding(ReportModel):
+    chunk_id: str = Field(min_length=1)
+    expected: str
+    heard: str
+    wer: float = Field(ge=0)
+
+
+class QaReport(ReportModel):
+    """Output of re-transcribing rendered audio and comparing it to the source."""
+
+    schema_version: int = SCHEMA_VERSION
+    slug: str = Field(min_length=1)
+    model: str = ""
+    max_wer: float = Field(default=0.15, ge=0)
+    chunks_checked: int = Field(default=0, ge=0)
+    mean_wer: float = Field(default=0.0, ge=0)
+    findings: list[QaFinding] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def ok(self) -> bool:
+        return not self.findings
+
+    def write(self, path: Path) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self.model_dump_json(indent=2), encoding="utf-8")
+        return path

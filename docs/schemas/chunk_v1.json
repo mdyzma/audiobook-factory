@@ -1,0 +1,118 @@
+{
+  "additionalProperties": false,
+  "description": "One synthesis unit: the smallest piece handed to the TTS model.",
+  "properties": {
+    "audio_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Audio Path"
+    },
+    "chapter_index": {
+      "minimum": 0,
+      "title": "Chapter Index",
+      "type": "integer"
+    },
+    "chapter_title": {
+      "default": "",
+      "title": "Chapter Title",
+      "type": "string"
+    },
+    "chars": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Chars",
+      "type": "integer"
+    },
+    "duration_sec": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Duration Sec"
+    },
+    "est_seconds": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Est Seconds",
+      "type": "number"
+    },
+    "id": {
+      "description": "Stable, sortable, filename-safe",
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "is_dialogue": {
+      "default": false,
+      "title": "Is Dialogue",
+      "type": "boolean"
+    },
+    "kind": {
+      "default": "paragraph",
+      "enum": [
+        "paragraph",
+        "heading",
+        "break"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "language": {
+      "default": "pl",
+      "minLength": 2,
+      "title": "Language",
+      "type": "string"
+    },
+    "order": {
+      "description": "Position within the whole book",
+      "minimum": 0,
+      "title": "Order",
+      "type": "integer"
+    },
+    "pause_after_ms": {
+      "default": 350,
+      "minimum": 0,
+      "title": "Pause After Ms",
+      "type": "integer"
+    },
+    "role": {
+      "default": "narrator",
+      "description": "Cast role; resolved to a voice through config/cast.yml",
+      "minLength": 1,
+      "title": "Role",
+      "type": "string"
+    },
+    "source_ref": {
+      "default": "",
+      "title": "Source Ref",
+      "type": "string"
+    },
+    "text": {
+      "description": "Normalised, ready for the model",
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "chapter_index",
+    "order",
+    "text"
+  ],
+  "title": "Chunk",
+  "type": "object"
+}
