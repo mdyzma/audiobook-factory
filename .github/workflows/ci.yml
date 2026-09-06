@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A new push to the same branch cancels the previous run. These jobs install
+# multi-gigabyte environments, so not doing this wastes a lot of runner time.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Cheap gate: fails fast if a lock has drifted from its pyproject, before any
+  # job spends ten minutes installing torch.
+  locks:
+    name: locks in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Check every lock matches its manifest
+        run: |
+          for env in bookbinder narrator transcriber; do
+            echo "::group::$env"
+            uv lock --check --directory "$env"
+            echo "::endgroup::"
+          done
+
+  justfile:
+    name: justfile parses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: extractions/setup-just@v3
+      - run: just --list
+
+  check:
+    # bookbinder is ~77 MB and finishes in under a minute. The other two pull
+    # torch with its CUDA runtime libraries on Linux, roughly 4 GB each, which
+    # is why they get their own runners rather than sharing one.
+    name: ${{ matrix.env }}
+    needs: locks
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [bookbinder, narrator, transcriber]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Reclaim runner disk
+        if: matrix.env != 'bookbinder'
+        run: |
+          # The default image ships ~25 GB of toolchains this project never uses.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
+
+      - name: Install ffmpeg
+        if: matrix.env == 'bookbinder'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.env }}/uv.lock
+
+      - name: Sync ${{ matrix.env }}
+        working-directory: ${{ matrix.env }}
+        run: uv sync --frozen
+
+      # Each environment is type-checked against its own dependencies. That is
+      # the point of the split: narrator resolves numpy 1.x and transcriber
+      # numpy 2.x, and they must never be checked against one another.
+      - name: Type-check
+        working-directory: ${{ matrix.env }}
+        run: uv run pyright
+
+      - name: Test
+        working-directory: ${{ matrix.env }}
+        run: uv run pytest
+
+      - name: Report resolved versions
+        if: always()
+        working-directory: ${{ matrix.env }}
+        run: |
+          uv run python -c "
+          import importlib.metadata as md
+          for pkg in ('numpy', 'pandas', 'torch', 'transformers', 'tts', 'whisperx'):
+              try:
+                  print(f'{pkg:14} {md.version(pkg)}')
+              except md.PackageNotFoundError:
+                  pass
+          "

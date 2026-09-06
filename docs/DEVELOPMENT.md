@@ -127,6 +127,29 @@ assembly tests generate tones and assert chapter timestamps, because a mark
 landing at the wrong second is the failure that actually matters and a mock
 would hide it.
 
+## CI
+
+`.github/workflows/ci.yml` runs on pushes to `main` and on pull requests.
+
+| Job | What it does |
+|---|---|
+| `locks` | `uv lock --check` on all three; fails fast if a lock drifted from its manifest |
+| `justfile` | `just --list`, so a syntax error is caught without installing anything |
+| `check` | Matrix over the three environments: sync, pyright, pytest |
+
+The matrix gives each environment its own runner. That is not just tidiness:
+on Linux the torch wheel pulls its CUDA runtime libraries, so the narrator and
+transcriber are roughly 4 GB each, and those jobs delete the image's unused
+toolchains before syncing to make room. `bookbinder` needs none of that and
+also installs ffmpeg, since its assembly tests shell out to it for real.
+
+`locks` gates the matrix, so a stale lock fails in seconds rather than after
+ten minutes of installing torch. uv's cache is keyed per environment on its own
+`uv.lock`.
+
+If you change a dependency, commit the regenerated lock in the same commit or
+CI will fail on the `locks` job.
+
 ## Working across two machines
 
 The stages are independent, so labelling and synthesis can run in different

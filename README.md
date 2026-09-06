@@ -1,5 +1,7 @@
 # audiobook-factory
 
+[![CI](https://github.com/mdyzma/audiobook-factory/actions/workflows/ci.yml/badge.svg)](https://github.com/mdyzma/audiobook-factory/actions/workflows/ci.yml)
+
 Clone a voice from a recording, then read an ebook aloud in it.
 
 Five stages, three isolated Python environments, one `just` command runner.
