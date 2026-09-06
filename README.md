@@ -26,19 +26,27 @@ cd audiobook-factory
 just setup
 ```
 
-Put a voice recording in `data/raw/voices/` and an ebook in `data/raw/books/`,
-then run the whole pipeline:
+Then point it at a recording of your voice and an ebook:
 
 ```bash
-just factory data/raw/voices/michal.mp3 michal data/raw/books/lem.epub solaris pl
+bin/audiobook --voice ~/Desktop/my-voice.mp3 --book ~/Books/solaris.epub
 ```
 
-The finished audiobook lands in `data/out/solaris.m4b` with chapter marks.
+The finished audiobook lands in `~/Downloads` as an m4b with chapter marks.
+
+`--output` takes a directory or a filename, and the extension picks the format:
+
+```bash
+bin/audiobook -v my-voice.mp3 -b solaris.epub -o ~/Music/solaris.mp3
+```
+
+The voice sample can be mp3, wav, m4a or anything ffmpeg reads. The book can be
+EPUB, PDF or plain text. Run `bin/audiobook --help` for the rest.
 
 Check the structure first, in seconds and with no model loaded:
 
 ```bash
-just book-dry data/raw/books/lem.epub solaris
+bin/audiobook -v my-voice.mp3 -b solaris.epub --dry-run
 ```
 
 That renders silence at each fragment's estimated duration and assembles it, so
@@ -59,6 +67,7 @@ The commands you need day to day:
 
 | Command | What it does |
 |---|---|
+| `bin/audiobook --help` | The one-command path, with every flag |
 | `just` | List every recipe |
 | `just setup` | Install everything, once per machine |
 | `just doctor` | Show what each environment resolved |
@@ -178,6 +187,7 @@ audiobook-factory/
 │       ├── synth.py        fragments -> audio; multi-voice, resumable
 │       └── train.py        optional fine-tune, CUDA only
 │
+├── bin/audiobook         One command: sample + ebook -> audiobook
 ├── config/
 │   ├── pipeline.toml     Every tunable knob. Read by all stages.
 │   └── cast.yml          Which voice reads which role.

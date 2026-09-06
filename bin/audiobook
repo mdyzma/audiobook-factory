@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# audiobook - clone a voice from a sample and read an ebook in it.
+#
+# One command, three inputs. Everything else is derived or defaulted.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+VOICE_SAMPLE=""
+BOOK=""
+OUTPUT=""
+LANGUAGE="pl"
+VOICE_NAME=""
+SLUG=""
+DRY_RUN=0
+RECLONE=0
+VERIFY=0
+
+usage() {
+    cat <<'HELPTEXT'
+audiobook - clone a voice from a sample and read an ebook in it
+
+USAGE
+    audiobook --voice SAMPLE --book EBOOK [--output PATH] [options]
+    audiobook -v SAMPLE -b EBOOK [-o PATH]
+
+REQUIRED
+    -v, --voice SAMPLE    Recording to clone. mp3, wav, m4a, anything ffmpeg reads.
+    -b, --book EBOOK      Ebook to narrate. .epub, .pdf or .txt.
+
+OPTIONAL
+    -o, --output PATH     Where to put the audiobook. A directory or a full
+                          filename. Defaults to ~/Downloads.
+                          The extension picks the format: .m4b (default), .mp3, .wav.
+    -l, --language CODE   Language of both the recording and the book. Default: pl.
+    -n, --name NAME       Name for the cloned voice. Default: the sample's filename.
+    -s, --slug SLUG       Working name for the book. Default: the ebook's filename.
+        --dry-run         Render silence instead of speech. Checks the whole
+                          structure in seconds without loading a model.
+        --reclone         Re-clone the voice even if it already exists.
+        --verify          Re-transcribe the result and report word error rate.
+    -h, --help            This message.
+
+EXAMPLES
+    # Simplest: audiobook lands in ~/Downloads as an m4b
+    audiobook -v ~/Desktop/my-voice.mp3 -b ~/Books/solaris.epub
+
+    # As a single mp3, somewhere specific
+    audiobook -v my-voice.mp3 -b solaris.epub -o ~/Music/solaris.mp3
+
+    # Check the structure first; takes seconds, loads no model
+    audiobook -v my-voice.mp3 -b solaris.epub --dry-run
+
+NOTES
+    Synthesis runs at roughly 0.4x realtime on an M1, so a ten-hour book takes
+    about a day. It is resumable: interrupt it and run the same command again.
+
+    A voice is cloned once. Later runs with the same --name reuse it.
+HELPTEXT
+}
+
+die() { echo "audiobook: $*" >&2; exit 1; }
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -v|--voice)    VOICE_SAMPLE="${2:-}"; shift 2 ;;
+        -b|--book)     BOOK="${2:-}"; shift 2 ;;
+        -o|--output)   OUTPUT="${2:-}"; shift 2 ;;
+        -l|--language) LANGUAGE="${2:-}"; shift 2 ;;
+        -n|--name)     VOICE_NAME="${2:-}"; shift 2 ;;
+        -s|--slug)     SLUG="${2:-}"; shift 2 ;;
+        --dry-run)     DRY_RUN=1; shift ;;
+        --reclone)     RECLONE=1; shift ;;
+        --verify)      VERIFY=1; shift ;;
+        -h|--help)     usage; exit 0 ;;
+        *)             die "unknown option '$1'. Try --help." ;;
+    esac
+done
+
+[[ -n "$VOICE_SAMPLE" ]] || { usage >&2; die "missing --voice"; }
+[[ -n "$BOOK" ]] || { usage >&2; die "missing --book"; }
+[[ -f "$VOICE_SAMPLE" ]] || die "no such file: $VOICE_SAMPLE"
+[[ -f "$BOOK" ]] || die "no such file: $BOOK"
+
+command -v just >/dev/null || die "just is not installed (brew install just)"
+command -v ffmpeg >/dev/null || die "ffmpeg is not installed (brew install ffmpeg)"
+
+# Turn a path into a safe identifier: strip directories, extension and anything
+# that would be awkward in a filename.
+slugify() {
+    basename "$1" \
+        | sed 's/\.[^.]*$//' \
+        | tr '[:upper:] ' '[:lower:]-' \
+        | tr -cd '[:alnum:]._-' \
+        | sed 's/^-*//; s/-*$//'
+}
+
+[[ -n "$VOICE_NAME" ]] || VOICE_NAME="$(slugify "$VOICE_SAMPLE")"
+[[ -n "$SLUG" ]] || SLUG="$(slugify "$BOOK")"
+[[ -n "$VOICE_NAME" ]] || die "could not derive a voice name; pass --name"
+[[ -n "$SLUG" ]] || die "could not derive a book name; pass --slug"
+
+# Output: a directory, or a filename whose extension picks the format.
+[[ -n "$OUTPUT" ]] || OUTPUT="$HOME/Downloads"
+if [[ -d "$OUTPUT" ]] || [[ "$OUTPUT" == */ ]]; then
+    OUT_DIR="${OUTPUT%/}"
+    FORMAT="m4b"
+    OUT_FILE="$OUT_DIR/$SLUG.$FORMAT"
+else
+    OUT_DIR="$(dirname "$OUTPUT")"
+    OUT_FILE="$OUTPUT"
+    FORMAT="${OUTPUT##*.}"
+    [[ "$FORMAT" != "$OUTPUT" ]] || die "no extension on --output '$OUTPUT'; use .m4b, .mp3 or .wav"
+fi
+case "$FORMAT" in
+    m4b|mp3|wav) ;;
+    *) die "unsupported output format '.$FORMAT'; use .m4b, .mp3 or .wav" ;;
+esac
+mkdir -p "$OUT_DIR" || die "cannot write to $OUT_DIR"
+
+step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
+
+echo "voice sample : $VOICE_SAMPLE  (as '$VOICE_NAME')"
+echo "ebook        : $BOOK  (as '$SLUG')"
+echo "output       : $OUT_FILE"
+echo "language     : $LANGUAGE"
+[[ $DRY_RUN -eq 1 ]] && echo "mode         : dry run, silence instead of speech"
+
+# --- stage 1: the voice. Cloning is once per voice, not once per book. -------
+if [[ $RECLONE -eq 1 || ! -f "data/voices/$VOICE_NAME.json" ]]; then
+    step "Cleaning the recording"
+    just clean "$VOICE_SAMPLE" "$VOICE_NAME"
+    step "Labelling it (WhisperX; slow on CPU, and the model downloads once)"
+    just label "$VOICE_NAME" auto "$LANGUAGE"
+    step "Cloning the voice"
+    just clone "$VOICE_NAME"
+    echo "audition: data/voices/$VOICE_NAME/audition.wav"
+else
+    step "Voice '$VOICE_NAME' already cloned; reusing it (--reclone to redo)"
+fi
+
+# Point the cast at this voice unless it is already mapped.
+if ! grep -qE "^\s+voice:\s*$VOICE_NAME\s*$" config/cast.yml 2>/dev/null; then
+    step "Pointing the cast at '$VOICE_NAME'"
+    /usr/bin/sed -i '' -E "s/^([[:space:]]+voice:)[[:space:]]*[A-Za-z0-9._-]+[[:space:]]*$/\1 $VOICE_NAME/" config/cast.yml
+fi
+
+# --- stages 2-5: the book ----------------------------------------------------
+step "Reading the ebook"
+just ingest "$BOOK" "$SLUG" "$LANGUAGE"
+
+step "Splitting it into fragments"
+just chunk "$SLUG"
+
+if [[ $DRY_RUN -eq 1 ]]; then
+    step "Rendering silence"
+    just dryrun "$SLUG"
+else
+    step "Synthesising (resumable: re-run this command to continue)"
+    just synth "$SLUG" ""
+fi
+
+step "Assembling"
+just assemble "$SLUG" "$FORMAT"
+
+if [[ $VERIFY -eq 1 && $DRY_RUN -eq 0 ]]; then
+    step "Checking the result against the source text"
+    just verify "$SLUG" || true
+fi
+
+cp "data/out/$SLUG.$FORMAT" "$OUT_FILE"
+printf '\n\033[1mDone.\033[0m %s\n' "$OUT_FILE"

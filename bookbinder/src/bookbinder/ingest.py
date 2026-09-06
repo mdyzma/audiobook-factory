@@ -69,6 +69,19 @@ def _paragraphs(raw: str, strip_footnotes: bool) -> list[str]:
     return out
 
 
+# The EPUB navigation document is a real content item, so it comes back with the
+# chapters. Narrating it means reading the table of contents aloud at the end of
+# the book. Its heading is often the book title, so a title-based skip misses it.
+NAV_FILENAMES = re.compile(r"(^|/)(nav|toc|contents|ncx)\.x?html?$", re.IGNORECASE)
+
+
+def is_navigation(item) -> bool:
+    if NAV_FILENAMES.search(item.get_name() or ""):
+        return True
+    # EPUB 3 marks it in the manifest rather than by name.
+    return "nav" in (getattr(item, "properties", None) or [])
+
+
 def from_epub(path: Path, strip_front_matter: bool, strip_footnotes: bool) -> tuple[dict, list[dict]]:
     import ebooklib
     from bs4 import BeautifulSoup
@@ -83,6 +96,8 @@ def from_epub(path: Path, strip_front_matter: bool, strip_footnotes: bool) -> tu
 
     chapters: list[dict] = []
     for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+        if is_navigation(item):
+            continue
         soup = BeautifulSoup(item.get_content(), "lxml")
         for tag in soup(["script", "style", "sup", "table", "figure"]):
             tag.decompose()

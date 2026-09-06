@@ -1,6 +1,10 @@
 # Command reference
 
-Every command in this project is a `just` recipe. `just` on its own lists them.
+For the one-command path, see `bin/audiobook --help`: it takes a voice sample,
+an ebook and an output location, and runs everything below in order.
+
+The rest of this file covers the individual stages. Every one is a `just`
+recipe, and `just` on its own lists them.
 
 Arguments are shown as `name` when required and `name="default"` when optional.
 Trailing optional arguments can be omitted; to skip one and set a later one,
@@ -70,8 +74,9 @@ pass `""` for the ones between.
 | Command | What it does |
 |---|---|
 | `just book-dry <source> <slug=""> <language="">` | Ingest, chunk, silence, assemble. The whole structure with no model loaded. |
-| `just book <source> <voice> <slug=""> <language="">` | Stages 2 to 5 for a voice that is already cloned. |
-| `just factory <sample> <voice> <source> <slug> <language="pl">` | Everything: clone a voice from a sample, then produce the audiobook. |
+| `bin/audiobook -v <sample> -b <ebook> [-o <path>]` | Everything, with named inputs and a `~/Downloads` default. |
+| `just book <source> <voice> <slug=""> <language=""> <format="">` | Stages 2 to 5 for a voice that is already cloned. |
+| `just factory <sample> <voice> <source> <slug> <language="pl"> <format="">` | Everything, positionally. `bin/audiobook` is friendlier. |
 
 ## Cleanup
 

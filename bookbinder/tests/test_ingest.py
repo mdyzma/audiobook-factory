@@ -6,6 +6,10 @@ the finished audiobook, so these are correctness tests rather than cosmetics.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pytest
+
 from bookbinder.ingest import from_text, normalise, slugify
 
 
@@ -76,3 +80,70 @@ class TestFromText:
         f.write_text("Akapit.\n\n\n\n   \n\nDrugi.\n", encoding="utf-8")
         _meta, chapters = from_text(f, strip_footnotes=True)
         assert chapters[0]["paragraphs"] == ["Akapit.", "Drugi."]
+
+
+class TestFromEpub:
+    """Every EPUB carries a navigation document. Narrating it means reading the
+    table of contents aloud, usually as a final chapter."""
+
+    def _book(self, tmp_path):
+        from ebooklib import epub
+
+        book = epub.EpubBook()
+        book.set_identifier("t"); book.set_title("Solaris"); book.set_language("pl")
+        book.add_author("Lem")
+        c1 = epub.EpubHtml(title="Przybysz", file_name="c1.xhtml", lang="pl")
+        c1.content = "<h1>Przybysz</h1><p>Zszedłem po drabince.</p>"
+        c2 = epub.EpubHtml(title="Lustra", file_name="c2.xhtml", lang="pl")
+        c2.content = "<h1>Lustra</h1><p>Potrzeba nam luster.</p>"
+        for c in (c1, c2):
+            book.add_item(c)
+        # ebooklib annotates toc more narrowly than it accepts at runtime.
+        book.toc = (c1, c2)  # type: ignore[assignment]
+        book.add_item(epub.EpubNcx()); book.add_item(epub.EpubNav())
+        book.spine = ["nav", c1, c2]
+        path = tmp_path / "b.epub"
+        epub.write_epub(str(path), book)
+        return path
+
+    def test_reads_metadata(self, tmp_path):
+        from bookbinder.ingest import from_epub
+
+        meta, _ = from_epub(self._book(tmp_path), True, True)
+        assert meta["title"] == "Solaris"
+        assert meta["author"] == "Lem"
+        assert meta["language"] == "pl"
+
+    def test_skips_the_navigation_document(self, tmp_path):
+        from bookbinder.ingest import from_epub
+
+        _meta, chapters = from_epub(self._book(tmp_path), True, True)
+        titles = [c["title"] for c in chapters]
+        assert titles == ["Przybysz", "Lustra"]
+        assert not any("nav" in c["source_ref"] for c in chapters)
+
+    def test_extracts_paragraphs(self, tmp_path):
+        from bookbinder.ingest import from_epub
+
+        _meta, chapters = from_epub(self._book(tmp_path), True, True)
+        assert chapters[0]["paragraphs"] == ["Zszedłem po drabince."]
+
+
+class TestIsNavigation:
+    @pytest.mark.parametrize("name", ["nav.xhtml", "toc.xhtml", "TOC.html",
+                                      "OEBPS/nav.xhtml", "contents.xhtml"])
+    def test_recognises_nav_filenames(self, name):
+        from bookbinder.ingest import is_navigation
+
+        assert is_navigation(SimpleNamespace(get_name=lambda: name, properties=[]))
+
+    @pytest.mark.parametrize("name", ["c1.xhtml", "chapter-nav-story.xhtml", "index.xhtml"])
+    def test_leaves_content_alone(self, name):
+        from bookbinder.ingest import is_navigation
+
+        assert not is_navigation(SimpleNamespace(get_name=lambda: name, properties=[]))
+
+    def test_recognises_the_epub3_manifest_property(self):
+        from bookbinder.ingest import is_navigation
+
+        assert is_navigation(SimpleNamespace(get_name=lambda: "x.xhtml", properties=["nav"]))

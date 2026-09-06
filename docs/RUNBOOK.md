@@ -38,6 +38,44 @@ What to look for:
 
 ---
 
+## The short way
+
+If you just want an audiobook and do not care about the stages:
+
+```
+$ bin/audiobook --voice /tmp/michal.mp3 --book /tmp/solaris.epub
+voice sample : /tmp/michal.mp3  (as 'michal')
+ebook        : /tmp/solaris.epub  (as 'solaris')
+output       : /Users/michaldyzma/Downloads/solaris.m4b
+language     : pl
+
+==> Voice 'michal' already cloned; reusing it (--reclone to redo)
+==> Reading the ebook
+Solaris Testowa - Stanisław Lem
+2 chapters, 23 words -> data/book/solaris/chapters.json
+==> Splitting it into fragments
+5 chunks across 2 chapters (limit 224 chars for 'pl', 0 oversize)
+==> Synthesising (resumable: re-run this command to continue)
+rendered 5/5 chunks (0 already present), 0.00 h of audio in 0.8 min (0.3x realtime)
+==> Assembling
+2 chapters, 00:00:16.161, 0.1 MB
+
+Done. /Users/michaldyzma/Downloads/solaris-demo.m4b
+```
+
+It derives the voice name and the book name from the filenames, clones the voice
+only if it has not been cloned before, and copies the result to `~/Downloads`.
+
+- `-o ~/Music/solaris.mp3` picks both the location and the format. `.m4b`,
+  `.mp3` and `.wav` are supported; a directory gets an m4b.
+- `--dry-run` renders silence instead of speech, so the structure is checkable
+  in seconds.
+- `--verify` re-transcribes the result afterwards.
+- Interrupting is safe. Re-run the same command and it continues.
+
+The rest of this runbook is the same work done stage by stage, which is what you
+want when something needs attention.
+
 ## Task: add a new voice
 
 Roughly ten minutes, most of it reading aloud.

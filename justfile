@@ -123,7 +123,9 @@ voice input name language="pl":
 
 # 2. Parse an ebook into normalised chapters.
 ingest source slug="" language="":
-    cd bookbinder && uv run python -m bookbinder.ingest "../{{source}}" \
+    # absolute_path so this works from anywhere and with absolute inputs; the
+    # recipe cds into bookbinder, which would otherwise break a relative path.
+    cd bookbinder && uv run python -m bookbinder.ingest "{{absolute_path(source)}}" \
       {{ if slug != "" { "--slug " + slug } else { "" } }} \
       {{ if language != "" { "--language " + language } else { "" } }}
 
@@ -170,12 +172,12 @@ report slug:
 
 # ----------------------------------------------------------- full runs ----
 
-# Stages 2-5 for an already-cloned voice.
-book source voice slug="" language="":
+# Stages 2-5 for an already-cloned voice. format: m4b (default) | mp3 | wav.
+book source voice slug="" language="" format="":
     just ingest "{{source}}" "{{slug}}" "{{language}}"
     just chunk "{{slug}}" "{{voice}}"
     just synth "{{slug}}" "{{voice}}"
-    just assemble "{{slug}}"
+    just assemble "{{slug}}" "{{format}}"
 
 # Ingest, chunk, silence, assemble: the whole structure with no model loaded.
 book-dry source slug="" language="":
@@ -185,9 +187,11 @@ book-dry source slug="" language="":
     just assemble "{{slug}}"
 
 # Everything: clone a voice from a sample, then produce the audiobook.
-factory sample voice source slug language="pl":
+# The sample may be mp3, wav, m4a or anything ffmpeg reads.
+# format: m4b (default) | mp3 | wav.
+factory sample voice source slug language="pl" format="":
     just voice "{{sample}}" "{{voice}}" "{{language}}"
-    just book "{{source}}" "{{voice}}" "{{slug}}" "{{language}}"
+    just book "{{source}}" "{{voice}}" "{{slug}}" "{{language}}" "{{format}}"
 
 # ------------------------------------------------------------- cleanup ----
 
