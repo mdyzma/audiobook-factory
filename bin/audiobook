@@ -56,6 +56,11 @@ NOTES
     Synthesis runs at roughly 0.4x realtime on an M1, so a ten-hour book takes
     about a day. It is resumable: interrupt it and run the same command again.
 
+    config/cast.yml decides which voice reads which role. If it names a single
+    voice, this command repoints it at --voice for you. If it already casts two
+    or more voices it is left alone, since that encodes a decision about who
+    reads what; add the new voice to it by hand.
+
     A voice is cloned once. Later runs with the same --name reuse it.
 HELPTEXT
 }
@@ -140,8 +145,24 @@ else
     step "Voice '$VOICE_NAME' already cloned; reusing it (--reclone to redo)"
 fi
 
-# Point the cast at this voice unless it is already mapped.
-if ! grep -qE "^\s+voice:\s*$VOICE_NAME\s*$" config/cast.yml 2>/dev/null; then
+# Point the cast at this voice, but never flatten a cast someone built by hand.
+#
+# The convenience only makes sense for a single-voice cast, where rewriting the
+# one entry is obviously what was meant. Once the cast names two or more voices
+# it encodes a decision about who reads what, and silently collapsing that to
+# one voice would be destructive and hard to notice.
+CAST_VOICES="$(grep -E '^[[:space:]]+voice:[[:space:]]*[A-Za-z0-9._-]+[[:space:]]*$' config/cast.yml 2>/dev/null \
+    | sed -E 's/^[[:space:]]+voice:[[:space:]]*//; s/[[:space:]]*$//' | sort -u)"
+CAST_VOICE_COUNT="$(printf '%s' "$CAST_VOICES" | grep -c . || true)"
+
+if [[ "$CAST_VOICE_COUNT" -gt 1 ]]; then
+    step "Leaving config/cast.yml alone: it already casts $CAST_VOICE_COUNT voices"
+    echo "$CAST_VOICES" | sed 's/^/    /'
+    if ! printf '%s\n' "$CAST_VOICES" | grep -qx "$VOICE_NAME"; then
+        echo "    note: '$VOICE_NAME' is not in that cast, so it will not be used." >&2
+        echo "    Add it to config/cast.yml, or pass --name to match an existing role." >&2
+    fi
+elif ! printf '%s\n' "$CAST_VOICES" | grep -qx "$VOICE_NAME"; then
     step "Pointing the cast at '$VOICE_NAME'"
     /usr/bin/sed -i '' -E "s/^([[:space:]]+voice:)[[:space:]]*[A-Za-z0-9._-]+[[:space:]]*$/\1 $VOICE_NAME/" config/cast.yml
 fi

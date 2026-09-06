@@ -72,6 +72,9 @@ only if it has not been cloned before, and copies the result to `~/Downloads`.
   in seconds.
 - `--verify` re-transcribes the result afterwards.
 - Interrupting is safe. Re-run the same command and it continues.
+- It repoints `config/cast.yml` at your voice only when the cast names a single
+  voice. A hand-built multi-voice cast is left alone, with a note if the voice
+  you passed is not in it.
 
 The rest of this runbook is the same work done stage by stage, which is what you
 want when something needs attention.
