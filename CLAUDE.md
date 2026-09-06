@@ -45,6 +45,9 @@ both consumers.
   safely, what the tests do and do not cover, and the known failure modes.
 - `docs/COMMANDS.md` is the reference for every `just` recipe. Update it when
   you add or change one.
+- `docs/RUNBOOK.md` holds task-oriented walkthroughs. Its terminal output is
+  captured from real runs; if you change what a command prints, re-capture it
+  rather than editing the block by hand.
 - `gemini-session.md` is a raw transcript, kept locally and deliberately
   untracked. Everything load-bearing in it is already in `docs/DECISIONS.md`.
 

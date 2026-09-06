@@ -66,7 +66,8 @@ The commands you need day to day:
 | `just preview <slug> <voice>` | Render 20 fragments to sample the voice |
 | `just book-dry <source> <slug>` | Whole structure with silence, no models |
 
-Full reference: [docs/COMMANDS.md](docs/COMMANDS.md).
+Step by step for common tasks: [docs/RUNBOOK.md](docs/RUNBOOK.md).
+Full command reference: [docs/COMMANDS.md](docs/COMMANDS.md).
 
 ## Casting voices
 
@@ -210,6 +211,7 @@ is what keeps the two environments that cannot import it in step.
 
 | Document | What is in it |
 |---|---|
+| [docs/RUNBOOK.md](docs/RUNBOOK.md) | Everyday tasks with real terminal output: add a voice, make a book, check it |
 | [docs/COMMANDS.md](docs/COMMANDS.md) | Every `just` recipe and its arguments |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Day-to-day workflow, adding dependencies safely, failure modes |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Why the environments are split, and every pin that keeps XTTS working |
