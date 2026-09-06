@@ -88,8 +88,8 @@ done
 [[ -f "$VOICE_SAMPLE" ]] || die "no such file: $VOICE_SAMPLE"
 [[ -f "$BOOK" ]] || die "no such file: $BOOK"
 
-command -v just >/dev/null || die "just is not installed (brew install just)"
-command -v ffmpeg >/dev/null || die "ffmpeg is not installed (brew install ffmpeg)"
+command -v just >/dev/null || die "just is not installed (brew install just / winget install casey.just)"
+command -v ffmpeg >/dev/null || die "ffmpeg is not installed (brew install ffmpeg / winget install Gyan.FFmpeg)"
 
 # Turn a path into a safe identifier: strip directories, extension and anything
 # that would be awkward in a filename.
@@ -164,7 +164,11 @@ if [[ "$CAST_VOICE_COUNT" -gt 1 ]]; then
     fi
 elif ! printf '%s\n' "$CAST_VOICES" | grep -qx "$VOICE_NAME"; then
     step "Pointing the cast at '$VOICE_NAME'"
-    /usr/bin/sed -i '' -E "s/^([[:space:]]+voice:)[[:space:]]*[A-Za-z0-9._-]+[[:space:]]*$/\1 $VOICE_NAME/" config/cast.yml
+    # Written via a temp file rather than sed -i: BSD sed needs an empty
+    # argument after -i and GNU sed rejects one, so no single invocation is
+    # portable between macOS and Windows/Linux.
+    sed -E "s/^([[:space:]]+voice:)[[:space:]]*[A-Za-z0-9._-]+[[:space:]]*$/\1 $VOICE_NAME/" \
+        config/cast.yml > config/cast.yml.tmp && mv config/cast.yml.tmp config/cast.yml
 fi
 
 # --- stages 2-5: the book ----------------------------------------------------

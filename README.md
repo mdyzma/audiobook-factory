@@ -221,6 +221,7 @@ is what keeps the two environments that cannot import it in step.
 
 | Document | What is in it |
 |---|---|
+| [docs/HANDOFF-GPU.md](docs/HANDOFF-GPU.md) | Moving to a CUDA machine: the Blackwell wheel trap, Windows notes, what is still unproven |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Everyday tasks with real terminal output: add a voice, make a book, check it |
 | [docs/COMMANDS.md](docs/COMMANDS.md) | Every `just` recipe and its arguments |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Day-to-day workflow, adding dependencies safely, failure modes |
@@ -229,10 +230,13 @@ is what keeps the two environments that cannot import it in step.
 
 ## Hardware
 
-Everything runs on Apple Silicon via MPS, but synthesis measures about 0.8x
-realtime there, so a ten-hour book takes roughly twelve hours. That workload
-belongs on a CUDA machine, where `just gpu-torch narrator` swaps in the CUDA
-wheels.
+Everything runs on Apple Silicon via MPS, but synthesis measures about 0.4x
+realtime there, so a ten-hour book takes roughly a day. That workload belongs on
+a CUDA machine.
+
+Moving to one is not just `just gpu-torch`: the recipe still points at CUDA 12.4,
+which has no kernels for Blackwell cards such as the RTX 5090. See
+[docs/HANDOFF-GPU.md](docs/HANDOFF-GPU.md) before setting one up.
 
 Fine-tuning requires CUDA outright. Instant cloning does not, and is good
 enough for most books.
