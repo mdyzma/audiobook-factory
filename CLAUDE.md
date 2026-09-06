@@ -41,6 +41,8 @@ both consumers.
   `just check-narrator` for XTTS loading and the CUDA box for fine-tuning.
 - `docs/DECISIONS.md` records why the environments are split and which
   versions are pinned. Read it before changing any dependency.
+- `docs/DEVELOPMENT.md` covers the day-to-day workflow: adding dependencies
+  safely, what the tests do and do not cover, and the known failure modes.
 - `gemini-session.md` is a raw transcript, kept locally and deliberately
   untracked. Everything load-bearing in it is already in `docs/DECISIONS.md`.
 

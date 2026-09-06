@@ -40,6 +40,9 @@ just setup
 just doctor
 ```
 
+Day-to-day workflow, dependency rules and failure modes:
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
 ## Tests and types
 
 ```bash
