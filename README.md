@@ -20,11 +20,17 @@ You need `uv`, `just` and `ffmpeg`. uv installs Python itself, so there is
 nothing else to set up.
 
 ```bash
-brew install uv just ffmpeg
 git clone git@github.com:mdyzma/audiobook-factory.git
 cd audiobook-factory
-just setup
+./install.sh          # macOS and Linux
 ```
+
+On Windows, from PowerShell: `.\install.ps1`. It needs Git for Windows, because
+every recipe runs through bash.
+
+The installer checks for `uv`, `just` and `ffmpeg`, installs whatever is missing,
+then builds the three environments. `./install.sh --check` reports without
+changing anything.
 
 Then point it at a recording of your voice and an ebook:
 
@@ -188,6 +194,8 @@ audiobook-factory/
 │       └── train.py        optional fine-tune, CUDA only
 │
 ├── bin/audiobook         One command: sample + ebook -> audiobook
+├── install.sh            Bootstrap for macOS and Linux
+├── install.ps1           Bootstrap for Windows
 ├── config/
 │   ├── pipeline.toml     Every tunable knob. Read by all stages.
 │   └── cast.yml          Which voice reads which role.
@@ -221,6 +229,7 @@ is what keeps the two environments that cannot import it in step.
 
 | Document | What is in it |
 |---|---|
+| [docs/ROADMAP-DOCKER.md](docs/ROADMAP-DOCKER.md) | Plan for containerising it, and what is wrong with the current Docker assets |
 | [docs/HANDOFF-GPU.md](docs/HANDOFF-GPU.md) | Moving to a CUDA machine: the Blackwell wheel trap, Windows notes, what is still unproven |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Everyday tasks with real terminal output: add a voice, make a book, check it |
 | [docs/COMMANDS.md](docs/COMMANDS.md) | Every `just` recipe and its arguments |
