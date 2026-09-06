@@ -43,6 +43,8 @@ both consumers.
   versions are pinned. Read it before changing any dependency.
 - `docs/DEVELOPMENT.md` covers the day-to-day workflow: adding dependencies
   safely, what the tests do and do not cover, and the known failure modes.
+- `docs/COMMANDS.md` is the reference for every `just` recipe. Update it when
+  you add or change one.
 - `gemini-session.md` is a raw transcript, kept locally and deliberately
   untracked. Everything load-bearing in it is already in `docs/DECISIONS.md`.
 

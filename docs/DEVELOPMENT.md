@@ -58,26 +58,17 @@ them back.
 
 ## Everyday commands
 
+Full reference: [COMMANDS.md](COMMANDS.md). The ones that matter while working:
+
 ```bash
 just                      # list every recipe
 just check                # types + tests; run this before committing
-just test                 # ~3 s
-just typecheck            # ~4 s
 just test-one narrator -k formatter     # one env, verbose, filtered
+just preview myslug myvoice             # 20 fragments, to hear the voice
 ```
 
-Working on one stage:
-
-```bash
-just ingest data/raw/books/x.epub myslug
-just chunk myslug myvoice
-just preview myslug myvoice    # 20 chunks only, to hear the voice
-just synth myslug myvoice      # resumable; re-run to continue
-just assemble myslug
-```
-
-`just synth` skips chunks that already have a wav, so interrupting it is safe
-and re-running continues. Use `just clean-audio <slug>` to force a full
+`just synth` skips fragments that already have a wav, so interrupting it is
+safe and re-running continues. Use `just clean-audio <slug>` to force a full
 re-render.
 
 ## Adding a dependency

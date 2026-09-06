@@ -30,10 +30,9 @@ setup-transcriber:
 setup-bookbinder:
     cd bookbinder && uv sync
 
-# One pass. The pins that keep XTTS alive live in narrator/pyproject.toml
-# under [tool.uv] constraint-dependencies - read the comments there before
-# touching any of them.
+# One pass. Pins live in narrator/pyproject.toml [tool.uv] constraint-dependencies.
 setup-narrator:
+    # Read the comments beside each pin there before changing any of them.
     cd narrator && uv sync
 
 # Re-resolve from scratch, ignoring the lock. Use after changing a pin.
@@ -100,8 +99,7 @@ clone voice device="auto":
     cd narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.clone "{{voice}}" \
       --device {{device}}
 
-# Optional: full fine-tune. Needs CUDA; instant cloning covers most books.
-# batch x accum is the effective batch size - keep the product near 250.
+# Optional full fine-tune, CUDA only. batch x accum is the effective batch size.
 train voice language="pl" epochs="10" batch="3" accum="84":
     cd narrator && uv run python -m narrator.train "{{voice}}" \
       --language {{language}} --epochs {{epochs}} \

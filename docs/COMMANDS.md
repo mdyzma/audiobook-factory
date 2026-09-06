@@ -1,0 +1,79 @@
+# Command reference
+
+Every command in this project is a `just` recipe. `just` on its own lists them.
+
+Arguments are shown as `name` when required and `name="default"` when optional.
+Trailing optional arguments can be omitted; to skip one and set a later one,
+pass `""` for the ones between.
+
+## Setup
+
+| Command | What it does |
+|---|---|
+| `just setup` | Installs Python 3.11.9 and all three environments. Run once per machine. |
+| `just python` | Installs the interpreter only. uv downloads a prebuilt build; nothing compiles. |
+| `just setup-bookbinder` | Syncs the ebook and assembly environment. |
+| `just setup-transcriber` | Syncs the WhisperX environment. |
+| `just setup-narrator` | Syncs the XTTS environment in one pass. Pins live in its `[tool.uv] constraint-dependencies`. |
+| `just relock <env>` | Re-resolves from scratch, ignoring the lock. Use after changing a pin. |
+| `just gpu-torch <env="narrator">` | Swaps in CUDA 12.4 wheels. CUDA host only; skip on Apple Silicon. |
+
+## Checks
+
+| Command | What it does |
+|---|---|
+| `just check` | Types and tests across all three environments. Run before committing. |
+| `just test` | pytest in every environment. About 3 seconds. |
+| `just typecheck` | pyright in every environment, each against its own dependencies. About 4 seconds. |
+| `just test-one <env> [args]` | One environment, verbose. Example: `just test-one narrator -k formatter`. |
+| `just doctor` | Prints ffmpeg, uv and the versions each environment resolved. |
+| `just check-narrator` | Loads XTTS-v2 for real, not just imports it. Downloads weights on first run. |
+
+## Stage 1: clone a voice
+
+| Command | What it does |
+|---|---|
+| `just clean <input> <voice>` | Denoises and normalises a recording to 24 kHz mono. |
+| `just label <voice> <device="auto"> <language="pl">` | Cuts the sample on WhisperX alignment boundaries and transcribes each piece. |
+| `just clone <voice> <device="auto">` | Derives speaker latents and renders an audition clip to judge the clone. |
+| `just train <voice> <language="pl"> <epochs="10"> <batch="3"> <accum="84">` | Optional full fine-tune. CUDA only. `batch * accum` is the effective batch size; keep it near 250. |
+| `just voice <input> <name> <language="pl">` | Stage 1 end to end: clean, label, clone. |
+
+## Stages 2 and 3: prepare the text
+
+| Command | What it does |
+|---|---|
+| `just ingest <source> <slug=""> <language="">` | Parses an EPUB, PDF or text file into normalised chapters. |
+| `just chunk <slug> <voice="">` | Splits chapters into fragments under the per-language XTTS character limit, with metadata. |
+
+## Stages 4 and 5: make the audio
+
+| Command | What it does |
+|---|---|
+| `just preview <slug> <voice>` | Renders the first 20 fragments only, to check the voice before committing hours. |
+| `just synth <slug> <voice> <device="auto">` | Renders every fragment. Resumable: re-run to continue after an interruption. |
+| `just assemble <slug> <format="">` | Muxes fragments, pauses and chapter marks into the finished audiobook. |
+
+## Whole runs
+
+| Command | What it does |
+|---|---|
+| `just book <source> <voice> <slug=""> <language="">` | Stages 2 to 5 for a voice that is already cloned. |
+| `just factory <sample> <voice> <source> <slug> <language="pl">` | Everything: clone a voice from a sample, then produce the audiobook. |
+
+## Cleanup
+
+| Command | What it does |
+|---|---|
+| `just clean-audio <slug>` | Deletes rendered audio so the next `synth` starts fresh. |
+| `just clean-book <slug>` | Deletes the parsed text and its audio. |
+
+## Docker
+
+For the CUDA host only. Docker on macOS runs in a Linux VM with no Metal
+access, so there is no GPU passthrough there.
+
+| Command | What it does |
+|---|---|
+| `just build-images` | Builds all three images. |
+| `just up <service>` | Runs one service against the shared `data/` mount. |
