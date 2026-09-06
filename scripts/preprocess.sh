@@ -17,4 +17,7 @@ ffmpeg -hide_banner -y -i "$INPUT" \
   "$OUT_DIR/cleaned_full.wav"
 
 DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$OUT_DIR/cleaned_full.wav")
-printf 'cleaned -> %s (%.1f min, 24kHz mono s16)\n' "$OUT_DIR/cleaned_full.wav" "$(echo "$DURATION/60" | bc -l)"
+# LC_NUMERIC=C: ffprobe and awk emit a decimal point, but printf in a locale
+# such as pl_PL expects a comma and fails on the value it was just handed.
+LC_NUMERIC=C awk -v d="$DURATION" -v p="$OUT_DIR/cleaned_full.wav" \
+  'BEGIN { printf "cleaned -> %s (%.1f min, 24kHz mono s16)\n", p, d/60 }' 

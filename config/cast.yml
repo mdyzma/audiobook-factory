@@ -12,13 +12,13 @@
 
 roles:
   narrator:
-    voice: narrator
+    voice: michal
     speed: 1.0
 
   # A generic voice for dialogue whose speaker is not named. Comment this out
   # to have unattributed dialogue read by the narrator.
   dialogue:
-    voice: narrator
+    voice: michal
     speed: 1.02
 
   # Named characters. The key must match the speaker label in the text,
