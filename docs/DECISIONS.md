@@ -24,19 +24,14 @@ Python is pinned to 3.11.9 everywhere. Coqui TTS does not work on 3.12+, and
 
 ## Installing the narrator environment
 
-`poetry add tts==0.22.0` cannot resolve. The working sequence, encoded in
-`just setup-narrator-extras`:
+Under Poetry this environment could not be resolved at all. The workaround was
+`pip install TTS --no-deps` followed by hand-listing its dependencies in a
+load-bearing order, with numpy forced back to 1.x as the final step.
 
-1. `pip install "TTS==0.22.0" --no-deps`
-2. Install its real runtime dependencies by hand, including `gruut[all]==2.2.3`
-   with `--no-deps --force-reinstall`.
-3. Install the spaCy compiled core (`thinc`, `blis`, `preshed`, `murmurhash`,
-   `catalogue`, `confection`, `srsly`, `wasabi`) with `--no-deps`, since pip will
-   otherwise upgrade numpy underneath it.
-4. Reinstall `numpy<2.0.0` last. Any later install that touches numpy undoes this.
-
-On Apple Silicon `blis` and `thinc` need `setuptools` and `cython` present before
-they will build.
+uv resolves it in a single `uv sync`. The pins live in `narrator/pyproject.toml`
+under `[tool.uv] constraint-dependencies`, which bounds the transitive graph
+without restating it. Nothing has to be installed in a particular order, and the
+result is captured in `uv.lock`.
 
 ## Audio format
 
@@ -134,3 +129,48 @@ dependency. Installed explicitly.
 Verified on Apple Silicon with MPS. Synthesis ran at 0.8x realtime on the M1,
 so a ten-hour audiobook takes roughly twelve hours there. This is the workload
 that belongs on the CUDA machine.
+
+
+---
+
+# Addendum: migration to uv (2026-09-06)
+
+pyenv and Poetry are gone. uv manages the interpreter, the virtualenvs and the
+locks for all three environments.
+
+## What this fixed
+
+The hand-ordered pip sequence in the narrator is gone. `constraint-dependencies`
+expresses the same pins declaratively, so `uv sync` resolves TTS with its full
+dependency tree in one pass. There is no longer an install step whose position
+in the sequence matters.
+
+Poetry itself was also a liability here: its virtualenv was built against a
+Homebrew Python, and a routine `brew upgrade` deleted that interpreter and broke
+every `poetry` invocation. uv's Python is self-contained and unaffected by brew.
+
+Installing 3.11.9 took uv about three seconds against several minutes for
+pyenv's source build.
+
+The three projects are now real packages built by hatchling, so `python -m` finds
+them without a `PYTHONPATH=src` prefix, and the `sys.path` shims are removed.
+
+## torch is pinned to 2.8.0 in the narrator
+
+torchaudio 2.9 dropped its native backends and routes audio loading through
+`torchcodec`, whose bundled library resolves FFmpeg's shared objects at runtime.
+uv's standalone CPython carries no Homebrew rpath, so that lookup fails on macOS
+with "Could not load libtorchcodec".
+
+Pinning torch and torchaudio to 2.8.0 keeps the soundfile backend and removes the
+native dependency. This also aligns the narrator with the transcriber's torch.
+
+The pyenv build did not hit this, because its Homebrew-linked interpreter could
+find `/opt/homebrew/lib` on its own. That made the old setup quietly
+host-dependent; the uv one is not.
+
+## Locks are committed
+
+`uv.lock` is tracked for all three environments, which is what makes the CUDA
+machine install the same versions verified here. Regenerate with
+`just relock <env>`, never by hand.

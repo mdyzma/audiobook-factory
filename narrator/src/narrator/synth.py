@@ -12,7 +12,6 @@ for chapter marks.
 from __future__ import annotations
 
 import json
-import sys
 import time
 import tomllib
 from pathlib import Path
@@ -20,8 +19,7 @@ from pathlib import Path
 import torch
 import typer
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from narrator.engine import VoiceProfile, compute_latents, load_model, pick_device  # noqa: E402
+from narrator.engine import VoiceProfile, compute_latents, load_model, pick_device
 
 app = typer.Typer(add_completion=False)
 

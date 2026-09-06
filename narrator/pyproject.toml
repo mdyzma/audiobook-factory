@@ -1,36 +1,60 @@
 # Environment C - "narrator": Coqui XTTS-v2 voice cloning and synthesis.
-# Frozen legacy stack. numpy MUST stay <2.0 (1.26.4) or XTTS raises AttributeError.
-# Must NEVER contain whisperx.
+# Frozen legacy stack. Must NEVER contain whisperx.
 #
-# `poetry add tts==0.22.0` cannot resolve cleanly. Install order that works:
-#   poetry install                    # torch + pinned numpy/pandas/pydantic
-#   just setup-narrator-extras        # TTS --no-deps, then its real runtime deps
+# Under Poetry this environment could not be resolved at all: `poetry add
+# tts==0.22.0` fails, and the workaround was `pip install --no-deps` followed by
+# hand-listing its dependencies in a load-bearing order. uv resolves it in one
+# pass because `constraint-dependencies` below bounds the transitive graph
+# without having to restate it.
 [project]
 name = "narrator"
 version = "0.1.0"
 description = "XTTS-v2 voice cloning, fine-tuning and fragment synthesis"
 requires-python = ">=3.11,<3.12"
 dependencies = [
-    "torch>=2.5.1",
-    "torchaudio>=2.5.1",
-    "numpy<2.0.0",
-    "pandas<2.0.0",
-    "pydantic<2.10.0",
-    "huggingface-hub<1.0.0",
+    "tts==0.22.0",
+    # torchaudio 2.9 dropped its native backends and routes audio loading through
+    # torchcodec, whose bundled library must find FFmpeg's shared objects at
+    # runtime. uv's standalone CPython has no Homebrew rpath, so that lookup fails
+    # on macOS. The 2.8 line still decodes via soundfile and needs no native shim.
+    "torch==2.8.0",
+    "torchaudio==2.8.0",
     "soundfile>=0.12.1",
     "librosa>=0.10.0",
     "typer>=0.12.0",
     "tqdm>=4.66.0",
 ]
 
-[tool.poetry]
-package-mode = false
-
-[[tool.poetry.source]]
-name = "pytorch-gpu"
-url = "https://download.pytorch.org/whl/cu124"
-priority = "explicit"
-
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/narrator"]
+
+[tool.uv]
+# These are the pins that keep XTTS working. Each one is load-bearing:
+constraint-dependencies = [
+    # numpy 2.x changed the API XTTS relies on; it fails at inference.
+    "numpy==1.26.4",
+    "pandas==1.5.3",
+    # spacy 3.8 requires thinc 8.3, which requires numpy>=2. Hold the whole
+    # compiled spaCy stack on the 3.7 line.
+    "spacy==3.7.5",
+    "thinc==8.2.5",
+    "blis==0.7.11",
+    "confection==0.1.5",
+    # gruut 2.2.3 predates networkx 3.
+    "networkx==2.8.8",
+    # transformers 5.x removed BeamSearchScorer, imported by
+    # TTS/tts/layers/xtts/stream_generator.py.
+    "transformers==4.40.2",
+    "tokenizers==0.19.1",
+    "huggingface-hub==0.23.5",
+]
+
+# CUDA 12.4 wheels for the RTX 5090 box. Switch with: just gpu-torch
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true

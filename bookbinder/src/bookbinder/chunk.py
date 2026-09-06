@@ -11,14 +11,12 @@ Output: data/book/<slug>/chunks.jsonl + book.json (see manifest.py).
 from __future__ import annotations
 
 import json
-import sys
 import tomllib
 from pathlib import Path
 
 import typer
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from bookbinder.manifest import BookManifest, Chunk, char_limit  # noqa: E402
+from bookbinder.manifest import BookManifest, Chunk, char_limit
 
 app = typer.Typer(add_completion=False)
 

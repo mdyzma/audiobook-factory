@@ -25,8 +25,12 @@ both consumers.
 ## Conventions
 
 - Every command goes through `just`. Add a recipe rather than documenting a raw
-  `poetry run` invocation.
-- Python is pinned to 3.11.9 in all three environments.
+  `uv run` invocation.
+- uv owns the interpreter, the virtualenvs and the locks. There is no pyenv and
+  no poetry. Python is pinned to 3.11.9 in all three environments.
+- The narrator's pins live in `[tool.uv] constraint-dependencies`. Read the
+  comments beside each one before changing it; every entry is load-bearing.
+- `uv.lock` is committed. Regenerate with `just relock <env>`, never by hand.
 - Tunables live in `config/pipeline.toml`, not in code.
 - Stage 4 must stay resumable. A twenty-hour book cannot restart from zero.
 - Audio is 24 kHz mono 16-bit PCM throughout.

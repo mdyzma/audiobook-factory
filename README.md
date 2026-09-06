@@ -24,10 +24,14 @@ and the chunk manifest is the contract between them. See [docs/DECISIONS.md](doc
 | `bookbinder/` | Ebook parsing, chunking, final mux | pure Python, ffmpeg |
 | `narrator/` | Voice cloning and speech synthesis | Coqui XTTS-v2, numpy 1.x |
 
+Each is a uv project with its own `uv.lock`, so both machines install byte-identical
+dependency sets.
+
 ## Requirements
 
-`pyenv` with Python 3.11.9, `poetry`, `just`, and `ffmpeg`. A CUDA GPU makes
-synthesis roughly an order of magnitude faster but is not required.
+`uv`, `just` and `ffmpeg`. uv installs Python 3.11.9 itself, so there is no
+pyenv or poetry to set up. A CUDA GPU makes synthesis roughly an order of
+magnitude faster but is not required.
 
 ## Setup
 

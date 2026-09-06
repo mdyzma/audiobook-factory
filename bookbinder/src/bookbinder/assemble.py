@@ -12,15 +12,13 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 import tempfile
 import tomllib
 from pathlib import Path
 
 import typer
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from bookbinder.manifest import read_book  # noqa: E402
+from bookbinder.manifest import read_book
 
 app = typer.Typer(add_completion=False)
 

@@ -226,7 +226,9 @@ training/**
 !training/**/
 !**/.gitkeep
 
-poetry.lock
+# uv owns the interpreter and the locks. uv.lock IS tracked - it is what makes
+# these three environments reproducible on the CUDA box.
+.venv/
 
 # The 3.11.9 pin is a project decision, not a local preference - keep it tracked.
 !.python-version

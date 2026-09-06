@@ -1,13 +1,15 @@
 # Environment B - text and container work. No GPU, no ML.
-FROM python:3.11-slim
+FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
-RUN pip install --no-cache-dir ebooklib beautifulsoup4 lxml pypdf pysbd ftfy \
-      mutagen typer rich
+COPY pyproject.toml uv.lock .python-version ./
+RUN uv sync --frozen --no-install-project
+COPY src/ ./src/
+RUN uv sync --frozen
 
-COPY src/ /app/src/
-ENV PYTHONPATH=/app/src
-ENTRYPOINT ["python3", "-m"]
+ENV PATH="/app/.venv/bin:$PATH"
+ENTRYPOINT ["python", "-m"]

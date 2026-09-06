@@ -1,14 +1,16 @@
 # Environment A - WhisperX. CUDA base so the RTX 5090 is usable.
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3.11 python3-pip ffmpeg \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
-RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cu124
-RUN pip install --no-cache-dir whisperx==3.8.1 pandas numpy pydub tqdm typer
+# Lockfile first: dependencies re-resolve only when the manifest changes.
+COPY pyproject.toml uv.lock .python-version ./
+RUN uv sync --frozen --no-install-project
+COPY src/ ./src/
+RUN uv sync --frozen
 
-COPY src/ /app/src/
-ENV PYTHONPATH=/app/src
-ENTRYPOINT ["python3", "-m", "transcriber.auto_label"]
+ENV PATH="/app/.venv/bin:$PATH"
+ENTRYPOINT ["python", "-m", "transcriber.auto_label"]
