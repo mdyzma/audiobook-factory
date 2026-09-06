@@ -203,10 +203,20 @@ not work on macOS, where Docker runs inside a Linux VM with no Metal access.
 `just doctor`; fix by constraining the culprit in `constraint-dependencies`,
 then `just relock narrator`.
 
-**`Could not load libtorchcodec`.** torchaudio 2.9+ routes audio through
-torchcodec, which needs to find FFmpeg's shared objects at runtime, and uv's
-standalone CPython has no Homebrew rpath. torch is pinned to 2.8.0 to avoid
-this. If you lift that pin, expect it back.
+**`Could not load libtorchcodec`.** torchcodec ships a compiled extension tied
+to one torch ABI, and its decoders link against a specific FFmpeg range. The two
+environments solve this in opposite directions, which is fine because they are
+separate virtualenvs.
+
+The narrator pins torch 2.8, because torchaudio 2.9 dropped the native backends
+and routes through torchcodec, which then cannot find Homebrew's FFmpeg from
+uv's standalone CPython.
+
+The transcriber pins torch 2.14, because pyannote-audio requires torchcodec and
+only recent builds support FFmpeg 9. whisperx declares `torch<2.9`, so that is
+lifted with `override-dependencies`. If you change torch in either, run the real
+thing, not just the tests: `just label` exercises alignment and `just verify`
+exercises decoding.
 
 **`UnpicklingError` loading a checkpoint.** PyTorch 2.6 defaults `torch.load`
 to `weights_only=True`. `narrator.engine.allow_xtts_globals()` allowlists the

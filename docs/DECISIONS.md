@@ -248,3 +248,39 @@ and folding them would hide a real mispronunciation.
 
 Expect a non-zero baseline, because the transcriber mishears too. The outliers
 are the point, and `--sample` makes a long book affordable to check.
+
+
+---
+
+# Addendum: torchcodec in the transcriber (2026-09-06)
+
+`pyannote-audio`, pulled in by whisperx, requires `torchcodec`. That package
+ships a compiled extension built against one exact torch ABI, and its decoder
+libraries link against a specific range of FFmpeg versions. Both have to line
+up or it will not load.
+
+With torch resolved to 2.8, torchcodec 0.16 failed with
+`Symbol not found: _torch_call_dispatcher`. pyannote caught that, fell back to
+a slower decode path, and printed a dlopen traceback on every single run. It
+worked, but noisily and more slowly than it needed to.
+
+Downgrading torchcodec is not a way out. Versions 0.4 through 0.6 load against
+torch 2.8 but look for libavutil 56 to 59, meaning FFmpeg 4 to 7. Homebrew
+ships FFmpeg 9 with libavutil 61, so those builds fail differently, on
+`no LC_RPATH's found`. Only recent torchcodec supports FFmpeg 9, and recent
+torchcodec needs recent torch.
+
+So torch is pinned to 2.14.0 and torchaudio to 2.11.0. whisperx 3.8.1 declares
+`torch<2.9` and `torchaudio<2.9`, which blocks that, so both are lifted through
+`[tool.uv] override-dependencies`.
+
+Overriding an upstream bound is only defensible with evidence, so it was
+checked by running the real thing rather than by reasoning about it:
+transcription, voice activity detection and forced alignment all work on torch
+2.14, and re-running the quality check over a finished audiobook gave the same
+word error rate as before, 0.054. Revisit when whisperx widens the bound.
+
+Note the two environments now sit on different torch versions: the transcriber
+on 2.14 for torchcodec, the narrator on 2.8 because torchaudio 2.9 dropped the
+native backends XTTS relies on. They are separate virtualenvs precisely so that
+this is allowed to be true.

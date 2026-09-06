@@ -8,8 +8,13 @@ version = "0.1.0"
 description = "Voice-sample auto-labelling and audiobook QA (WhisperX)"
 requires-python = ">=3.11,<3.12"
 dependencies = [
-    "torch>=2.5.1",
-    "torchaudio>=2.5.1",
+    # pyannote-audio (via whisperx) requires torchcodec, whose compiled
+    # extension is built against one exact torch ABI. Resolving torch to 2.8
+    # left torchcodec 0.16 unable to load, so pyannote silently fell back to a
+    # slower path and printed a dlopen traceback on every run. These two must
+    # move together with whatever torchcodec resolves to.
+    "torch==2.14.0",
+    "torchaudio==2.11.0",
     "whisperx==3.8.1",
     "numpy>=2.1.0",
     "pandas>=2.2.3",
@@ -27,6 +32,22 @@ packages = ["src/transcriber"]
 
 # CUDA 12.4 wheels for the RTX 5090 box. Unused on Apple Silicon, which resolves
 # to the default PyPI wheels with MPS support. Switch with: just gpu-torch
+[tool.uv]
+# whisperx 3.8.1 declares torchaudio>=2.8,<2.9. That bound is stricter than
+# reality and it strands torchcodec, which pyannote-audio requires: torchcodec
+# ships a compiled extension built against one exact torch ABI, and the recent
+# builds are the only ones that support FFmpeg 9. Holding torch at 2.8 left
+# torchcodec unloadable, so pyannote fell back to a slower decode path and
+# printed a dlopen traceback on every run.
+#
+# Verified by running the real thing on torch 2.14: transcription, voice
+# activity detection and forced alignment all work, with identical output.
+# Revisit when whisperx widens the bound.
+override-dependencies = [
+    "torch>=2.14.0",
+    "torchaudio>=2.11.0",
+]
+
 [[tool.uv.index]]
 name = "pytorch-cu124"
 url = "https://download.pytorch.org/whl/cu124"
