@@ -62,7 +62,7 @@ The commands you need day to day:
 | `just` | List every recipe |
 | `just setup` | Install everything, once per machine |
 | `just doctor` | Show what each environment resolved |
-| `just check` | Types and tests, about 7 seconds |
+| `just check` | Schemas, types and tests, about 8 seconds |
 | `just preview <slug> <voice>` | Render 20 fragments to sample the voice |
 | `just book-dry <source> <slug>` | Whole structure with silence, no models |
 
@@ -105,6 +105,30 @@ just verify solaris 20     # re-transcribe every 20th fragment and compare
 Every render also writes `data/audio/<slug>/report.json` with what was rendered,
 what was skipped, what failed, and the realtime factor.
 
+## Tests and types
+
+```bash
+just check          # schemas + pyright + pytest across all three environments
+just test           # tests only, about 3 seconds
+just typecheck      # types only
+just test-one narrator -k formatter
+```
+
+| Environment | Tests |
+|---|---|
+| bookbinder | 104 |
+| transcriber | 20 |
+| narrator | 17 |
+
+Each environment type-checks against its own installed dependencies, which is
+the point of the split: the narrator's numpy 1.x and the transcriber's numpy 2.x
+are checked separately, as they are installed.
+
+Nothing in the suite needs model weights or a GPU, so it finishes in seconds.
+The pipeline is still covered end to end, because the dry-run renderer stands in
+for synthesis. What the suite cannot reach is covered by `just check-narrator`,
+which loads XTTS for real, and by fine-tuning, which needs CUDA.
+
 ## Why three environments
 
 `whisperx` requires pandas 2.x. `tts` 0.22.0 requires pandas 1.x. There is no
@@ -130,27 +154,39 @@ audiobook-factory/
 │   ├── pyproject.toml      manifest + pyright/pytest config
 │   ├── uv.lock             committed; what CI and the GPU box install
 │   ├── Dockerfile          CUDA base image
-│   ├── src/transcriber/    auto_label.py - cuts and transcribes the sample
+│   ├── src/transcriber/
+│   │   ├── auto_label.py   cuts and transcribes the voice sample
+│   │   └── verify.py       re-transcribes the render, reports word error rate
 │   └── tests/
 │
 ├── bookbinder/           Environment B - text and containers, no ML
 │   └── src/bookbinder/
 │       ├── ingest.py       EPUB/PDF/text -> normalised chapters
+│       ├── roles.py        who speaks each paragraph
+│       ├── cast.py         role -> voice, with a narrator fallback
 │       ├── chunk.py        chapters -> fragments under the XTTS limit
-│       ├── manifest.py     the contract between environments
+│       ├── manifest.py     the validated contract between environments
+│       ├── schemas.py      exports that contract to docs/schemas/
+│       ├── dryrun.py       silence at the right durations, for structure checks
 │       └── assemble.py     fragments + pauses -> chaptered m4b
 │
 ├── narrator/             Environment C - Coqui XTTS-v2, numpy 1.x
 │   └── src/narrator/
 │       ├── engine.py       model loading, speaker latents
 │       ├── clone.py        speaker embedding + audition clip
-│       ├── synth.py        fragments -> audio, resumable
+│       ├── synth.py        fragments -> audio; multi-voice, resumable
 │       └── train.py        optional fine-tune, CUDA only
 │
-├── config/pipeline.toml  Every tunable knob. Read by all stages.
+├── config/
+│   ├── pipeline.toml     Every tunable knob. Read by all stages.
+│   └── cast.yml          Which voice reads which role.
 ├── justfile              Every command. Nothing is run directly.
 ├── scripts/              ffmpeg preprocessing
-├── docs/                 Command reference, decisions, development guide
+├── docs/
+│   ├── COMMANDS.md       every recipe
+│   ├── DEVELOPMENT.md    workflow and failure modes
+│   ├── DECISIONS.md      why the pins and the split exist
+│   └── schemas/          JSON Schema, generated from manifest.py
 ├── docker-compose.yml    CUDA host only; no GPU passthrough on macOS
 │
 ├── data/                 Everything below here is gitignored
@@ -159,15 +195,16 @@ audiobook-factory/
 │   ├── datasets/         wavs + metadata.csv for cloning or fine-tuning
 │   ├── voices/           voice profiles and cached latents
 │   ├── book/             chapters.json, chunks.jsonl, book.json
-│   ├── audio/            one wav per fragment, plus rendered.jsonl
+│   ├── audio/            one wav per fragment, rendered.jsonl, report.json
 │   └── out/              the finished audiobook
 │
 └── training/             Fine-tune checkpoints and logs. Gitignored.
 ```
 
 The three `src/` trees never import each other. They communicate only through
-files under `data/`, and the schema for that is
-`bookbinder/src/bookbinder/manifest.py`.
+files under `data/`. The shape of those files is defined in
+`bookbinder/src/bookbinder/manifest.py` and exported to `docs/schemas/`, which
+is what keeps the two environments that cannot import it in step.
 
 ## Documentation
 
@@ -176,6 +213,7 @@ files under `data/`, and the schema for that is
 | [docs/COMMANDS.md](docs/COMMANDS.md) | Every `just` recipe and its arguments |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Day-to-day workflow, adding dependencies safely, failure modes |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Why the environments are split, and every pin that keeps XTTS working |
+| [docs/schemas/](docs/schemas/) | JSON Schema for every file that crosses an environment boundary |
 
 ## Hardware
 

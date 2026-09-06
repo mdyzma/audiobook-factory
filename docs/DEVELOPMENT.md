@@ -22,7 +22,7 @@ brew install uv just ffmpeg
 ```bash
 just setup     # installs 3.11.9 and all three environments
 just doctor    # prints the versions each environment resolved
-just check     # pyright + pytest, ~7 s
+just check     # schemas + pyright + pytest, ~8 s
 ```
 
 Budget roughly 2.7 GB of virtualenvs plus 1.7 GB of model weights on first
@@ -31,8 +31,8 @@ synthesis.
 | Path | Size | Notes |
 |---|---|---|
 | `narrator/.venv` | 1.6 GB | 149 packages, torch dominates |
-| `transcriber/.venv` | 1.0 GB | 109 packages |
-| `bookbinder/.venv` | 77 MB | 25 packages, no ML |
+| `transcriber/.venv` | 1.1 GB | 109 packages |
+| `bookbinder/.venv` | 86 MB | 30 packages, no ML |
 | `~/.local/share/uv/python/` | 59 MB | the interpreter itself |
 | `~/Library/Application Support/tts/` | 1.7 GB | XTTS-v2 weights, downloaded on demand |
 
@@ -62,7 +62,7 @@ Full reference: [COMMANDS.md](COMMANDS.md). The ones that matter while working:
 
 ```bash
 just                      # list every recipe
-just check                # types + tests; run this before committing
+just check                # schemas + types + tests; run before committing
 just test-one narrator -k formatter     # one env, verbose, filtered
 just preview myslug myvoice             # 20 fragments, to hear the voice
 ```
@@ -135,6 +135,11 @@ Tests live in `<env>/tests/` and run against that environment's own installed
 dependencies. That is deliberate: the narrator is type-checked with numpy 1.x
 and the transcriber with numpy 2.x, exactly as they are installed.
 
+104 of the 141 tests live in bookbinder, because that is where the logic that
+can silently corrupt a book sits: chunking, role assignment and assembly. The
+pipeline is covered end to end there too, with the dry-run renderer standing in
+for synthesis, so no model weights are involved.
+
 Anything requiring model weights or CUDA stays out of the suite, which is why
 it finishes in about three seconds. The two things it cannot cover:
 
@@ -156,7 +161,7 @@ would hide it.
 |---|---|
 | `locks` | `uv lock --check` on all three; fails fast if a lock drifted from its manifest |
 | `justfile` | `just --list`, so a syntax error is caught without installing anything |
-| `check` | Matrix over the three environments: sync, pyright, pytest |
+| `check` | Matrix over the three environments: sync, schema drift (bookbinder), pyright, pytest |
 
 The matrix gives each environment its own runner. That is not just tidiness:
 on Linux the torch wheel pulls its CUDA runtime libraries, so the narrator and
