@@ -34,6 +34,11 @@ both consumers.
 - Tunables live in `config/pipeline.toml`, not in code.
 - Stage 4 must stay resumable. A twenty-hour book cannot restart from zero.
 - Audio is 24 kHz mono 16-bit PCM throughout.
+- Run `just check` before committing: pyright and pytest in all three
+  environments. Tests live in `<env>/tests/` and run against that environment's
+  own dependencies.
+- Tests that need model weights or CUDA do not belong in the suite. Use
+  `just check-narrator` for XTTS loading and the CUDA box for fine-tuning.
 - `docs/DECISIONS.md` records why the environments are split and which
   versions are pinned. Read it before changing any dependency.
 - `gemini-session.md` is a raw transcript, kept locally and deliberately

@@ -57,6 +57,26 @@ doctor:
     @echo "== narrator ==" && cd narrator && uv run python -c \
       "import numpy, torch, transformers; print('numpy', numpy.__version__, '| torch', torch.__version__, '| transformers', transformers.__version__, '| cuda', torch.cuda.is_available())"
 
+# Run the test suite in every environment.
+test:
+    cd bookbinder  && uv run pytest
+    cd narrator    && uv run pytest
+    cd transcriber && uv run pytest
+
+# Type-check every environment against its own installed dependencies.
+typecheck:
+    cd bookbinder  && uv run pyright
+    cd narrator    && uv run pyright
+    cd transcriber && uv run pyright
+
+# What to run before committing.
+check: typecheck test
+    @echo "types and tests clean"
+
+# Tests for one environment only, with output: just test-one narrator -k formatter
+test-one env *args:
+    cd {{env}} && uv run pytest -v {{args}}
+
 # Verify the narrator can actually load XTTS-v2, not just import it.
 check-narrator:
     cd narrator && COQUI_TOS_AGREED=1 uv run python -c \

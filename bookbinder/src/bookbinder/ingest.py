@@ -27,7 +27,18 @@ SKIP_TITLES = re.compile(
 FOOTNOTE_MARKER = re.compile(r"\[\d{1,3}\]|\{\d{1,3}\}|\(\d{1,3}\)(?=\s|$)")
 
 
+# Letters with no decomposed form. NFKD leaves them intact and the ASCII filter
+# then deletes them outright, so "Sołaris" would slug to "soaris" and "Łódź" to
+# "odz". Transliterate them first.
+TRANSLITERATE = str.maketrans({
+    "ł": "l", "Ł": "L", "ø": "o", "Ø": "O", "đ": "d", "Đ": "D",
+    "ß": "ss", "æ": "ae", "Æ": "AE", "œ": "oe", "Œ": "OE",
+    "þ": "th", "Þ": "Th", "ð": "d", "Ð": "D", "ı": "i",
+})
+
+
 def slugify(value: str) -> str:
+    value = value.translate(TRANSLITERATE)
     value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
     value = re.sub(r"[^\w\s-]", "", value).strip().lower()
     return re.sub(r"[-\s]+", "-", value) or "book"

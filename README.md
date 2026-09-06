@@ -40,6 +40,19 @@ just setup
 just doctor
 ```
 
+## Tests and types
+
+```bash
+just check          # pyright + pytest across all three environments
+just test           # tests only
+just typecheck      # types only
+just test-one narrator -k formatter
+```
+
+Each environment type-checks against its own installed dependencies, which is
+the point of the split: the narrator's numpy 1.x and the transcriber's numpy 2.x
+are checked separately, as they are installed.
+
 ## Producing an audiobook
 
 Drop a voice recording in `data/raw/voices/` and an ebook in `data/raw/books/`,
