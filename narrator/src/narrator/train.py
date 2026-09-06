@@ -148,8 +148,11 @@ def main(
         language=language,
     )
 
+    # Coqui annotates `datasets` as a list of dicts, but every upstream recipe
+    # passes BaseDatasetConfig and the function reads it as one. Upstream
+    # annotation bug, not a call-site error.
     train_samples, eval_samples = load_tts_samples(
-        [dataset_config],
+        [dataset_config],  # type: ignore[arg-type]
         eval_split=True,
         eval_split_size=eval_split,
         formatter=make_formatter(language),
@@ -213,7 +216,8 @@ def main(
 
     trainer = Trainer(
         TrainerArgs(
-            restore_path=None,          # base weights come in via xtts_checkpoint
+            # No restore_path: base weights arrive through GPTArgs.xtts_checkpoint,
+            # and the field defaults to "" rather than None.
             skip_train_epoch=False,
             start_with_eval=False,
             grad_accum_steps=grad_accum,

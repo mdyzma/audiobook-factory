@@ -59,8 +59,8 @@ def main(
     cfg = load_synth_config(root)
     typer.echo(f"synthesising {len(chunks)} chunks as '{voice}' on {dev}")
 
-    model = load_model(profile, dev)
-    tts_model, gpt_cond_latent, speaker_embedding = compute_latents(model, profile)
+    tts_model = load_model(profile, dev)
+    gpt_cond_latent, speaker_embedding = compute_latents(tts_model, profile)
 
     # Reuse cached latents when clone.py already produced them.
     latents_path = root / "data" / "voices" / voice / "latents.pt"

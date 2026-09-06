@@ -5,6 +5,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:  # heavy imports stay out of the runtime path
+    from torch import Tensor
+    from TTS.tts.models.xtts import Xtts
 
 DEFAULT_MODEL = "tts_models/multilingual/multi-dataset/xtts_v2"
 
@@ -71,8 +76,16 @@ class VoiceProfile:
         )
 
 
-def load_model(profile: VoiceProfile, device: str):
-    """Load stock XTTS-v2, or the fine-tuned checkpoint if the profile has one."""
+def load_model(profile: VoiceProfile, device: str) -> "Xtts":
+    """Load stock XTTS-v2, or the fine-tuned checkpoint if the profile has one.
+
+    Always returns the `Xtts` model itself, never the `TTS` API wrapper. Callers
+    need `.inference()`, which lives on the model; unwrapping here keeps a single
+    return type, so a type checker can follow it. Reaching through
+    `.synthesizer.tts_model` at the call site cannot be checked, because
+    `nn.Module.__getattr__` is annotated `Tensor | Module` and every dynamic
+    attribute lookup widens to that.
+    """
     import torch
     from TTS.tts.configs.xtts_config import XttsConfig
     from TTS.tts.models.xtts import Xtts
@@ -91,20 +104,31 @@ def load_model(profile: VoiceProfile, device: str):
     # Instant cloning path: stock weights, speaker identity comes from latents.
     from TTS.api import TTS
 
-    return TTS(DEFAULT_MODEL).to(device)
+    api = TTS(DEFAULT_MODEL).to(device)
+    synthesizer = api.synthesizer
+    if synthesizer is None:  # pragma: no cover - only on a broken install
+        raise RuntimeError(f"TTS returned no synthesizer for {DEFAULT_MODEL}")
+    return cast("Xtts", synthesizer.tts_model)
 
 
-def compute_latents(model, profile: VoiceProfile):
+def compute_latents(model: "Xtts", profile: VoiceProfile) -> "tuple[Tensor, Tensor]":
     """Average the reference clips into a speaker embedding once, up front.
 
     Recomputing this per chunk is the single biggest waste in a naive
     implementation; a full book is tens of thousands of chunks.
     """
-    inner = getattr(model, "synthesizer", None)
-    tts_model = inner.tts_model if inner is not None else model
-    gpt_cond_latent, speaker_embedding = tts_model.get_conditioning_latents(
+    gpt_cond_latent, speaker_embedding = model.get_conditioning_latents(
         audio_path=profile.reference_wavs,
         gpt_cond_len=30,
         max_ref_length=60,
     )
-    return tts_model, gpt_cond_latent, speaker_embedding
+    # XTTS returns a null embedding when it cannot read the references - silence,
+    # a wrong sample rate, or a path that no longer exists. Catch it here rather
+    # than letting inference fail thousands of chunks into a book.
+    if gpt_cond_latent is None or speaker_embedding is None:
+        raise RuntimeError(
+            f"could not derive speaker latents for '{profile.name}' from "
+            f"{len(profile.reference_wavs)} reference clips; check that they exist, "
+            f"are {profile.sample_rate} Hz mono and are not silent"
+        )
+    return gpt_cond_latent, speaker_embedding

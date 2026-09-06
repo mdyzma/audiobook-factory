@@ -28,9 +28,13 @@ def load_config(root: Path) -> dict:
 
 def split_sentences(text: str, language: str) -> list[str]:
     import pysbd
+    from pysbd.languages import LANGUAGE_CODES
 
-    lang = language if language in pysbd.languages.LANGUAGE_CODES else "en"
-    return [s.strip() for s in pysbd.Segmenter(language=lang, clean=False).segment(text) if s.strip()]
+    # pysbd covers 23 languages; anything else falls back to English rules, which
+    # still break on sentence punctuation and are better than not splitting.
+    lang = language if language in LANGUAGE_CODES else "en"
+    segments = pysbd.Segmenter(language=lang, clean=False).segment(text)
+    return [s.strip() for s in segments if s and s.strip()]
 
 
 def hard_split(sentence: str, limit: int) -> list[str]:

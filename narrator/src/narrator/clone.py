@@ -35,8 +35,8 @@ def main(
     dev = pick_device(device)
     typer.echo(f"cloning '{voice}' from {len(profile.reference_wavs)} references on {dev}")
 
-    model = load_model(profile, dev)
-    tts_model, gpt_cond_latent, speaker_embedding = compute_latents(model, profile)
+    tts_model = load_model(profile, dev)
+    gpt_cond_latent, speaker_embedding = compute_latents(tts_model, profile)
 
     cache_dir = root / "data" / "voices" / voice
     cache_dir.mkdir(parents=True, exist_ok=True)
