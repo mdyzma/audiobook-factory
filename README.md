@@ -29,7 +29,7 @@ On Windows, from PowerShell: `.\install.ps1`. It needs Git for Windows, because
 every recipe runs through bash.
 
 The installer checks for `uv`, `just` and `ffmpeg`, installs whatever is missing,
-then builds the three environments. `./install.sh --check` reports without
+then builds the four environments. `./install.sh --check` reports without
 changing anything.
 
 Then point it at a recording of your voice and an ebook:
@@ -78,12 +78,31 @@ The commands you need day to day:
 | `just setup` | Install everything, once per machine |
 | `just doctor` | Show what each environment resolved |
 | `just check` | Schemas, types and tests, about 8 seconds |
+| `just progress <slug>` | Live state of a running render |
 | `just preview <slug> <voice>` | Render 20 fragments to sample the voice |
 | `just book-dry <source> <slug>` | Whole structure with silence, no models |
 | `just ui` | Local dashboard: browse, listen, and run stages |
 
 Step by step for common tasks: [docs/RUNBOOK.md](docs/RUNBOOK.md).
 Full command reference: [docs/COMMANDS.md](docs/COMMANDS.md).
+
+## The dashboard
+
+```bash
+just ui        # http://127.0.0.1:8765
+```
+
+Browse books and voices, listen to the audition clip and the finished audiobook,
+watch a render as it happens, start and cancel stages, upload a sample or an
+ebook, edit the cast, correct who speaks a line, and review what the quality
+check flagged.
+
+It binds to localhost deliberately: it serves everything under `data/`, it starts
+processes, and there is no authentication.
+
+From the terminal instead, a render can be followed with `just progress <slug>`
+or `just watch <slug>`, which is useful because a long synthesis writes nothing
+else until it finishes.
 
 ## Casting voices
 
@@ -133,7 +152,7 @@ lands cleanly.
 ## Tests and types
 
 ```bash
-just check          # schemas + pyright + pytest across all three environments
+just check          # schemas + pyright + pytest across all four environments
 just test           # tests only, about 3 seconds
 just typecheck      # types only
 just test-one narrator -k formatter
@@ -155,15 +174,16 @@ The pipeline is still covered end to end, because the dry-run renderer stands in
 for synthesis. What the suite cannot reach is covered by `just check-narrator`,
 which loads XTTS for real, and by fine-tuning, which needs CUDA.
 
-## Why three environments
+## Why the split
 
 `whisperx` requires pandas 2.x. `tts` 0.22.0 requires pandas 1.x. There is no
 resolution, and forcing one produces an environment where XTTS fails at
 inference because numpy 2.x changed its API.
 
-So they never share a virtualenv. Each is a separate uv project with its own
-lock, and `data/` is the only thing they have in common. The full reasoning,
-including every pin and why it is load-bearing, is in
+So they never share a virtualenv. Each is a separate uv project under `apps/`
+with its own lock, and `data/` is the only thing they have in common. A fourth,
+the dashboard, joined later; it carries no ML and depends on bookbinder by path.
+The full reasoning, including every pin and why it is load-bearing, is in
 [docs/DECISIONS.md](docs/DECISIONS.md).
 
 | Environment | Role | numpy | pandas |
@@ -171,6 +191,7 @@ including every pin and why it is load-bearing, is in
 | `apps/transcriber/` | Cuts and labels the voice sample | 2.4.6 | 3.0.5 |
 | `apps/bookbinder/` | Ebook parsing, chunking, final mux | none | none |
 | `apps/narrator/` | Voice cloning and speech synthesis | 1.26.4 | 1.5.3 |
+| `apps/studio/` | The dashboard | none | none |
 
 ## Repository layout
 
@@ -253,6 +274,21 @@ owns the manifest models. They communicate only through
 files under `data/`. The shape of those files is defined in
 `apps/bookbinder/src/bookbinder/manifest.py` and exported to `docs/schemas/`, which
 is what keeps the two environments that cannot import it in step.
+
+## Containers
+
+Two profiles. `cpu` runs anywhere, including macOS; `gpu` needs an NVIDIA host
+with `nvidia-container-toolkit`.
+
+```bash
+just docker-build     # bookbinder and studio; no GPU needed
+just docker-smoke     # ebook -> chaptered m4b of silence, entirely in containers
+just docker-ui        # the dashboard in a container
+```
+
+The CPU images are built and verified. The CUDA images are written against a
+12.8 base for Blackwell but have never been built, because those bases are amd64
+only. See [docs/ROADMAP-DOCKER.md](docs/ROADMAP-DOCKER.md).
 
 ## Documentation
 
