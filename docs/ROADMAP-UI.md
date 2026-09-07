@@ -196,6 +196,19 @@ phase 2 is where surprises live, because process supervision across three
 environments on two operating systems is the kind of thing that looks finished
 and then is not.
 
+## Closed afterwards
+
+Writing the non-technical manual exposed a gap the phases had missed: a sample
+could be uploaded through the dashboard, but turning it into a usable voice
+still meant opening a terminal, and the library page said so in plain sight.
+There is now a **Create voice** button, with the voice name and language beside
+each sample. It locks on the voice rather than a book, so two runs cannot build
+the same voice while leaving book renders unaffected.
+
+Worth remembering as a pattern: the gap was invisible from inside the phase
+plan, and obvious the moment the interface was described to someone who does
+not use a terminal.
+
 ## What to do first
 
 Phases 0 to 4 are done. Only phase 5, desktop packaging, remains, and it is the

@@ -19,7 +19,7 @@ from studio import data
 from studio.data import UnsafeName
 from studio import authoring
 from studio.authoring import AuthoringError
-from studio.jobs import ACTIONS, FORMATS, JobError, JobRunner
+from studio.jobs import ACTIONS, FORMATS, LANGUAGES, JobError, JobRunner
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -289,8 +289,11 @@ def _authoring(fn, *args, **kwargs):
 @app.get("/library", response_class=HTMLResponse)
 def library(request: Request):
     """Uploaded material, and the cast that decides who reads it."""
+    jobs = runner().jobs()
     return TEMPLATES.TemplateResponse(request, "library.html", {
         "samples": authoring.list_raw(root(), "voice"),
+        "active": next((j for j in jobs if j.running), None),
+        "languages": sorted(LANGUAGES),
         "books": authoring.list_raw(root(), "book"),
         "cast": authoring.read_cast(root()),
         "voices": data.list_voices(root()),

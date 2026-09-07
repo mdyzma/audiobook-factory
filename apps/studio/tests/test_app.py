@@ -254,3 +254,20 @@ class TestQualityReview:
         r = client.post("/api/jobs", json={"action": "resynth",
                                            "args": {"slug": "solaris", "chunks": "../etc"}})
         assert r.status_code == 409
+
+
+class TestVoiceCreationRoute:
+    def test_library_offers_a_create_button_not_a_command(self, client, project):
+        samples = project / "data" / "raw" / "voices"
+        samples.mkdir(parents=True, exist_ok=True)
+        (samples / "michal.wav").write_bytes(b"RIFF")
+        r = client.get("/library")
+        assert "Create voice" in r.text
+        # The page used to tell people to go and run this themselves.
+        assert "just voice" not in r.text
+
+    def test_creating_a_voice_validates_its_arguments(self, client):
+        r = client.post("/api/jobs", json={"action": "voice",
+                                           "args": {"sample": "../etc/passwd.wav",
+                                                    "name": "x", "language": "pl"}})
+        assert r.status_code == 409

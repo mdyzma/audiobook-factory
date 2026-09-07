@@ -2,9 +2,9 @@
 
 This turns an ebook into an audiobook read aloud in a voice you record yourself.
 
-You do not need to know how any of it works. Almost everything happens in a
-normal web page on your own computer. There are two moments where you type a
-command, and both are copied out below exactly as you should type them.
+You do not need to know how any of it works. Everything happens in a normal web
+page on your own computer, apart from two short commands to install it and to
+open that page. Both are written out below exactly as you should type them.
 
 ---
 
@@ -114,33 +114,26 @@ Your recording now appears under **Voice samples**.
 
 ## 5. Making the voice usable
 
-This is one of the two moments that need the Terminal.
+Your recording is now listed under **Voice samples**, with a box beside it.
 
-Look at your recording in the **Voice samples** list and note its filename, for
-example `michal.wav`. Then open a **second** Terminal window, so the control
-panel keeps running in the first, and type:
+1. Type a name for the voice into the box. Lowercase letters and no spaces, such
+   as `michal` or `narrator`.
+2. Choose the language you read in from the dropdown beside it.
+3. Click **Create voice**.
 
-```
-cd audiobook-factory
-just voice data/raw/voices/michal.wav myvoice
-```
+This takes a few minutes. The page shows what it is doing as it goes, and you
+can stop it with **Cancel**. The first time is slower, because it downloads a
+speech model it then keeps.
 
-Replace `michal.wav` with your filename. Replace `myvoice` with whatever you
-want to call the voice; keep it to lowercase letters, no spaces.
+When it finishes, your voice appears under **Voices** on the front page. Click
+it and press play on the clip.
 
-This takes a few minutes and prints several lines as it works. The last lines
-mention an **audition**.
-
-Go back to the control panel, reload the page, and your voice appears under
-**Voices**. Click it, and press play on the clip. **Listen to it now.** This is
-the moment to judge whether the voice sounds right, before spending hours on a
-whole book.
+**Listen to it now.** This is the moment to judge whether the voice sounds right,
+before spending hours on a whole book.
 
 If it sounds thin, muffled or robotic, the recording is usually the cause rather
 than the computer. Record again somewhere quieter, closer to the microphone, or
 for longer.
-
----
 
 ## 6. Adding a book
 

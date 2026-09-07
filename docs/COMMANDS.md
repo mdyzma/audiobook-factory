@@ -44,7 +44,7 @@ pass `""` for the ones between.
 | `just label <voice> <device="auto"> <language="pl">` | Cuts the sample on WhisperX alignment boundaries and transcribes each piece. |
 | `just clone <voice> <device="auto">` | Derives speaker latents and renders an audition clip to judge the clone. |
 | `just train <voice> <language="pl"> <epochs="10"> <batch="3"> <accum="84">` | Optional full fine-tune. CUDA only. `batch * accum` is the effective batch size; keep it near 250. |
-| `just voice <input> <name> <language="pl">` | Stage 1 end to end: clean, label, clone. |
+| `just voice <input> <name> <language="pl">` | Stage 1 end to end: clean, label, clone. The dashboard's **Create voice** button runs this. |
 
 ## Stages 2 and 3: prepare the text
 

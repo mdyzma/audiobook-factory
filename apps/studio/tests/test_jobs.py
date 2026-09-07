@@ -263,3 +263,82 @@ class TestPrune:
 
     def test_pruning_an_empty_store_is_harmless(self, project):
         assert JobRunner(project).prune()["removed"] == 0
+
+
+class TestVoiceCreation:
+    """Turning an uploaded recording into a usable voice.
+
+    Without this the dashboard could accept a sample and then leave the user in
+    a terminal, which defeats the point of having a dashboard.
+    """
+
+    def _sample(self, project, name="michal.wav"):
+        d = project / "data" / "raw" / "voices"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / name).write_bytes(b"RIFF")
+        return name
+
+    def test_accepts_an_uploaded_sample(self, project, runner):
+        self._sample(project)
+        clean = runner.validate("voice", {"sample": "michal.wav", "name": "michal",
+                                          "language": "pl"})
+        assert clean["sample"].endswith("michal.wav")
+        assert clean["name"] == "michal"
+        assert clean["language"] == "pl"
+
+    def test_refuses_a_sample_that_was_not_uploaded(self, project, runner):
+        with pytest.raises(JobError, match="no uploaded sample"):
+            runner.validate("voice", {"sample": "absent.wav", "name": "x", "language": "pl"})
+
+    def test_refuses_a_file_that_is_not_audio(self, project, runner):
+        self._sample(project, "notes.txt")
+        with pytest.raises(JobError, match="invalid sample file"):
+            runner.validate("voice", {"sample": "notes.txt", "name": "x", "language": "pl"})
+
+    @pytest.mark.parametrize("bad", ["../etc", "a/b", "a;rm -rf /", ""])
+    def test_refuses_an_unsafe_name(self, project, runner, bad):
+        self._sample(project)
+        with pytest.raises(JobError, match="invalid name"):
+            runner.validate("voice", {"sample": "michal.wav", "name": bad, "language": "pl"})
+
+    def test_refuses_a_language_the_model_cannot_read(self, project, runner):
+        self._sample(project)
+        with pytest.raises(JobError, match="unsupported language"):
+            runner.validate("voice", {"sample": "michal.wav", "name": "x",
+                                      "language": "klingon"})
+
+    def test_language_defaults_rather_than_failing(self, project, runner):
+        self._sample(project)
+        clean = runner.validate("voice", {"sample": "michal.wav", "name": "x",
+                                          "language": ""})
+        assert clean["language"] == "pl"
+
+    def test_it_locks_the_voice_not_a_book(self, project):
+        # Two runs must not build the same voice at once, but a voice job should
+        # never block a book render.
+        assert ACTIONS["voice"]["lock_key"] == "name"
+
+        store = JobStore(project)
+        store.dir.mkdir(parents=True, exist_ok=True)
+        holder = Job(id="voicejobaaaa", action="voice",
+                     args={"sample": "s.wav", "name": "michal", "language": "pl"},
+                     status="running", pid=os.getpid(),
+                     started_at="2026-01-01T00:00:00+00:00")
+        store.save(holder)
+        store.acquire("michal", holder.id)
+        assert store.holder("michal") == holder.id
+        # A book render is unaffected.
+        assert store.holder("solaris") is None
+
+    def test_a_finished_voice_job_releases_its_lock(self, project):
+        store = JobStore(project)
+        store.dir.mkdir(parents=True, exist_ok=True)
+        job = Job(id="voicejobbbbb", action="voice",
+                  args={"sample": "s.wav", "name": "michal", "language": "pl"},
+                  status="succeeded", pid=999999,
+                  started_at="2026-01-01T00:00:00+00:00")
+        store.save(job)
+        store.locks.mkdir(parents=True, exist_ok=True)
+        store.lock_path("michal").write_text(job.id, encoding="utf-8")
+        store.release(job)
+        assert not store.lock_path("michal").exists()

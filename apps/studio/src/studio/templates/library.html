@@ -26,17 +26,37 @@
 
 <h2>Voice samples</h2>
 <div class="card">
-  {% if samples %}
+  {% if active and active.action == "voice" %}
+    <div class="row">
+      <span class="title">Creating the voice &lsquo;{{ active.voice }}&rsquo;</span>
+      <button class="danger" onclick="cancelJob('{{ active.id }}')">Cancel</button>
+    </div>
+    <div class="meta">Cleaning the recording, cutting it up, then cloning. A few
+      minutes; the first run also downloads a speech model.</div>
+    <pre class="log" id="log">loading…</pre>
+    <script>followJob('{{ active.id }}', '');</script>
+  {% elif samples %}
   <table>
-    <tr><th>file</th><th>size</th><th></th></tr>
+    <tr><th>file</th><th>size</th><th>make a voice from it</th></tr>
     {% for s in samples %}
     <tr>
       <td><code>{{ s.name }}</code></td>
       <td class="meta">{{ (s.bytes / 1048576) | round(1) }} MB</td>
-      <td class="meta">clone with <code>just voice {{ s.path }} &lt;name&gt;</code></td>
+      <td>
+        <input type="text" id="vname-{{ loop.index }}" placeholder="name it"
+               style="width:8rem" value="">
+        <select id="vlang-{{ loop.index }}">
+          {% for l in languages %}
+          <option value="{{ l }}" {% if l == "pl" %}selected{% endif %}>{{ l }}</option>
+          {% endfor %}
+        </select>
+        <button onclick="createVoice('{{ s.name }}', {{ loop.index }}, this)">Create voice</button>
+      </td>
     </tr>
     {% endfor %}
   </table>
+  <div class="meta">Takes a few minutes. Listen to the audition afterwards before
+    using it for a whole book.</div>
   {% else %}<div class="meta">Nothing uploaded yet.</div>{% endif %}
 </div>
 
@@ -107,6 +127,18 @@ async function upload(kind, inputId, button) {
     await api('/api/upload/' + kind, {method: 'POST', body});
     location.reload();
   } catch (e) { note.textContent = e.message; button.disabled = false; }
+}
+
+function createVoice(sample, index, button) {
+  const name = (document.getElementById('vname-' + index).value || '').trim().toLowerCase();
+  const note = document.getElementById('note');
+  note.textContent = '';
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(name)) {
+    note.textContent = 'Give the voice a name: lowercase letters, digits, hyphens.';
+    return;
+  }
+  const language = document.getElementById('vlang-' + index).value;
+  startJob('voice', {sample, name, language}, button);
 }
 
 function addRole() {

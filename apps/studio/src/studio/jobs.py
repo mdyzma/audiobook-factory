@@ -27,12 +27,21 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from bookbinder.manifest import XTTS_CHAR_LIMITS
+
 from studio.data import UnsafeName, check_name
+
+# What the speech model can actually read. Offering more would fail later.
+LANGUAGES = frozenset(XTTS_CHAR_LIMITS)
 
 # Actions the dashboard may start, and how each maps to a `just` recipe.
 # `args` names the parameters the action takes, in the order the recipe wants
 # them. Anything not in this table cannot be run.
 ACTIONS: dict[str, dict] = {
+    # Cleans a recording, cuts and labels it, then clones the voice. Minutes,
+    # not seconds: the labelling step downloads a speech model the first time.
+    "voice":    {"recipe": "voice",    "args": ["sample", "name", "language"],
+                 "locks": True, "lock_key": "name"},
     "ingest":   {"recipe": "ingest",   "args": ["source", "slug"],  "locks": False},
     "chunk":    {"recipe": "chunk",    "args": ["slug"],            "locks": False},
     "dryrun":   {"recipe": "dryrun",   "args": ["slug"],            "locks": True},
@@ -77,7 +86,13 @@ class Job:
 
     @property
     def voice(self) -> str:
-        return self.args.get("voice", "")
+        # `voice` for actions that use one, `name` for the action that makes one.
+        return self.args.get("voice") or self.args.get("name", "")
+
+    @property
+    def lock_target(self) -> str:
+        spec = ACTIONS.get(self.action) or {}
+        return self.args.get(spec.get("lock_key", "slug"), "")
 
     @property
     def running(self) -> bool:
@@ -242,9 +257,10 @@ class JobStore:
         self.lock_path(slug).write_text(job_id, encoding="utf-8")
 
     def release(self, job: Job) -> None:
-        if not job.slug:
+        target = job.lock_target
+        if not target:
             return
-        path = self.lock_path(job.slug)
+        path = self.lock_path(target)
         if path.exists() and path.read_text(encoding="utf-8").strip() == job.id:
             path.unlink(missing_ok=True)
 
@@ -285,6 +301,18 @@ class JobRunner:
                         raise JobError(f"invalid fragment id: {chunk_id!r}")
                 clean[name] = ",".join(ids)
                 continue
+            if name == "sample":
+                clean[name] = self._raw_voice(value)
+                continue
+            if name == "language":
+                code = value.lower() or "pl"
+                if code not in LANGUAGES:
+                    raise JobError(
+                        f"unsupported language '{value}'; the model handles "
+                        + ", ".join(sorted(LANGUAGES))
+                    )
+                clean[name] = code
+                continue
             if name == "source":
                 # A file already inside data/raw/books, never an arbitrary path:
                 # the caller picks from what has been uploaded.
@@ -295,6 +323,17 @@ class JobRunner:
             except UnsafeName:
                 raise JobError(f"invalid {name}: {value!r}")
         return clean
+
+    def _raw_voice(self, name: str) -> str:
+        from studio.authoring import VOICE_SUFFIXES
+
+        candidate = Path(name)
+        if candidate.name != name or candidate.suffix.lower() not in VOICE_SUFFIXES:
+            raise JobError(f"invalid sample file: {name!r}")
+        path = self.root / "data" / "raw" / "voices" / candidate.name
+        if not path.is_file():
+            raise JobError(f"no uploaded sample named {name!r}")
+        return str(path.relative_to(self.root))
 
     def _raw_book(self, name: str) -> str:
         from studio.authoring import BOOK_SUFFIXES
@@ -321,7 +360,9 @@ class JobRunner:
         )
 
         if spec["locks"]:
-            self.store.acquire(clean["slug"], job.id)
+            # Most actions lock the book they render; creating a voice locks the
+            # voice instead, so two runs cannot build the same one at once.
+            self.store.acquire(clean[spec.get("lock_key", "slug")], job.id)
 
         self.store.dir.mkdir(parents=True, exist_ok=True)
         log = self.store.log_path(job.id)

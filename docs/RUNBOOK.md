@@ -123,7 +123,8 @@ ffmpeg -f avfoundation -i ":0" -ar 48000 -ac 1 -t 240 data/raw/voices/michal.wav
 Press `q` when you finish. Mistakes cost nothing: the recording gets cut into
 fragments, so a repeated sentence just becomes another fragment.
 
-**2. Clean, label, clone.** One command for all three:
+**2. Clean, label, clone.** One command for all three, or the **Create voice**
+button beside the sample in `just ui`, which runs the same thing:
 
 ```
 $ just voice data/raw/voices/michal.wav michal
