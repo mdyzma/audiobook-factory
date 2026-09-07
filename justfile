@@ -166,7 +166,21 @@ verify slug sample="0":
     cd transcriber && uv run python -m transcriber.verify "{{slug}}" \
       {{ if sample != "0" { "--sample " + sample } else { "" } }}
 
-# Show the report from the last render.
+# Live progress of a running render. Safe to run from another terminal.
+progress slug:
+    cd bookbinder && uv run python -m bookbinder.progress "{{slug}}"
+
+# Follow a render until it finishes.
+watch slug interval="5":
+    #!/usr/bin/env bash
+    while true; do
+        clear
+        just progress "{{slug}}" || break
+        grep -q '"running": false' "data/audio/{{slug}}/progress.json" && break
+        sleep {{interval}}
+    done
+
+# Show the report from the last finished render.
 report slug:
     @cat "data/audio/{{slug}}/report.json"
 

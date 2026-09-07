@@ -82,6 +82,17 @@
       "title": "Finished At",
       "type": "string"
     },
+    "ok": {
+      "readOnly": true,
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "realtime_factor": {
+      "description": "Seconds of audio produced per second of wall clock.",
+      "readOnly": true,
+      "title": "Realtime Factor",
+      "type": "number"
+    },
     "schema_version": {
       "default": 1,
       "title": "Schema Version",
@@ -104,7 +115,9 @@
     }
   },
   "required": [
-    "slug"
+    "slug",
+    "realtime_factor",
+    "ok"
   ],
   "title": "RenderReport",
   "type": "object"

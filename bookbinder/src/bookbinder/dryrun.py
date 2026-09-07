@@ -14,6 +14,7 @@ which is also what lets CI cover it.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -22,7 +23,13 @@ from pathlib import Path
 import typer
 
 from bookbinder.cast import Cast
-from bookbinder.manifest import RenderFailure, RenderReport, read_book, read_chunks
+from bookbinder.manifest import (
+    RenderFailure,
+    RenderProgress,
+    RenderReport,
+    read_book,
+    read_chunks,
+)
 
 app = typer.Typer(add_completion=False)
 
@@ -87,6 +94,15 @@ def main(
                       f"but data/voices/{voice}.json does not exist",
             ))
 
+    # Same live view the narrator writes, so anything watching a render does not
+    # care whether it is real or dry.
+    progress_path = out_dir / "progress.json"
+    progress = RenderProgress(
+        slug=slug, running=True, pid=os.getpid(), dry_run=True, device="none",
+        started_at=report.started_at, chunks_total=len(chunks),
+    )
+    progress.write(progress_path)
+
     lines = []
     for chunk in chunks:
         wav = out_dir / f"{chunk.id}.wav"
@@ -101,7 +117,20 @@ def main(
         report.audio_sec += chunk.duration_sec
         lines.append(chunk.model_dump_json())
 
+        progress.chunks_done = report.chunks_rendered
+        progress.chunks_rendered = report.chunks_rendered
+        progress.chunks_failed = len(report.failures)
+        progress.audio_sec = report.audio_sec
+        progress.current_chunk_id = chunk.id
+        progress.elapsed_sec = round(time.time() - started, 3)
+        progress.updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        progress.write(progress_path)
+
     (out_dir / "rendered.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    progress.running = False
+    progress.updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    progress.write(progress_path)
 
     report.finished_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     report.elapsed_sec = round(time.time() - started, 3)

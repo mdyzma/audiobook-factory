@@ -16,6 +16,7 @@ rendered.jsonl with real durations, and report.json describing the run.
 from __future__ import annotations
 
 import json
+import os
 import time
 import tomllib
 from datetime import datetime, timezone
@@ -38,6 +39,20 @@ app = typer.Typer(add_completion=False)
 # numpy), so the report shape is mirrored here. It is validated on the
 # bookbinder side; docs/schemas/render_report_v1.json is the contract.
 SCHEMA_VERSION = 1
+
+
+# How often progress.json is rewritten. Synthesising a fragment takes seconds,
+# so per-fragment writes are free; skipped fragments are near-instant on a
+# resumed run, hence the throttle.
+PROGRESS_INTERVAL_SEC = 0.5
+
+
+def write_progress(path: Path, payload: dict) -> None:
+    """Atomic, because a reader may poll this while it is being rewritten."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
 
 
 def load_synth_config(root: Path) -> dict:
@@ -135,6 +150,43 @@ def main(
     skipped = 0
     audio_seconds = 0.0
 
+    # A book is hours of work and report.json only lands at the end, so this is
+    # the only view into a running render. Shape mirrors bookbinder's
+    # RenderProgress; docs/schemas/render_progress_v1.json is the contract.
+    progress_path = out_dir / "progress.json"
+    last_progress = 0.0
+
+    def progress(chunk_id: str = "", chunk_voice: str = "", running: bool = True) -> None:
+        elapsed = time.time() - started
+        done = len(rendered)
+        write_progress(progress_path, {
+            "schema_version": SCHEMA_VERSION,
+            "slug": slug,
+            "running": running,
+            "pid": os.getpid(),
+            "dry_run": False,
+            "device": dev,
+            "started_at": started_at,
+            "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "elapsed_sec": round(elapsed, 3),
+            "chunks_total": len(chunks),
+            "chunks_done": done,
+            "chunks_rendered": done - skipped,
+            "chunks_skipped": skipped,
+            "chunks_failed": len(failures),
+            "audio_sec": round(audio_seconds, 3),
+            "current_chunk_id": chunk_id,
+            "current_voice": chunk_voice,
+            "last_error": failures[-1]["error"] if failures else "",
+            "percent": round(100 * done / len(chunks), 1) if chunks else 0.0,
+            "eta_sec": (
+                round((len(chunks) - done) * (elapsed / (done - skipped)), 1)
+                if done > skipped and len(chunks) > done else 0.0
+            ),
+        })
+
+    progress()
+
     for chunk in tqdm(chunks, desc="synth"):
         wav_path = out_dir / f"{chunk['id']}.wav"
         chunk_voice = voice_for(chunk)
@@ -146,6 +198,9 @@ def main(
             audio_seconds += info.duration
             skipped += 1
             rendered.append(chunk)
+            if time.time() - last_progress > PROGRESS_INTERVAL_SEC:
+                progress(chunk["id"], chunk_voice)
+                last_progress = time.time()
             continue
 
         try:
@@ -165,6 +220,8 @@ def main(
             )
         except Exception as exc:  # a single bad chunk must not kill the run
             failures.append({"chunk_id": chunk["id"], "error": f"{type(exc).__name__}: {exc}"})
+            progress(chunk["id"], chunk_voice)
+            last_progress = time.time()
             continue
 
         sf.write(wav_path, out["wav"], profile.sample_rate)
@@ -173,6 +230,10 @@ def main(
         chunk["duration_sec"] = round(duration, 3)
         audio_seconds += duration
         rendered.append(chunk)
+        progress(chunk["id"], chunk_voice)
+        last_progress = time.time()
+
+    progress(running=False)
 
     manifest_path = out_dir / "rendered.jsonl"
     with manifest_path.open("w", encoding="utf-8") as fh:

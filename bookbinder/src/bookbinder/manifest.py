@@ -191,12 +191,20 @@ def read_book(path: Path) -> BookMeta:
 
 
 def json_schemas() -> dict[str, dict]:
-    """The exported contract. Written to docs/schemas/ by `just schemas`."""
+    """The exported contract. Written to docs/schemas/ by `just schemas`.
+
+    Serialization mode, not the default validation mode. These schemas describe
+    files as they exist on disk, and computed fields such as `percent` and
+    `realtime_factor` are written into those files but omitted from a validation
+    schema. narrator and transcriber mirror these shapes by hand, so a schema
+    that hid half the fields would be worse than useless to them.
+    """
     return {
-        f"chunk_v{SCHEMA_VERSION}": Chunk.model_json_schema(),
-        f"book_meta_v{SCHEMA_VERSION}": BookMeta.model_json_schema(),
-        f"render_report_v{SCHEMA_VERSION}": RenderReport.model_json_schema(),
-        f"qa_report_v{SCHEMA_VERSION}": QaReport.model_json_schema(),
+        f"chunk_v{SCHEMA_VERSION}": Chunk.model_json_schema(mode="serialization"),
+        f"book_meta_v{SCHEMA_VERSION}": BookMeta.model_json_schema(mode="serialization"),
+        f"render_report_v{SCHEMA_VERSION}": RenderReport.model_json_schema(mode="serialization"),
+        f"render_progress_v{SCHEMA_VERSION}": RenderProgress.model_json_schema(mode="serialization"),
+        f"qa_report_v{SCHEMA_VERSION}": QaReport.model_json_schema(mode="serialization"),
     }
 
 
@@ -241,6 +249,64 @@ class RenderReport(ReportModel):
     def write(self, path: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(self.model_dump_json(indent=2), encoding="utf-8")
+        return path
+
+
+class RenderProgress(ReportModel):
+    """Written repeatedly *during* a render, unlike RenderReport.
+
+    A book is hours of work and `report.json` only appears at the end, so
+    nothing could see inside a run. This is the live view: a UI polls it, and
+    `just progress <slug>` prints it.
+
+    Readers must treat `running` as a claim, not a fact. A killed process leaves
+    it true forever, so compare `updated_at` against the clock: a render that
+    has not moved in minutes is dead, whatever the file says.
+    """
+
+    schema_version: int = SCHEMA_VERSION
+    slug: str = Field(min_length=1)
+    running: bool = True
+    pid: int = Field(default=0, ge=0, description="Writer's process id, to check liveness")
+    dry_run: bool = False
+    device: str = ""
+    started_at: str = ""
+    updated_at: str = ""
+    elapsed_sec: float = Field(default=0.0, ge=0)
+    chunks_total: int = Field(default=0, ge=0)
+    chunks_done: int = Field(default=0, ge=0, description="Rendered plus skipped")
+    chunks_rendered: int = Field(default=0, ge=0)
+    chunks_skipped: int = Field(default=0, ge=0)
+    chunks_failed: int = Field(default=0, ge=0)
+    audio_sec: float = Field(default=0.0, ge=0)
+    current_chunk_id: str = ""
+    current_voice: str = ""
+    last_error: str = ""
+
+    @computed_field
+    @property
+    def percent(self) -> float:
+        return round(100 * self.chunks_done / self.chunks_total, 1) if self.chunks_total else 0.0
+
+    @computed_field
+    @property
+    def eta_sec(self) -> float:
+        """Seconds remaining, from the rate achieved so far.
+
+        Based on chunks actually rendered, not on chunks done: skipped ones cost
+        nothing and would make the estimate wildly optimistic on a resumed run.
+        """
+        if not self.chunks_rendered or not self.elapsed_sec:
+            return 0.0
+        remaining = self.chunks_total - self.chunks_done
+        return round(remaining * (self.elapsed_sec / self.chunks_rendered), 1) if remaining > 0 else 0.0
+
+    def write(self, path: Path) -> Path:
+        """Atomic, because a UI polls this file while it is being rewritten."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(self.model_dump_json(indent=2), encoding="utf-8")
+        tmp.replace(path)
         return path
 
 

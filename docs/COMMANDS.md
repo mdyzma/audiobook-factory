@@ -67,7 +67,9 @@ pass `""` for the ones between.
 | Command | What it does |
 |---|---|
 | `just verify <slug> <sample="0">` | Re-transcribes the rendered audio and flags chunks that disagree with the source. `sample=20` checks every 20th chunk. |
-| `just report <slug>` | Prints the report from the last render. |
+| `just progress <slug>` | Live state of a running render. Safe from another terminal. |
+| `just watch <slug> <interval="5">` | Follows a render until it finishes. |
+| `just report <slug>` | Prints the report from the last finished render. |
 
 ## Whole runs
 

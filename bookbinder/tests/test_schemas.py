@@ -12,7 +12,8 @@ from bookbinder.manifest import json_schemas
 class TestExportedSchemas:
     def test_exports_every_cross_environment_model(self):
         assert set(json_schemas()) == {
-            "chunk_v1", "book_meta_v1", "render_report_v1", "qa_report_v1",
+            "chunk_v1", "book_meta_v1", "render_report_v1",
+            "render_progress_v1", "qa_report_v1",
         }
 
     def test_chunk_carries_what_the_narrator_reads_and_writes(self):
@@ -27,12 +28,27 @@ class TestExportedSchemas:
     def test_book_meta_carries_the_cast(self):
         assert "cast" in json_schemas()["book_meta_v1"]["properties"]
 
+    def test_schemas_describe_computed_fields_too(self):
+        # Exported in serialization mode on purpose: a validation-mode schema
+        # omits computed fields, which are present in the files on disk.
+        assert "realtime_factor" in json_schemas()["render_report_v1"]["properties"]
+        assert "percent" in json_schemas()["render_progress_v1"]["properties"]
+
     def test_render_report_matches_what_narrator_writes(self):
         # narrator/synth.py builds this dict by hand; keep the two in step.
         props = json_schemas()["render_report_v1"]["properties"]
         for field in ("slug", "voice", "cast", "device", "dry_run", "started_at",
                       "finished_at", "elapsed_sec", "chunks_total",
                       "chunks_rendered", "chunks_skipped", "audio_sec", "failures"):
+            assert field in props
+
+    def test_render_progress_matches_what_narrator_writes(self):
+        props = json_schemas()["render_progress_v1"]["properties"]
+        for field in ("slug", "running", "pid", "dry_run", "device", "started_at",
+                      "updated_at", "elapsed_sec", "chunks_total", "chunks_done",
+                      "chunks_rendered", "chunks_skipped", "chunks_failed",
+                      "audio_sec", "current_chunk_id", "current_voice",
+                      "last_error", "percent", "eta_sec"):
             assert field in props
 
     def test_qa_report_matches_what_transcriber_writes(self):

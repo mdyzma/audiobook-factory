@@ -182,6 +182,24 @@ re-running continues:
 rendered 9/9 chunks (9 already present), 0.01 h of audio in 0.0 min (3091.1x realtime)
 ```
 
+**Watching a long render.** `report.json` only appears at the end, so use the
+progress file instead. From any other terminal:
+
+```
+$ just progress solaris
+solaris  [###...........................] 11.1%   running
+  1/9 fragments  (1 rendered, 0 already present)
+  34s elapsed, about 4m 36s left  |  2s of audio on mps
+  at ch001_0000 in 'michal'
+```
+
+`just watch solaris` refreshes it until the render finishes.
+
+Two things to know about the estimate. It is based on the rate so far, so the
+first reading is pessimistic: model loading takes about thirty seconds and is
+charged to the first fragment. And if the state says `STALE`, the process wrote
+nothing for two minutes and has probably died, whatever `running` claims.
+
 **4. Assemble.**
 
 ```

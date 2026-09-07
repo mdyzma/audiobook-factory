@@ -148,6 +148,21 @@ class TestStructuralPipeline:
         assert report["failures"] == []
         assert report["audio_sec"] > 0
 
+    def test_dry_run_leaves_a_finished_progress_file(self, project):
+        run(ingest_mod.app, [str(project / "data/raw/books/solaris.txt"),
+                             "--slug", "solaris", "--language", "pl"])
+        run(chunk_mod.app, ["solaris"])
+        run(dryrun_mod.app, ["solaris"])
+
+        progress = json.loads(
+            (project / "data" / "audio" / "solaris" / "progress.json").read_text(encoding="utf-8"))
+        assert progress["running"] is False
+        assert progress["percent"] == 100.0
+        assert progress["chunks_done"] == progress["chunks_total"]
+        assert progress["dry_run"] is True
+        # Nothing may be left behind mid-write.
+        assert not list((project / "data" / "audio" / "solaris").glob("*.tmp"))
+
     def test_strict_dry_run_fails_on_an_uncloned_voice(self, project):
         run(ingest_mod.app, [str(project / "data/raw/books/solaris.txt"),
                              "--slug", "solaris", "--language", "pl"])

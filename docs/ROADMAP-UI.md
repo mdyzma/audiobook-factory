@@ -58,16 +58,30 @@ one-line decision worth making deliberately rather than by default.
 Ordered so something useful exists early, and each phase is independently worth
 stopping at.
 
-### Phase 0: emit progress — half a day
+### Phase 0: emit progress — DONE (2026-09-07)
 
-`synth` writes `report.json` only when it finishes, so a UI has nothing to show
-during the hours that matter. Counting wav files works but is a guess.
+`synth` and `dryrun` now write `data/audio/<slug>/progress.json` as they go:
+counts, percent, elapsed, ETA, current fragment and voice, last error, and the
+writer's pid. Written atomically, because a UI will poll it while it is being
+rewritten.
 
-Have `synth` write `progress.json` every N fragments: current index, total,
-elapsed, current voice, last error. Small change, and it makes every later phase
-straightforward.
+`RenderProgress` in `manifest.py` is the model, exported to
+`docs/schemas/render_progress_v1.json`. `just progress <slug>` prints it and
+`just watch <slug>` follows a render to completion.
 
-**Worth doing regardless of whether a UI happens.** It also improves the CLI.
+Two details a UI must respect:
+
+- **`running` is a claim, not a fact.** A killed process leaves it true forever.
+  Compare `updated_at` against the clock; the CLI calls a render stale after two
+  minutes of silence.
+- **The ETA is rate-based and starts pessimistic**, because model loading takes
+  about thirty seconds and lands on the first fragment. It settles quickly and
+  is irrelevant on a book with thousands of fragments.
+
+This also uncovered a real defect in the exported schemas: pydantic's default
+schema mode omits computed fields, so `percent`, `eta_sec`, `realtime_factor`
+and `ok` were missing from the published contract even though every writer
+emits them. Schemas are now exported in serialization mode.
 
 ### Phase 1: read-only dashboard — 2 to 3 days
 
@@ -125,7 +139,7 @@ Only worth it if the web UI proves people want to avoid the terminal entirely.
 
 | Phase | Days | Cumulative |
 |---|---|---|
-| 0. Progress signal | 0.5 | 0.5 |
+| 0. Progress signal | done | — |
 | 1. Read-only dashboard | 2–3 | 3.5 |
 | 2. Run the pipeline | 3–4 | 7.5 |
 | 3. Authoring | 4–5 | 12.5 |
@@ -142,11 +156,8 @@ and then is not.
 
 ## What to do first
 
-Phase 0, whatever else happens. It is half a day, it improves the CLI on its own,
-and every other phase depends on it.
-
-Then phase 1, which is enough to see whether a UI is actually wanted before
-committing the week that phase 2 costs.
+Phase 0 is done. Phase 1 is next, and it is enough to see whether a UI is
+actually wanted before committing the week that phase 2 costs.
 
 ## The alternative worth considering
 

@@ -1,0 +1,123 @@
+{
+  "description": "Written repeatedly *during* a render, unlike RenderReport.\n\nA book is hours of work and `report.json` only appears at the end, so\nnothing could see inside a run. This is the live view: a UI polls it, and\n`just progress <slug>` prints it.\n\nReaders must treat `running` as a claim, not a fact. A killed process leaves\nit true forever, so compare `updated_at` against the clock: a render that\nhas not moved in minutes is dead, whatever the file says.",
+  "properties": {
+    "audio_sec": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Audio Sec",
+      "type": "number"
+    },
+    "chunks_done": {
+      "default": 0,
+      "description": "Rendered plus skipped",
+      "minimum": 0,
+      "title": "Chunks Done",
+      "type": "integer"
+    },
+    "chunks_failed": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Chunks Failed",
+      "type": "integer"
+    },
+    "chunks_rendered": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Chunks Rendered",
+      "type": "integer"
+    },
+    "chunks_skipped": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Chunks Skipped",
+      "type": "integer"
+    },
+    "chunks_total": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Chunks Total",
+      "type": "integer"
+    },
+    "current_chunk_id": {
+      "default": "",
+      "title": "Current Chunk Id",
+      "type": "string"
+    },
+    "current_voice": {
+      "default": "",
+      "title": "Current Voice",
+      "type": "string"
+    },
+    "device": {
+      "default": "",
+      "title": "Device",
+      "type": "string"
+    },
+    "dry_run": {
+      "default": false,
+      "title": "Dry Run",
+      "type": "boolean"
+    },
+    "elapsed_sec": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Elapsed Sec",
+      "type": "number"
+    },
+    "eta_sec": {
+      "description": "Seconds remaining, from the rate achieved so far.\n\nBased on chunks actually rendered, not on chunks done: skipped ones cost\nnothing and would make the estimate wildly optimistic on a resumed run.",
+      "readOnly": true,
+      "title": "Eta Sec",
+      "type": "number"
+    },
+    "last_error": {
+      "default": "",
+      "title": "Last Error",
+      "type": "string"
+    },
+    "percent": {
+      "readOnly": true,
+      "title": "Percent",
+      "type": "number"
+    },
+    "pid": {
+      "default": 0,
+      "description": "Writer's process id, to check liveness",
+      "minimum": 0,
+      "title": "Pid",
+      "type": "integer"
+    },
+    "running": {
+      "default": true,
+      "title": "Running",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "slug": {
+      "minLength": 1,
+      "title": "Slug",
+      "type": "string"
+    },
+    "started_at": {
+      "default": "",
+      "title": "Started At",
+      "type": "string"
+    },
+    "updated_at": {
+      "default": "",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "slug",
+    "percent",
+    "eta_sec"
+  ],
+  "title": "RenderProgress",
+  "type": "object"
+}
