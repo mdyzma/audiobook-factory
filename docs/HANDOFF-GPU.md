@@ -24,8 +24,11 @@ in a real cloned voice on Apple Silicon.
 | Assemble | Works. m4b, mp3 or wav, with chapter marks |
 | Verify | Works. Re-transcribes and reports word error rate |
 | **Fine-tune** | **Never run. Needs CUDA. This is the open task.** |
+| Dashboard | Works. `just ui`; browse, listen, run stages, correct roles |
+| Containers (CPU) | Works. `just docker-smoke` builds and runs with no GPU |
+| Containers (CUDA) | **Written, never built.** amd64 only; see below |
 
-141 tests, pyright and schema checks all pass, and CI is green on every commit.
+356 tests, pyright and schema checks all pass, and CI is green on every commit.
 
 ## The one job that needs this machine
 
@@ -46,6 +49,9 @@ just train michal          # language pl, 10 epochs, batch 3, accum 84
 With 32 GB you should be able to raise `batch_size` to 8 or 16 and drop
 `grad_accum` to match. If VRAM runs out, lower `--max-audio-sec` before touching
 batch size, since attention cost scales with the square of clip length.
+
+There is a fourth environment now, `studio/`, which is the dashboard. It carries
+no ML and does not affect any of the above, but `just setup` builds it too.
 
 There is a working voice dataset already: `data/datasets/michal/`, 18 segments
 totalling 1.4 minutes. That is enough to exercise the code path but thin for a
@@ -183,9 +189,12 @@ Model weights are not in the repo. XTTS-v2 downloads on first use, about 1.7 GB.
 
 ## Open items besides fine-tuning
 
-- **Docker is untested.** `docker-compose.yml` passes the GPU through and is
-  written for a CUDA host. It has never been built or run. Its base images also
-  say CUDA 12.4, which has the same Blackwell problem as above.
+- **The CUDA images have never been built.** They now use a `nvidia/cuda:12.8.1`
+  base for Blackwell and install from the committed locks, matching the two CPU
+  images that are verified. But those bases are amd64 only, so nothing about them
+  has been exercised: treat `just docker-build-gpu` as work, not a formality.
+  The CPU profile is proven, so the pattern they follow is known good.
+  Phases 3 to 5 in ROADMAP-DOCKER.md are the plan from there.
 - **PDF ingestion is untested** on a real book. EPUB and plain text are covered.
 - **The narrator's report shape is mirrored by hand** in `synth.py`, because it
   cannot import bookbinder's models. A test pins the two together; if you change

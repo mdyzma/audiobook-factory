@@ -11,14 +11,29 @@ set dotenv-load := true
 
 python_version := "3.11.9"
 
+# `just --list` is colourless, and these recipes print a lot. ANSI codes are
+# emitted through variables so a recipe stays readable, and NO_COLOR is honoured
+# because output is piped into files and CI logs as often as into a terminal.
+# Respecting it costs one conditional and is the difference between a readable
+# log and one full of escape sequences.
+nc := if env_var_or_default("NO_COLOR", "") != "" { "" } else { "\\033[0m" }
+bold := if env_var_or_default("NO_COLOR", "") != "" { "" } else { "\\033[1m" }
+dim := if env_var_or_default("NO_COLOR", "") != "" { "" } else { "\\033[2m" }
+blue := if env_var_or_default("NO_COLOR", "") != "" { "" } else { "\\033[34m" }
+green := if env_var_or_default("NO_COLOR", "") != "" { "" } else { "\\033[32m" }
+yellow := if env_var_or_default("NO_COLOR", "") != "" { "" } else { "\\033[33m" }
+red := if env_var_or_default("NO_COLOR", "") != "" { "" } else { "\\033[31m" }
+
 default:
-    @just --list
+    @printf '{{bold}}audiobook-factory{{nc}}  {{dim}}just <recipe>  ·  docs/RUNBOOK.md{{nc}}\n\n'
+    @just --list --list-heading ''
+
 
 # ---------------------------------------------------------------- setup ----
 
 # Install the interpreter and all three environments. Run once per machine.
 setup: python setup-transcriber setup-bookbinder setup-narrator setup-studio
-    @echo "all environments ready - run 'just doctor' to verify"
+    @printf '{{green}}{{bold}}all four environments ready{{nc}}  {{dim}}run `just doctor` to verify{{nc}}\n' 
 
 # uv downloads a prebuilt 3.11.9; nothing is compiled.
 python:
@@ -47,14 +62,21 @@ gpu-torch env="narrator":
 # --------------------------------------------------------------- checks ----
 
 doctor:
-    @echo "== ffmpeg ==" && (ffmpeg -version | head -1 || echo MISSING)
-    @echo "== uv ==" && uv --version
-    @echo "== transcriber ==" && cd transcriber && uv run python -c \
-      "import numpy, pandas, whisperx, torch; print('numpy', numpy.__version__, '| pandas', pandas.__version__, '| torch', torch.__version__, '| cuda', torch.cuda.is_available())"
-    @echo "== bookbinder ==" && cd bookbinder && uv run python -c \
-      "import ebooklib, pysbd, pypdf; print('ok')"
-    @echo "== narrator ==" && cd narrator && uv run python -c \
-      "import numpy, torch, transformers; print('numpy', numpy.__version__, '| torch', torch.__version__, '| transformers', transformers.__version__, '| cuda', torch.cuda.is_available())"
+    @printf '{{bold}}host{{nc}}\n'
+    @printf '  ffmpeg  %s\n' "$(ffmpeg -version 2>/dev/null | head -1 | cut -d' ' -f3 || echo MISSING)"
+    @printf '  uv      %s\n' "$(uv --version | cut -d' ' -f2)"
+    @printf '  just    %s\n' "$(just --version | cut -d' ' -f2)"
+    @printf '\n{{bold}}environments{{nc}}\n'
+    @cd transcriber && uv run python -c \
+      "import numpy, pandas, torch; print(f'  {{blue}}transcriber{{nc}}  numpy {numpy.__version__}  pandas {pandas.__version__}  torch {torch.__version__}  cuda {torch.cuda.is_available()}')"
+    @cd bookbinder && uv run python -c \
+      "import pydantic, ebooklib; print(f'  {{blue}}bookbinder{{nc}}   pydantic {pydantic.__version__}  no torch')"
+    @cd narrator && uv run python -c \
+      "import numpy, torch, transformers; ok = numpy.__version__.startswith('1.'); \
+       print(f'  {{blue}}narrator{{nc}}     numpy {numpy.__version__}  torch {torch.__version__}  transformers {transformers.__version__}  cuda {torch.cuda.is_available()}'); \
+       print('' if ok else '  {{red}}numpy must be 1.x here or XTTS fails at inference{{nc}}')"
+    @cd studio && uv run python -c \
+      "import fastapi; print(f'  {{blue}}studio{{nc}}       fastapi {fastapi.__version__}  no torch')"
 
 # Regenerate docs/schemas/ from the pydantic models.
 schemas:
@@ -80,7 +102,7 @@ typecheck:
 
 # What to run before committing.
 check: schemas-check typecheck test
-    @echo "schemas, types and tests clean"
+    @printf '{{green}}{{bold}}schemas, types and tests clean{{nc}}\n' 
 
 # Tests for one environment only, with output: just test-one narrator -k formatter
 test-one env *args:

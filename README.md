@@ -142,7 +142,7 @@ just test-one narrator -k formatter
 | Environment | Tests |
 |---|---|
 | bookbinder | 140 |
-| studio | 153 |
+| studio | 179 |
 | transcriber | 20 |
 | narrator | 17 |
 
