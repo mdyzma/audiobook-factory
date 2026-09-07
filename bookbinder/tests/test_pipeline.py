@@ -134,6 +134,67 @@ class TestStructuralPipeline:
         run(chunk_mod.app, ["solaris"])
         assert chunks_path.read_text(encoding="utf-8") == first
 
+    def test_a_role_correction_survives_re_chunking(self, project):
+        """The property the whole override mechanism exists for.
+
+        Chunk ids encode position and are renumbered on every re-chunk, so a
+        correction keyed to one would be stranded. source_ref names the
+        paragraph in the source and outlives the manifest.
+        """
+        from bookbinder import overrides
+
+        run(ingest_mod.app, [str(project / "data/raw/books/solaris.txt"),
+                             "--slug", "solaris", "--language", "pl"])
+        run(chunk_mod.app, ["solaris"])
+
+        book_dir = project / "data" / "book" / "solaris"
+        narration = next(c for c in read_chunks(book_dir / "chunks.jsonl")
+                         if c.kind == "paragraph" and c.role == "narrator")
+        overrides.set_role(book_dir, narration.source_ref, "kelvin")
+
+        # Re-chunk twice: ids change, the correction must not.
+        run(chunk_mod.app, ["solaris"])
+        run(chunk_mod.app, ["solaris"])
+
+        corrected = [c for c in read_chunks(book_dir / "chunks.jsonl")
+                     if c.source_ref == narration.source_ref]
+        assert corrected and all(c.role == "kelvin" for c in corrected)
+        assert all(c.is_dialogue for c in corrected)
+
+    def test_a_correction_reaches_the_recorded_cast(self, project):
+        from bookbinder import overrides
+
+        run(ingest_mod.app, [str(project / "data/raw/books/solaris.txt"),
+                             "--slug", "solaris", "--language", "pl"])
+        run(chunk_mod.app, ["solaris"])
+        book_dir = project / "data" / "book" / "solaris"
+        narration = next(c for c in read_chunks(book_dir / "chunks.jsonl")
+                         if c.kind == "paragraph")
+        overrides.set_role(book_dir, narration.source_ref, "kelvin")
+        run(chunk_mod.app, ["solaris"])
+
+        # An unknown role still resolves, falling back to the narrator's voice.
+        assert "kelvin" in read_book(book_dir / "book.json").cast
+
+    def test_clearing_a_correction_restores_detection(self, project):
+        from bookbinder import overrides
+
+        run(ingest_mod.app, [str(project / "data/raw/books/solaris.txt"),
+                             "--slug", "solaris", "--language", "pl"])
+        run(chunk_mod.app, ["solaris"])
+        book_dir = project / "data" / "book" / "solaris"
+        original = next(c for c in read_chunks(book_dir / "chunks.jsonl")
+                        if c.kind == "paragraph")
+
+        overrides.set_role(book_dir, original.source_ref, "kelvin")
+        run(chunk_mod.app, ["solaris"])
+        overrides.set_role(book_dir, original.source_ref, "")
+        run(chunk_mod.app, ["solaris"])
+
+        restored = next(c for c in read_chunks(book_dir / "chunks.jsonl")
+                        if c.source_ref == original.source_ref)
+        assert restored.role == original.role
+
     def test_render_report_describes_the_run(self, project):
         run(ingest_mod.app, [str(project / "data/raw/books/solaris.txt"),
                              "--slug", "solaris", "--language", "pl"])

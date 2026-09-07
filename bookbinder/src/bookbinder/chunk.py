@@ -26,6 +26,7 @@ from bookbinder.manifest import (
     char_limit,
 )
 from bookbinder.roles import assign_role
+from bookbinder import overrides as role_overrides
 
 app = typer.Typer(add_completion=False)
 
@@ -140,6 +141,9 @@ def main(
         path = cast_file or (root / "config" / "cast.yml")
         cast = Cast.load(path) if path.exists() else Cast.single(voice or NARRATOR_ROLE)
 
+    # Hand corrections, keyed by source_ref so they survive this re-chunk.
+    corrections = role_overrides.load(book_dir)
+
     payload = json.loads(chapters_path.read_text(encoding="utf-8"))
     meta, chapters = payload["meta"], payload["chapters"]
     language = meta.get("language", "pl")
@@ -182,6 +186,12 @@ def main(
             assignment = assign_role(paragraph, cast.known_roles)
             spoken = assignment.text or paragraph
 
+            source_ref = f"{chapter.get('source_ref', '')}#p{p_index}"
+            corrected = corrections.get(source_ref)
+            role = corrected or assignment.role
+            is_dialogue = assignment.is_dialogue or bool(
+                corrected and corrected != NARRATOR_ROLE)
+
             sentences = split_sentences(spoken, language)
             packed = pack(sentences, limit, min_chars)
             for i, text in enumerate(packed):
@@ -190,10 +200,10 @@ def main(
                     id=f"ch{ch_index:03d}_{order:04d}",
                     chapter_index=ch_index, chapter_title=ch_title, order=order,
                     text=text, kind="paragraph", language=language,
-                    role=assignment.role, is_dialogue=assignment.is_dialogue,
+                    role=role, is_dialogue=is_dialogue,
                     pause_after_ms=paragraph_pause if last_in_paragraph
                     else book_cfg.get("sentence_pause_ms", 120),
-                    source_ref=f"{chapter.get('source_ref', '')}#p{p_index}",
+                    source_ref=source_ref,
                 ))
                 order += 1
 
@@ -207,10 +217,12 @@ def main(
 
     oversize = sum(1 for c in manifest.chunks if c.chars > limit)
     dialogue = sum(1 for c in manifest.chunks if c.is_dialogue)
+    applied = sum(1 for c in manifest.chunks if c.source_ref in corrections)
     typer.echo(
         f"{len(manifest.chunks)} chunks across {len(manifest.chapters)} chapters "
         f"(limit {limit} chars for '{language}', {oversize} oversize)\n"
-        f"{dialogue} dialogue chunks; cast: "
+        + (f"{applied} chunks use a hand correction\n" if applied else "")
+        + f"{dialogue} dialogue chunks; cast: "
         + ", ".join(f"{r}->{v}" for r, v in manifest.cast.items()) + "\n"
         f"~{manifest.est_hours} h estimated -> {chunks_path}"
     )

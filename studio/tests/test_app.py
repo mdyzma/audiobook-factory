@@ -155,3 +155,67 @@ class TestJobRoutes:
 
     def test_jobs_list_is_empty_before_anything_runs(self, client):
         assert client.get("/api/jobs").json() == []
+
+
+class TestAuthoringRoutes:
+    def test_library_page(self, client):
+        r = client.get("/library")
+        assert r.status_code == 200
+        assert "Cast" in r.text
+
+    def test_upload_and_list(self, client):
+        r = client.post("/api/upload/book",
+                        files={"file": ("solaris.txt", b"content", "text/plain")})
+        assert r.status_code == 200
+        assert r.json()["name"] == "solaris.txt"
+        assert client.get("/api/raw/book").json()[0]["name"] == "solaris.txt"
+
+    def test_upload_refuses_an_unexpected_extension(self, client):
+        r = client.post("/api/upload/book",
+                        files={"file": ("evil.sh", b"#!/bin/sh", "text/plain")})
+        assert r.status_code == 400
+
+    def test_upload_refuses_an_unknown_kind(self, client):
+        r = client.post("/api/upload/system",
+                        files={"file": ("a.txt", b"x", "text/plain")})
+        assert r.status_code == 400
+
+    def test_set_and_read_a_role_correction(self, client):
+        r = client.post("/api/books/solaris/roles",
+                        json={"source_ref": "c1.xhtml#p2", "role": "kelvin"})
+        assert r.status_code == 200
+        assert client.get("/api/books/solaris/roles").json() == {"c1.xhtml#p2": "kelvin"}
+
+    def test_a_role_correction_is_validated(self, client):
+        r = client.post("/api/books/solaris/roles",
+                        json={"source_ref": "c1.xhtml#p2", "role": "../etc"})
+        assert r.status_code == 400
+
+    def test_a_correction_for_an_unknown_book_is_refused(self, client):
+        r = client.post("/api/books/absent/roles",
+                        json={"source_ref": "x#p1", "role": "kelvin"})
+        assert r.status_code == 400
+
+    def test_read_and_write_the_cast(self, client, project):
+        (project / "config").mkdir(exist_ok=True)
+        (project / "config" / "cast.yml").write_text(
+            "roles:\n  narrator:\n    voice: michal\n", encoding="utf-8")
+        assert client.get("/api/cast").json()["narrator"]["voice"] == "michal"
+
+        r = client.post("/api/cast", json={"roles": {
+            "narrator": {"voice": "michal", "speed": 1.0},
+            "kelvin": {"voice": "michal", "speed": 0.98}}})
+        assert r.status_code == 200
+        assert "kelvin" in r.json()["roles"]
+
+    def test_a_cast_without_a_narrator_is_refused(self, client):
+        r = client.post("/api/cast", json={"roles": {"kelvin": {"voice": "michal"}}})
+        assert r.status_code == 400
+
+    def test_a_malformed_cast_payload_is_refused(self, client):
+        assert client.post("/api/cast", json={"roles": "narrator"}).status_code == 400
+
+    def test_ingest_action_only_accepts_an_uploaded_file(self, client):
+        r = client.post("/api/jobs", json={"action": "ingest",
+                                           "args": {"source": "../../justfile", "slug": "x"}})
+        assert r.status_code == 409

@@ -146,13 +146,32 @@
 
 <h2>Fragments{% if book.chunk_count > chunks | length %}
   <span class="meta">(first {{ chunks | length }} of {{ book.chunk_count }})</span>{% endif %}</h2>
-<div class="card scroll">
+<div class="card">
+  <div class="meta">Role detection is typographic, so it is wrong sometimes. Correcting one here
+    is keyed to the paragraph, not the fragment number, so it survives re-chunking.
+    Re-chunk and re-synthesise to hear a change.
+    {% if overrides %}<strong>{{ overrides | length }} corrected.</strong>{% endif %}</div>
+  <div class="note" id="note"></div>
+  <div class="scroll" style="margin-top:.6rem">
   <table>
     <tr><th>id</th><th>role</th><th>text</th><th></th></tr>
     {% for c in chunks %}
-    <tr>
+    <tr{% if c.source_ref in overrides %} style="background:rgba(122,92,255,.06)"{% endif %}>
       <td><code>{{ c.id }}</code></td>
-      <td>{{ c.role }}{% if c.is_dialogue and c.role != "dialogue" %} <span class="tag">dlg</span>{% endif %}</td>
+      <td>
+        {% if c.kind == "heading" %}
+          <span class="meta">{{ c.role }}</span>
+        {% else %}
+          <select onchange="setRole('{{ book.slug }}', this.dataset.ref, this.value, this)"
+                  data-ref="{{ c.source_ref }}">
+            {% for r in roles %}
+            <option value="{{ r }}" {% if r == c.role %}selected{% endif %}>{{ r }}</option>
+            {% endfor %}
+            {% if c.role not in roles %}<option value="{{ c.role }}" selected>{{ c.role }}</option>{% endif %}
+          </select>
+          {% if c.source_ref in overrides %}<span class="tag">fixed</span>{% endif %}
+        {% endif %}
+      </td>
       <td>{% if c.kind == "heading" %}<strong>{{ c.text }}</strong>{% else %}{{ c.text }}{% endif %}</td>
       <td>{% if c.audio_path %}
         <audio controls preload="none" style="width: 12rem"
@@ -161,6 +180,23 @@
     </tr>
     {% endfor %}
   </table>
+  </div>
 </div>
+
+<script>
+async function setRole(slug, sourceRef, role, el) {
+  const note = document.getElementById('note');
+  note.textContent = '';
+  el.disabled = true;
+  try {
+    await api('/api/books/' + slug + '/roles', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({source_ref: sourceRef, role}),
+    });
+    note.textContent = 'Saved. Re-chunk to apply it, then re-synthesise those fragments.';
+  } catch (e) { note.textContent = e.message; }
+  el.disabled = false;
+}
+</script>
 
 {% endblock %}

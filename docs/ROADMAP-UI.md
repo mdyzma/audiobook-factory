@@ -133,17 +133,27 @@ Three things worth knowing for phase 3:
 - **The server's own virtualenv leaked into jobs**, making uv warn on every one
   that the active environment did not match the project. It is stripped now.
 
-### Phase 3: authoring — 4 to 5 days
+### Phase 3: authoring — DONE (2026-09-07)
 
-Upload a voice sample or record one in the browser. Upload an ebook. Edit
-`config/cast.yml` through a form rather than a text editor. Preview the chunked
-book with each fragment's assigned role, and correct one by hand where the
-typographic detection guessed wrong.
+A library page uploads voice samples and ebooks, records a sample in the browser
+through MediaRecorder, and edits the cast as a form. The book page turns every
+fragment's role into a dropdown.
 
-The role-correction screen is the part with the most product value in the whole
-plan, because it turns a heuristic into something a person can supervise. It also
-needs a manifest change: a corrected role has to survive re-chunking, which means
-storing overrides separately rather than editing `chunks.jsonl`.
+**Corrections are keyed by `source_ref`, not chunk id.** Chunk ids encode
+position, so re-chunking renumbers everything and would strand every correction.
+`source_ref` names the paragraph in the source. They live in
+`data/book/<slug>/role_overrides.json` and `bookbinder.chunk` applies them after
+detection, so the heuristic becomes a starting point a person can overrule.
+Tested by re-chunking twice and asserting the correction holds, and by clearing
+one and asserting detection returns.
+
+**Uploads never take a path from the caller.** The directory and extension are
+chosen by the server; the filename contributes only a slugified stem. A traversing
+name reduces to a bare stem inside `data/raw/`.
+
+Worth noting for phase 4: writing `cast.yml` by hand rather than with a yaml
+dumper keeps its explanatory comments, and one backup is kept at
+`cast.yml.bak`.
 
 ### Phase 4: quality review — 2 days
 
@@ -169,7 +179,7 @@ Only worth it if the web UI proves people want to avoid the terminal entirely.
 | 0. Progress signal | done | — |
 | 1. Read-only dashboard | done | — |
 | 2. Run the pipeline | done | — |
-| 3. Authoring | 4–5 | 12.5 |
+| 3. Authoring | done | — |
 | 4. Quality review | 2 | 14.5 |
 | 5. Desktop packaging | 3–5 | 19.5 |
 
@@ -183,9 +193,9 @@ and then is not.
 
 ## What to do first
 
-Phases 0, 1 and 2 are done: the terminal is no longer necessary for ordinary
-use. Phase 3 is next, and its role-correction screen is the feature that
-justifies the rest.
+Phases 0 to 3 are done, including the role-correction screen that was the
+argument for building any of this. Phase 4, the quality review, is two days and
+closes the loop on the one failure mode that is otherwise invisible.
 
 ## The alternative worth considering
 

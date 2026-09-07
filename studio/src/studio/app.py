@@ -11,12 +11,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 
 from studio import data
 from studio.data import UnsafeName
+from studio import authoring
+from studio.authoring import AuthoringError
 from studio.jobs import ACTIONS, FORMATS, JobError, JobRunner
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -72,6 +74,8 @@ def book_page(request: Request, slug: str):
     jobs = [j for j in runner().jobs() if j.slug == slug]
     return TEMPLATES.TemplateResponse(request, "book.html", {
         "book": book,
+        "overrides": authoring.get_roles(root(), slug),
+        "roles": sorted({*book.cast, *authoring.read_cast(root())}),
         "jobs": jobs[:10],
         "active": next((j for j in jobs if j.running), None),
         "formats": FORMATS,
@@ -238,3 +242,76 @@ def api_cancel_job(job_id: str):
         return _job_json(runner().cancel(safe(job_id)))
     except JobError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+# --- authoring ---------------------------------------------------------------
+
+def _authoring(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except AuthoringError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except UnsafeName as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/library", response_class=HTMLResponse)
+def library(request: Request):
+    """Uploaded material, and the cast that decides who reads it."""
+    return TEMPLATES.TemplateResponse(request, "library.html", {
+        "samples": authoring.list_raw(root(), "voice"),
+        "books": authoring.list_raw(root(), "book"),
+        "cast": authoring.read_cast(root()),
+        "voices": data.list_voices(root()),
+        "known_books": {b.slug for b in data.list_books(root())},
+    })
+
+
+@app.post("/api/upload/{kind}")
+async def api_upload(kind: str, file: UploadFile = File(...)):
+    if kind not in ("voice", "book"):
+        raise HTTPException(status_code=400, detail="kind must be voice or book")
+    upload = _authoring(authoring.store_upload, root(), kind,
+                        file.filename or "", file.file)
+    return {"path": str(upload.path.relative_to(root())),
+            "name": upload.path.name, "bytes": upload.bytes_written}
+
+
+@app.get("/api/raw/{kind}")
+def api_raw(kind: str):
+    if kind not in ("voice", "book"):
+        raise HTTPException(status_code=400, detail="kind must be voice or book")
+    return authoring.list_raw(root(), kind)
+
+
+@app.get("/api/books/{slug}/roles")
+def api_get_roles(slug: str):
+    return _authoring(authoring.get_roles, root(), safe(slug))
+
+
+@app.post("/api/books/{slug}/roles")
+def api_set_role(slug: str, payload: dict = Body(...)):
+    """Correct one paragraph's role. An empty role clears the correction.
+
+    Keyed by source_ref rather than chunk id so it survives re-chunking.
+    """
+    roles = _authoring(
+        authoring.set_role, root(), safe(slug),
+        str(payload.get("source_ref") or ""), str(payload.get("role") or ""),
+    )
+    return {"roles": roles, "count": len(roles)}
+
+
+@app.get("/api/cast")
+def api_get_cast():
+    return authoring.read_cast(root())
+
+
+@app.post("/api/cast")
+def api_set_cast(payload: dict = Body(...)):
+    roles = payload.get("roles")
+    if not isinstance(roles, dict):
+        raise HTTPException(status_code=400, detail="expected {'roles': {...}}")
+    authoring.backup_cast(root())
+    path = _authoring(authoring.write_cast, root(), roles)
+    return {"path": str(path.relative_to(root())), "roles": authoring.read_cast(root())}

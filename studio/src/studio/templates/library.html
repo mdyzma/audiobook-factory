@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}library{% endblock %}
+{% block crumb %}library{% endblock %}
+{% block body %}
+
+<h2>Add material</h2>
+<div class="card">
+  <div class="actions">
+    <label>Voice sample
+      <input type="file" id="voicefile" accept=".mp3,.wav,.m4a,.flac,.ogg,.opus,.aac,.webm">
+    </label>
+    <button onclick="upload('voice', 'voicefile', this)">Upload</button>
+    <button id="recbtn" onclick="toggleRecord(this)">Record</button>
+    <span class="meta" id="rectime"></span>
+  </div>
+  <div class="actions" style="margin-top:.6rem">
+    <label>Ebook
+      <input type="file" id="bookfile" accept=".epub,.pdf,.txt,.md">
+    </label>
+    <button onclick="upload('book', 'bookfile', this)">Upload</button>
+  </div>
+  <div class="meta">Recording asks for microphone access and saves a WebM file, which ffmpeg reads.
+    Aim for two to three minutes; read <code>docs/reading-script.txt</code>.</div>
+  <div class="note" id="note"></div>
+</div>
+
+<h2>Voice samples</h2>
+<div class="card">
+  {% if samples %}
+  <table>
+    <tr><th>file</th><th>size</th><th></th></tr>
+    {% for s in samples %}
+    <tr>
+      <td><code>{{ s.name }}</code></td>
+      <td class="meta">{{ (s.bytes / 1048576) | round(1) }} MB</td>
+      <td class="meta">clone with <code>just voice {{ s.path }} &lt;name&gt;</code></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<div class="meta">Nothing uploaded yet.</div>{% endif %}
+</div>
+
+<h2>Ebooks</h2>
+<div class="card">
+  {% if books %}
+  <table>
+    <tr><th>file</th><th>size</th><th></th></tr>
+    {% for b in books %}
+    <tr>
+      <td><code>{{ b.name }}</code></td>
+      <td class="meta">{{ (b.bytes / 1048576) | round(2) }} MB</td>
+      <td>
+        <input type="text" id="slug-{{ loop.index }}" placeholder="slug"
+               style="width:9rem" value="">
+        <button onclick="startJob('ingest', {source: '{{ b.name }}', slug: document.getElementById('slug-{{ loop.index }}').value}, this)">Ingest</button>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<div class="meta">Nothing uploaded yet.</div>{% endif %}
+</div>
+
+<h2>Cast</h2>
+<div class="card">
+  <table id="casttable">
+    <tr><th>role</th><th>voice</th><th>speed</th><th></th></tr>
+    {% for role, cfg in cast.items() %}
+    <tr data-role="{{ role }}">
+      <td><code>{{ role }}</code></td>
+      <td>
+        <select class="cast-voice">
+          {% for v in voices %}
+          <option value="{{ v.name }}" {% if v.name == cfg.voice %}selected{% endif %}>{{ v.name }}</option>
+          {% endfor %}
+          {% if cfg.voice not in voices | map(attribute='name') | list %}
+          <option value="{{ cfg.voice }}" selected>{{ cfg.voice }} (not cloned)</option>
+          {% endif %}
+        </select>
+      </td>
+      <td><input type="number" class="cast-speed" step="0.01" min="0.5" max="2"
+                 value="{{ cfg.speed }}" style="width:5rem"></td>
+      <td>{% if role != "narrator" %}
+        <button class="danger" onclick="this.closest('tr').remove()">Remove</button>
+      {% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <div class="actions" style="margin-top:.7rem">
+    <input type="text" id="newrole" placeholder="new role, e.g. kelvin" style="width:11rem">
+    <button onclick="addRole()">Add role</button>
+    <button onclick="saveCast(this)">Save cast</button>
+  </div>
+  <div class="meta">A role with no entry falls back to narrator. The previous file is kept as
+    <code>config/cast.yml.bak</code>.</div>
+</div>
+
+<script>
+async function upload(kind, inputId, button) {
+  const input = document.getElementById(inputId);
+  const note = document.getElementById('note');
+  note.textContent = '';
+  if (!input.files.length) { note.textContent = 'Choose a file first.'; return; }
+  const body = new FormData();
+  body.append('file', input.files[0]);
+  button.disabled = true;
+  try {
+    await api('/api/upload/' + kind, {method: 'POST', body});
+    location.reload();
+  } catch (e) { note.textContent = e.message; button.disabled = false; }
+}
+
+function addRole() {
+  const name = (document.getElementById('newrole').value || '').trim().toLowerCase();
+  const note = document.getElementById('note');
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(name)) {
+    note.textContent = 'A role is lowercase letters, digits, hyphens or underscores.';
+    return;
+  }
+  const table = document.getElementById('casttable');
+  if ([...table.querySelectorAll('tr[data-role]')].some(r => r.dataset.role === name)) return;
+  const first = table.querySelector('tr[data-role] select');
+  const row = document.createElement('tr');
+  row.dataset.role = name;
+
+  // Built as nodes rather than an HTML string: quoting an inline handler inside
+  // a template inside a shell heredoc is exactly how the last bug got in.
+  const nameCell = document.createElement('td');
+  const code = document.createElement('code');
+  code.textContent = name;
+  nameCell.appendChild(code);
+
+  const voiceCell = document.createElement('td');
+  const select = document.createElement('select');
+  select.className = 'cast-voice';
+  if (first) select.innerHTML = first.innerHTML;
+  voiceCell.appendChild(select);
+
+  const speedCell = document.createElement('td');
+  const speed = document.createElement('input');
+  speed.type = 'number'; speed.className = 'cast-speed';
+  speed.step = '0.01'; speed.min = '0.5'; speed.max = '2';
+  speed.value = '1.0'; speed.style.width = '5rem';
+  speedCell.appendChild(speed);
+
+  const actionCell = document.createElement('td');
+  const remove = document.createElement('button');
+  remove.className = 'danger';
+  remove.textContent = 'Remove';
+  remove.addEventListener('click', () => row.remove());
+  actionCell.appendChild(remove);
+
+  row.append(nameCell, voiceCell, speedCell, actionCell);
+  table.appendChild(row);
+  document.getElementById('newrole').value = '';
+}
+
+async function saveCast(button) {
+  const roles = {};
+  document.querySelectorAll('#casttable tr[data-role]').forEach(row => {
+    roles[row.dataset.role] = {
+      voice: row.querySelector('.cast-voice').value,
+      speed: parseFloat(row.querySelector('.cast-speed').value || '1'),
+    };
+  });
+  const note = document.getElementById('note');
+  note.textContent = '';
+  button.disabled = true;
+  try {
+    await api('/api/cast', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({roles})});
+    location.reload();
+  } catch (e) { note.textContent = e.message; button.disabled = false; }
+}
+
+let recorder = null, chunks = [], startedAt = 0, timer = null;
+async function toggleRecord(button) {
+  const note = document.getElementById('note');
+  const clock = document.getElementById('rectime');
+  if (recorder && recorder.state === 'recording') {
+    recorder.stop();
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    recorder = new MediaRecorder(stream);
+    chunks = [];
+    recorder.ondataavailable = e => chunks.push(e.data);
+    recorder.onstop = async () => {
+      clearInterval(timer); clock.textContent = 'uploading…';
+      stream.getTracks().forEach(t => t.stop());
+      const body = new FormData();
+      body.append('file', new File(chunks, 'recording.webm', {type: 'audio/webm'}));
+      try { await api('/api/upload/voice', {method: 'POST', body}); location.reload(); }
+      catch (e) { note.textContent = e.message; clock.textContent = ''; }
+      button.textContent = 'Record';
+    };
+    recorder.start();
+    startedAt = Date.now();
+    button.textContent = 'Stop';
+    timer = setInterval(() => {
+      const s = Math.round((Date.now() - startedAt) / 1000);
+      clock.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    }, 500);
+  } catch (e) {
+    note.textContent = 'Microphone unavailable: ' + e.message;
+  }
+}
+</script>
+{% endblock %}

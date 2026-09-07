@@ -109,6 +109,10 @@ Detection is typographic, not semantic, and deliberately cautious: narration
 misread in a character's voice is far more jarring than dialogue left with the
 narrator, so anything ambiguous stays with the narrator.
 
+Where it guesses wrong, `just ui` turns every fragment's role into a dropdown.
+Corrections are stored against the paragraph, not the fragment number, so they
+survive re-chunking.
+
 ## Checking the result
 
 Synthesis fails quietly. XTTS can truncate a fragment, skip a clause or repeat
@@ -133,8 +137,8 @@ just test-one narrator -k formatter
 
 | Environment | Tests |
 |---|---|
-| bookbinder | 137 |
-| studio | 88 |
+| bookbinder | 140 |
+| studio | 140 |
 | transcriber | 20 |
 | narrator | 17 |
 
@@ -193,6 +197,7 @@ audiobook-factory/
 │       ├── app.py          routes and JSON API
 │       ├── data.py         reads what the other stages write
 │       ├── jobs.py         supervises pipeline stages as background jobs
+│       ├── authoring.py    uploads, role corrections, the cast
 │       └── templates/      the pages
 │
 ├── narrator/             Environment C - Coqui XTTS-v2, numpy 1.x

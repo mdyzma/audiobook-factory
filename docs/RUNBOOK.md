@@ -93,6 +93,14 @@ It also runs the pipeline. Buttons on a book page start chunking, a dry run,
 synthesis, assembly and verification; a voice page can re-label and re-clone.
 A running job shows a progress bar and a live log, and can be cancelled.
 
+The library page uploads voice samples and ebooks, records a sample straight from
+the microphone, and edits the cast as a form instead of by hand.
+
+**Correcting who speaks a line** is the part worth knowing about. Role detection
+is typographic and gets some lines wrong. On a book page each fragment's role is
+a dropdown; changing one is stored against the paragraph rather than the fragment
+number, so it survives re-chunking. Re-chunk to apply it, then re-synthesise.
+
 Jobs are detached, so closing the tab does not stop a render, and neither does
 stopping the dashboard. Only one render per book runs at a time.
 

@@ -33,6 +33,7 @@ from studio.data import UnsafeName, check_name
 # `args` names the parameters the action takes, in the order the recipe wants
 # them. Anything not in this table cannot be run.
 ACTIONS: dict[str, dict] = {
+    "ingest":   {"recipe": "ingest",   "args": ["source", "slug"],  "locks": False},
     "chunk":    {"recipe": "chunk",    "args": ["slug"],            "locks": False},
     "dryrun":   {"recipe": "dryrun",   "args": ["slug"],            "locks": True},
     "synth":    {"recipe": "synth",    "args": ["slug", "voice"],   "locks": True},
@@ -268,11 +269,27 @@ class JobRunner:
             if name == "voice" and action == "synth" and not value:
                 clean[name] = ""       # use the cast recorded in book.json
                 continue
+            if name == "source":
+                # A file already inside data/raw/books, never an arbitrary path:
+                # the caller picks from what has been uploaded.
+                clean[name] = self._raw_book(value)
+                continue
             try:
                 clean[name] = check_name(value)
             except UnsafeName:
                 raise JobError(f"invalid {name}: {value!r}")
         return clean
+
+    def _raw_book(self, name: str) -> str:
+        from studio.authoring import BOOK_SUFFIXES
+
+        candidate = Path(name)
+        if candidate.name != name or candidate.suffix.lower() not in BOOK_SUFFIXES:
+            raise JobError(f"invalid source file: {name!r}")
+        path = self.root / "data" / "raw" / "books" / candidate.name
+        if not path.is_file():
+            raise JobError(f"no uploaded book named {name!r}")
+        return str(path.relative_to(self.root))
 
     def start(self, action: str, args: dict[str, str]) -> Job:
         spec = ACTIONS[action] if action in ACTIONS else None
