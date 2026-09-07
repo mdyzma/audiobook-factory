@@ -33,18 +33,18 @@ services:
     profiles: [cpu]
     build:
       context: .
-      dockerfile: bookbinder/Dockerfile
+      dockerfile: apps/bookbinder/Dockerfile
     image: audiobook-factory/bookbinder
-    working_dir: /app/bookbinder
+    working_dir: /app/apps/bookbinder
 
   studio:
     <<: *project
     profiles: [cpu]
     build:
       context: .
-      dockerfile: studio/Dockerfile
+      dockerfile: apps/studio/Dockerfile
     image: audiobook-factory/studio
-    working_dir: /app/studio
+    working_dir: /app/apps/studio
     ports:
       # Bound to localhost on purpose. This dashboard serves everything under
       # data/ and has no authentication.
@@ -55,9 +55,9 @@ services:
     profiles: [gpu]
     build:
       context: .
-      dockerfile: transcriber/Dockerfile
+      dockerfile: apps/transcriber/Dockerfile
     image: audiobook-factory/transcriber
-    working_dir: /app/transcriber
+    working_dir: /app/apps/transcriber
     volumes:
       - ./data:/app/data
       - ./config:/app/config:ro
@@ -69,9 +69,9 @@ services:
     profiles: [gpu]
     build:
       context: .
-      dockerfile: narrator/Dockerfile
+      dockerfile: apps/narrator/Dockerfile
     image: audiobook-factory/narrator
-    working_dir: /app/narrator
+    working_dir: /app/apps/narrator
     volumes:
       - ./data:/app/data
       - ./config:/app/config:ro

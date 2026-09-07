@@ -28,7 +28,7 @@ jobs:
         run: |
           for env in bookbinder studio narrator transcriber; do
             echo "::group::$env"
-            uv lock --check --directory "$env"
+            uv lock --check --directory "apps/$env"
             echo "::endgroup::"
           done
 
@@ -72,10 +72,10 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          cache-dependency-glob: ${{ matrix.env }}/uv.lock
+          cache-dependency-glob: apps/${{ matrix.env }}/uv.lock
 
       - name: Sync ${{ matrix.env }}
-        working-directory: ${{ matrix.env }}
+        working-directory: apps/${{ matrix.env }}
         run: uv sync --frozen
 
       # Each environment is type-checked against its own dependencies. That is
@@ -85,20 +85,20 @@ jobs:
       # shape by hand, so a drift here is a drift between environments.
       - name: Check exported schemas
         if: matrix.env == 'bookbinder'
-        working-directory: bookbinder
+        working-directory: apps/bookbinder
         run: uv run python -m bookbinder.schemas --check
 
       - name: Type-check
-        working-directory: ${{ matrix.env }}
+        working-directory: apps/${{ matrix.env }}
         run: uv run pyright
 
       - name: Test
-        working-directory: ${{ matrix.env }}
+        working-directory: apps/${{ matrix.env }}
         run: uv run pytest
 
       - name: Report resolved versions
         if: always()
-        working-directory: ${{ matrix.env }}
+        working-directory: apps/${{ matrix.env }}
         run: |
           uv run python -c "
           import importlib.metadata as md

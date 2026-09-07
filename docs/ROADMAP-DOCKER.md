@@ -20,10 +20,10 @@ layer, not just the Python one.
 ## What exists today
 
 ```
-bookbinder/Dockerfile      debian:bookworm-slim + uv         BUILT, VERIFIED
-studio/Dockerfile          debian:bookworm-slim + uv         BUILT, VERIFIED
-transcriber/Dockerfile     nvidia/cuda:12.8.1 + uv           written, never built
-narrator/Dockerfile        nvidia/cuda:12.8.1 + uv           written, never built
+apps/bookbinder/Dockerfile      debian:bookworm-slim + uv         BUILT, VERIFIED
+apps/studio/Dockerfile          debian:bookworm-slim + uv         BUILT, VERIFIED
+apps/transcriber/Dockerfile     nvidia/cuda:12.8.1 + uv           written, never built
+apps/narrator/Dockerfile        nvidia/cuda:12.8.1 + uv           written, never built
 docker-compose.yml         cpu and gpu profiles
 ```
 

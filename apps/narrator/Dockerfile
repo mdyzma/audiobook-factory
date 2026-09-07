@@ -14,17 +14,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.18 /uv /usr/local/bin/uv
 
-ENV UV_LINK_MODE=copy \
+ENV AUDIOBOOK_FACTORY_ROOT=/app \
+    UV_LINK_MODE=copy \
     UV_PYTHON_INSTALL_DIR=/opt/python \
     UV_COMPILE_BYTECODE=1 \
     COQUI_TOS_AGREED=1
 
-WORKDIR /app/narrator
+WORKDIR /app/apps/narrator
 
-COPY narrator/pyproject.toml narrator/uv.lock narrator/.python-version ./
+COPY apps/narrator/pyproject.toml apps/narrator/uv.lock apps/narrator/.python-version ./
 RUN uv sync --frozen --no-install-project --no-dev
 
-COPY narrator/src ./src
+COPY apps/narrator/src ./src
 RUN uv sync --frozen --no-dev
 
 # `uv sync` installs the torch the lock names, from the default index. On a

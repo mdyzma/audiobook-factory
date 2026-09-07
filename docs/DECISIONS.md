@@ -28,7 +28,7 @@ Under Poetry this environment could not be resolved at all. The workaround was
 `pip install TTS --no-deps` followed by hand-listing its dependencies in a
 load-bearing order, with numpy forced back to 1.x as the final step.
 
-uv resolves it in a single `uv sync`. The pins live in `narrator/pyproject.toml`
+uv resolves it in a single `uv sync`. The pins live in `apps/narrator/pyproject.toml`
 under `[tool.uv] constraint-dependencies`, which bounds the transitive graph
 without restating it. Nothing has to be installed in a particular order, and the
 result is captured in `uv.lock`.
@@ -57,7 +57,7 @@ Keep segments between 1.5 and 15 seconds; XTTS is happiest around 2 to 12.
 
 Collect 30 to 60 minutes of clean recording before attempting a fine-tune.
 
-Fine-tuning is implemented in `narrator/src/narrator/train.py`. It starts from
+Fine-tuning is implemented in `apps/narrator/src/narrator/train.py`. It starts from
 the XTTS v2.0.2 base files, which it caches under `training/base/`, reads the
 auto-labeller's `metadata.csv` through a local formatter, and repoints the voice
 profile at the resulting checkpoint when it finishes. Effective batch size is
@@ -113,7 +113,7 @@ blis 0.7.11, confection 0.1.5.
 `torch.load` now defaults to `weights_only=True`, and XTTS checkpoints pickle
 their config objects, so loading raises `UnpicklingError`.
 
-Fixed in `narrator/src/narrator/engine.py:allow_xtts_globals()`, which allowlists
+Fixed in `apps/narrator/src/narrator/engine.py:allow_xtts_globals()`, which allowlists
 `XttsConfig`, `XttsAudioConfig`, `XttsArgs` and `BaseDatasetConfig`. Deliberately
 *not* fixed by setting `weights_only=False`, which would disable arbitrary-code
 protection for every checkpoint the process loads.

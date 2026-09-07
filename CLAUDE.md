@@ -7,19 +7,19 @@ isolated Python environments.
 
 `whisperx` (pandas 2.x) and `tts==0.22.0` (pandas 1.x) can never share a
 virtualenv. Do not "fix" a dependency error by merging environments or by
-relaxing a pin. If numpy in `narrator/` moves to 2.x, XTTS breaks at inference.
+relaxing a pin. If numpy in `apps/narrator/` moves to 2.x, XTTS breaks at inference.
 Background: `docs/DECISIONS.md`, extracted from `gemini-session.md`.
 
 ## Layout
 
 | Directory | Environment | Stack |
 |---|---|---|
-| `transcriber/` | A | WhisperX, numpy >=2.1, pandas >=2.2.3 |
-| `bookbinder/` | B | pure Python, ffmpeg, no torch |
-| `narrator/` | C | Coqui XTTS-v2, numpy <2, pandas <2 |
+| `apps/transcriber/` | A | WhisperX, numpy >=2.1, pandas >=2.2.3 |
+| `apps/bookbinder/` | B | pure Python, ffmpeg, no torch |
+| `apps/narrator/` | C | Coqui XTTS-v2, numpy <2, pandas <2 |
 
 Environments communicate only through files under `data/`. The contract is
-defined in `bookbinder/src/bookbinder/manifest.py`; change it there and update
+defined in `apps/bookbinder/src/bookbinder/manifest.py`; change it there and update
 both consumers.
 
 ## Conventions

@@ -32,7 +32,7 @@ in a real cloned voice on Apple Silicon.
 
 ## The one job that needs this machine
 
-`narrator/src/narrator/train.py` implements XTTS-v2 fine-tuning. Its API surface
+`apps/narrator/src/narrator/train.py` implements XTTS-v2 fine-tuning. Its API surface
 was verified field by field against the installed Coqui package, its dataset
 formatter is tested, and both guards work. **The training loop itself has never
 executed**, because it refuses to start without CUDA and there was none.
@@ -50,7 +50,7 @@ With 32 GB you should be able to raise `batch_size` to 8 or 16 and drop
 `grad_accum` to match. If VRAM runs out, lower `--max-audio-sec` before touching
 batch size, since attention cost scales with the square of clip length.
 
-There is a fourth environment now, `studio/`, which is the dashboard. It carries
+There is a fourth environment now, `apps/studio/`, which is the dashboard. It carries
 no ML and does not affect any of the above, but `just setup` builds it too.
 
 There is a working voice dataset already: `data/datasets/michal/`, 18 segments
@@ -70,13 +70,13 @@ Use the CUDA 12.8 index instead:
 
 ```bash
 cd narrator    && uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128 --force-reinstall
-cd transcriber && uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128 --force-reinstall
+cd apps/transcriber && uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128 --force-reinstall
 ```
 
 Then confirm the card is actually usable, not merely detected:
 
 ```bash
-cd narrator && uv run python -c "
+cd apps/narrator && uv run python -c "
 import torch
 print(torch.__version__, torch.version.cuda)
 print(torch.cuda.get_device_name(0), torch.cuda.get_device_capability(0))

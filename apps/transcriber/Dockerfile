@@ -12,16 +12,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.18 /uv /usr/local/bin/uv
 
-ENV UV_LINK_MODE=copy \
+ENV AUDIOBOOK_FACTORY_ROOT=/app \
+    UV_LINK_MODE=copy \
     UV_PYTHON_INSTALL_DIR=/opt/python \
     UV_COMPILE_BYTECODE=1
 
-WORKDIR /app/transcriber
+WORKDIR /app/apps/transcriber
 
-COPY transcriber/pyproject.toml transcriber/uv.lock transcriber/.python-version ./
+COPY apps/transcriber/pyproject.toml apps/transcriber/uv.lock apps/transcriber/.python-version ./
 RUN uv sync --frozen --no-install-project --no-dev
 
-COPY transcriber/src ./src
+COPY apps/transcriber/src ./src
 RUN uv sync --frozen --no-dev
 
 # Whisper weights download on first use; mount a volume at /root/.cache

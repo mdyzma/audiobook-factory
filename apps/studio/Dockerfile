@@ -10,21 +10,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.18 /uv /usr/local/bin/uv
 
-ENV UV_LINK_MODE=copy \
+ENV AUDIOBOOK_FACTORY_ROOT=/app \
+    UV_LINK_MODE=copy \
     UV_PYTHON_INSTALL_DIR=/opt/python \
     UV_COMPILE_BYTECODE=1
 
-WORKDIR /app/studio
+WORKDIR /app/apps/studio
 
 # bookbinder first: it is a path dependency, so uv needs it present before it
 # can resolve studio at all.
-COPY bookbinder/pyproject.toml bookbinder/uv.lock bookbinder/.python-version /app/bookbinder/
-COPY bookbinder/src /app/bookbinder/src
+COPY apps/bookbinder/pyproject.toml apps/bookbinder/uv.lock apps/bookbinder/.python-version /app/apps/bookbinder/
+COPY apps/bookbinder/src /app/apps/bookbinder/src
 
-COPY studio/pyproject.toml studio/uv.lock studio/.python-version ./
+COPY apps/studio/pyproject.toml apps/studio/uv.lock apps/studio/.python-version ./
 RUN uv sync --frozen --no-install-project --no-dev
 
-COPY studio/src ./src
+COPY apps/studio/src ./src
 RUN uv sync --frozen --no-dev
 
 # The dashboard can start pipeline stages, which it does by running `just`.

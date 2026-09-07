@@ -85,7 +85,7 @@ emits them. Schemas are now exported in serialization mode.
 
 ### Phase 1: read-only dashboard — DONE (2026-09-07)
 
-`studio/` is a fourth uv environment: fastapi, jinja2, no ML. It depends on
+`apps/studio/` is a fourth uv environment: fastapi, jinja2, no ML. It depends on
 `bookbinder` as a path dependency, so the manifest models are shared rather than
 mirrored a third time. `just ui` serves it on `http://127.0.0.1:8765`.
 

@@ -30,10 +30,10 @@ synthesis.
 
 | Path | Size | Notes |
 |---|---|---|
-| `narrator/.venv` | 1.6 GB | 149 packages, torch dominates |
-| `transcriber/.venv` | 1.1 GB | 109 packages |
-| `bookbinder/.venv` | 86 MB | 30 packages, no ML |
-| `studio/.venv` | 92 MB | the dashboard; fastapi, no ML |
+| `apps/narrator/.venv` | 1.6 GB | 149 packages, torch dominates |
+| `apps/transcriber/.venv` | 1.1 GB | 109 packages |
+| `apps/bookbinder/.venv` | 86 MB | 30 packages, no ML |
+| `apps/studio/.venv` | 92 MB | the dashboard; fastapi, no ML |
 | `~/.local/share/uv/python/` | 59 MB | the interpreter itself |
 | `~/Library/Application Support/tts/` | 1.7 GB | XTTS-v2 weights, downloaded on demand |
 
@@ -52,7 +52,7 @@ Each is a self-contained uv project: its own `pyproject.toml`, its own
 `uv.lock`, its own `.venv`, its own `tests/`. They never import each other.
 The only thing they share is files under `data/`.
 
-The contract is `bookbinder/src/bookbinder/manifest.py`. If you change the
+The contract is `apps/bookbinder/src/bookbinder/manifest.py`. If you change the
 chunk schema there, update both consumers: `narrator/synth.py` writes
 `audio_path` and `duration_sec` into it, and `bookbinder/assemble.py` reads
 them back.
@@ -91,14 +91,14 @@ note, which is what you want once the cast is meant to be complete.
 
 ## The contract between environments
 
-`bookbinder/src/bookbinder/manifest.py` holds pydantic models for everything
+`apps/bookbinder/src/bookbinder/manifest.py` holds pydantic models for everything
 that crosses an environment boundary. `just schemas` exports them to
 `docs/schemas/`, and `just schemas-check` fails if the exported files have
 drifted. Both run as part of `just check` and in CI.
 
 narrator and transcriber cannot import those models, since they resolve a
 different numpy. They mirror the shape by hand and write plain JSON. That is the
-one place a silent divergence can appear, so `bookbinder/tests/test_schemas.py`
+one place a silent divergence can appear, so `apps/bookbinder/tests/test_schemas.py`
 validates a copy of exactly what each of them writes. If you change a model,
 update the writer and that fixture together.
 
@@ -107,7 +107,7 @@ update the writer and that fixture together.
 Always inside the environment that needs it, never at the repo root:
 
 ```bash
-cd bookbinder && uv add ebooklib
+cd apps/bookbinder && uv add ebooklib
 cd narrator   && uv add --dev pytest-cov
 ```
 
@@ -116,7 +116,7 @@ what keeps XTTS working. Before adding anything there, check whether the new
 package drags numpy above 2.0:
 
 ```bash
-cd narrator && uv add <package> && uv run python -c "import numpy; print(numpy.__version__)"
+cd apps/narrator && uv add <package> && uv run python -c "import numpy; print(numpy.__version__)"
 ```
 
 If that prints anything other than `1.26.4`, the addition is unsafe. Add the

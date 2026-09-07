@@ -17,21 +17,22 @@ COPY --from=ghcr.io/astral-sh/uv:0.9.18 /uv /usr/local/bin/uv
 
 # uv installs its own CPython, the same 3.11.9 the host uses, so the container
 # is not merely similar to a working machine but identical to one.
-ENV UV_LINK_MODE=copy \
+ENV AUDIOBOOK_FACTORY_ROOT=/app \
+    UV_LINK_MODE=copy \
     UV_PYTHON_INSTALL_DIR=/opt/python \
     UV_COMPILE_BYTECODE=1
 
 # The modules find the project root as parents[3] of their own file, so the
-# layout inside the image has to mirror the repository: /app/bookbinder/src/...
+# layout inside the image has to mirror the repository: /app/apps/bookbinder/src/...
 # leaves /app as the root, where data/ and config/ are mounted.
-WORKDIR /app/bookbinder
+WORKDIR /app/apps/bookbinder
 
 # Dependencies first, from the committed lock. A code change must not
 # re-resolve anything.
-COPY bookbinder/pyproject.toml bookbinder/uv.lock bookbinder/.python-version ./
+COPY apps/bookbinder/pyproject.toml apps/bookbinder/uv.lock apps/bookbinder/.python-version ./
 RUN uv sync --frozen --no-install-project --no-dev
 
-COPY bookbinder/src ./src
+COPY apps/bookbinder/src ./src
 RUN uv sync --frozen --no-dev
 
 # No hard-coded stage: one image serves ingest, chunk, dryrun and assemble.

@@ -168,79 +168,90 @@ including every pin and why it is load-bearing, is in
 
 | Environment | Role | numpy | pandas |
 |---|---|---|---|
-| `transcriber/` | Cuts and labels the voice sample | 2.4.6 | 3.0.5 |
-| `bookbinder/` | Ebook parsing, chunking, final mux | none | none |
-| `narrator/` | Voice cloning and speech synthesis | 1.26.4 | 1.5.3 |
+| `apps/transcriber/` | Cuts and labels the voice sample | 2.4.6 | 3.0.5 |
+| `apps/bookbinder/` | Ebook parsing, chunking, final mux | none | none |
+| `apps/narrator/` | Voice cloning and speech synthesis | 1.26.4 | 1.5.3 |
 
 ## Repository layout
 
 ```
 audiobook-factory/
-├── transcriber/          Environment A - WhisperX, numpy 2.x
-│   ├── pyproject.toml      manifest + pyright/pytest config
-│   ├── uv.lock             committed; what CI and the GPU box install
-│   ├── Dockerfile          CUDA base image
-│   ├── src/transcriber/
-│   │   ├── auto_label.py   cuts and transcribes the voice sample
-│   │   └── verify.py       re-transcribes the render, reports word error rate
-│   └── tests/
 │
-├── bookbinder/           Environment B - text and containers, no ML
-│   └── src/bookbinder/
-│       ├── ingest.py       EPUB/PDF/text -> normalised chapters
-│       ├── roles.py        who speaks each paragraph
-│       ├── cast.py         role -> voice, with a narrator fallback
-│       ├── chunk.py        chapters -> fragments under the XTTS limit
-│       ├── manifest.py     the validated contract between environments
-│       ├── schemas.py      exports that contract to docs/schemas/
-│       ├── dryrun.py       silence at the right durations, for structure checks
-│       └── assemble.py     fragments + pauses -> chaptered m4b
-│
-├── studio/               Environment D - local dashboard; fastapi, no ML
-│   └── src/studio/
-│       ├── app.py          routes and JSON API
-│       ├── data.py         reads what the other stages write
-│       ├── jobs.py         supervises pipeline stages as background jobs
-│       ├── authoring.py    uploads, role corrections, the cast
-│       └── templates/      the pages
-│
-├── narrator/             Environment C - Coqui XTTS-v2, numpy 1.x
-│   └── src/narrator/
-│       ├── engine.py       model loading, speaker latents
-│       ├── clone.py        speaker embedding + audition clip
-│       ├── synth.py        fragments -> audio; multi-voice, resumable
-│       └── train.py        optional fine-tune, CUDA only
+├── apps/                 The four uv projects. Each has its own lock,
+│   │                     virtualenv and tests, and they never import
+│   │                     one another except studio -> bookbinder.
+│   │
+│   ├── transcriber/        WhisperX · numpy 2.x
+│   │   └── src/transcriber/
+│   │       ├── auto_label.py   cuts and transcribes the voice sample
+│   │       └── verify.py       re-transcribes the render, reports WER
+│   │
+│   ├── bookbinder/         text and containers · no ML
+│   │   └── src/bookbinder/
+│   │       ├── ingest.py       EPUB/PDF/text -> normalised chapters
+│   │       ├── roles.py        who speaks each paragraph
+│   │       ├── cast.py         role -> voice, with a narrator fallback
+│   │       ├── overrides.py    hand corrections that survive re-chunking
+│   │       ├── chunk.py        chapters -> fragments under the XTTS limit
+│   │       ├── manifest.py     the validated cross-environment contract
+│   │       ├── schemas.py      exports it to docs/schemas/
+│   │       ├── dryrun.py       silence at the right durations
+│   │       ├── progress.py     live view of a running render
+│   │       └── assemble.py     fragments + pauses -> chaptered m4b
+│   │
+│   ├── narrator/           Coqui XTTS-v2 · numpy 1.x
+│   │   └── src/narrator/
+│   │       ├── engine.py       model loading, speaker latents
+│   │       ├── clone.py        speaker embedding + audition clip
+│   │       ├── synth.py        fragments -> audio; multi-voice, resumable
+│   │       └── train.py        optional fine-tune, CUDA only
+│   │
+│   └── studio/             the dashboard · fastapi, no ML
+│       └── src/studio/
+│           ├── app.py          routes and JSON API
+│           ├── data.py         reads what the other stages write
+│           ├── jobs.py         supervises stages as background jobs
+│           ├── authoring.py    uploads, role corrections, the cast
+│           └── templates/      the pages
 │
 ├── bin/audiobook         One command: sample + ebook -> audiobook
+├── scripts/              ffmpeg preprocessing
 ├── install.sh            Bootstrap for macOS and Linux
 ├── install.ps1           Bootstrap for Windows
+├── justfile              Every command. Nothing is run directly.
+│
 ├── config/
 │   ├── pipeline.toml     Every tunable knob. Read by all stages.
 │   └── cast.yml          Which voice reads which role.
-├── justfile              Every command. Nothing is run directly.
-├── scripts/              ffmpeg preprocessing
+│
 ├── docs/
+│   ├── RUNBOOK.md        everyday tasks, with real terminal output
 │   ├── COMMANDS.md       every recipe
 │   ├── DEVELOPMENT.md    workflow and failure modes
 │   ├── DECISIONS.md      why the pins and the split exist
+│   ├── HANDOFF-GPU.md    picking this up on a CUDA machine
+│   ├── ROADMAP-*.md      containers, front end
 │   └── schemas/          JSON Schema, generated from manifest.py
-├── docker-compose.yml    CUDA host only; no GPU passthrough on macOS
+│
+├── docker-compose.yml    cpu and gpu profiles
 │
 ├── data/                 Everything below here is gitignored
 │   ├── raw/              your inputs: voices/ and books/
 │   ├── processed/        cleaned 24 kHz voice audio
 │   ├── datasets/         wavs + metadata.csv for cloning or fine-tuning
 │   ├── voices/           voice profiles and cached latents
-│   ├── book/             chapters.json, chunks.jsonl, book.json
+│   ├── book/             chapters.json, chunks.jsonl, role_overrides.json
 │   ├── audio/            one wav per fragment, rendered.jsonl, report.json
 │   └── out/              the finished audiobook
 │
 └── training/             Fine-tune checkpoints and logs. Gitignored.
 ```
 
-The three `src/` trees never import each other. They communicate only through
+The four projects under `apps/` never import each other, with one exception:
+studio depends on bookbinder by path, because bookbinder carries no torch and
+owns the manifest models. They communicate only through
 files under `data/`. The shape of those files is defined in
-`bookbinder/src/bookbinder/manifest.py` and exported to `docs/schemas/`, which
+`apps/bookbinder/src/bookbinder/manifest.py` and exported to `docs/schemas/`, which
 is what keeps the two environments that cannot import it in step.
 
 ## Documentation

@@ -350,7 +350,7 @@ truncated silently. Report it; the packer should make this impossible.
 it says `cpu` on a Mac, MPS was not picked up.
 
 **numpy 2.x in the narrator.** Something you installed lifted it. Constrain the
-culprit in `narrator/pyproject.toml` under `[tool.uv] constraint-dependencies`,
+culprit in `apps/narrator/pyproject.toml` under `[tool.uv] constraint-dependencies`,
 then `just relock narrator`.
 
 More failure modes, with causes, in [DEVELOPMENT.md](DEVELOPMENT.md).
