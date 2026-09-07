@@ -377,6 +377,43 @@ class JobRunner:
         reap()
         return self.store.all()
 
+    def prune(self, keep: int = 20, remove_all: bool = False) -> dict:
+        """Delete finished jobs and their logs.
+
+        Nothing prunes on its own, and a long render's log grows with every
+        progress line, so this exists to be run occasionally.
+
+        A running job is never touched: its log is still being written and its
+        lock still means something. Stale locks left by jobs that died are
+        cleared, since those do block the next render.
+        """
+        reap()
+        jobs = self.store.all()
+        finished = [j for j in jobs if not j.running]
+        running = [j for j in jobs if j.running]
+
+        doomed = finished if remove_all else finished[keep:]  # all() is newest first
+        freed = 0
+        for job in doomed:
+            for path in (self.store._path(job.id), self.store.log_path(job.id),
+                         self.store.exit_path(job.id)):
+                if path.exists():
+                    freed += path.stat().st_size
+                    path.unlink()
+            self.store.release(job)
+
+        # A lock whose holder is gone would otherwise refuse the next render.
+        stale_locks = 0
+        if self.store.locks.is_dir():
+            for lock in self.store.locks.glob("*.lock"):
+                if self.store.holder(lock.stem) is None and lock.exists():
+                    lock.unlink()
+                    stale_locks += 1
+
+        return {"removed": len(doomed), "kept": len(finished) - len(doomed),
+                "running": len(running), "bytes_freed": freed,
+                "stale_locks_cleared": stale_locks}
+
     def tail(self, job_id: str, lines: int = 200) -> str:
         path = self.store.log_path(job_id)
         if not path.exists():

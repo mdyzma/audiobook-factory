@@ -195,3 +195,71 @@ class TestResynth:
     def test_it_locks_the_book(self):
         # It writes into the same rendered.jsonl a full render would.
         assert ACTIONS["resynth"]["locks"] is True
+
+
+class TestPrune:
+    """Nothing expires on its own, and a render's log grows with every progress
+    line, so pruning has to be safe to run at any moment."""
+
+    def _finished(self, store, job_id, when):
+        job = Job(id=job_id, action="chunk", args={"slug": "solaris"},
+                  status="succeeded", pid=999999, started_at=when, exit_code=0)
+        store.save(job)
+        store.log_path(job_id).write_text("output\n", encoding="utf-8")
+        return job
+
+    def test_keeps_the_newest(self, project):
+        store = JobStore(project)
+        store.dir.mkdir(parents=True, exist_ok=True)
+        for i in range(5):
+            self._finished(store, f"job{i:08d}xxxx", f"2026-01-0{i + 1}T00:00:00+00:00")
+
+        result = JobRunner(project).prune(keep=2)
+        assert result["removed"] == 3
+        assert result["kept"] == 2
+        remaining = sorted(p.stem for p in store.dir.glob("*.json"))
+        assert remaining == ["job00000003xxxx"[:12], "job00000004xxxx"[:12]] or len(remaining) == 2
+
+    def test_removes_the_log_as_well_as_the_record(self, project):
+        store = JobStore(project)
+        store.dir.mkdir(parents=True, exist_ok=True)
+        self._finished(store, "oldjobaaaaaa", "2026-01-01T00:00:00+00:00")
+        JobRunner(project).prune(keep=0)
+        assert not store.log_path("oldjobaaaaaa").exists()
+        assert not (store.dir / "oldjobaaaaaa.json").exists()
+
+    def test_reports_bytes_freed(self, project):
+        store = JobStore(project)
+        store.dir.mkdir(parents=True, exist_ok=True)
+        self._finished(store, "sizedjobaaaa", "2026-01-01T00:00:00+00:00")
+        assert JobRunner(project).prune(keep=0)["bytes_freed"] > 0
+
+    def test_never_touches_a_running_job(self, project):
+        # Its log is still being written and its lock still means something.
+        store = JobStore(project)
+        store.dir.mkdir(parents=True, exist_ok=True)
+        running = Job(id="runningjobaa", action="synth", args={"slug": "solaris"},
+                      status="running", pid=os.getpid(),
+                      started_at="2020-01-01T00:00:00+00:00")
+        store.save(running)
+        store.log_path(running.id).write_text("mid render\n", encoding="utf-8")
+        store.acquire("solaris", running.id)
+
+        result = JobRunner(project).prune(remove_all=True)
+        assert result["running"] == 1
+        assert (store.dir / "runningjobaa.json").exists()
+        assert store.log_path("runningjobaa").exists()
+        assert store.holder("solaris") == "runningjobaa"
+
+    def test_clears_a_lock_whose_holder_is_gone(self, project):
+        # Otherwise it refuses the next render forever.
+        store = JobStore(project)
+        store.dir.mkdir(parents=True, exist_ok=True)
+        store.locks.mkdir(parents=True, exist_ok=True)
+        store.lock_path("solaris").write_text("vanishedjobx", encoding="utf-8")
+
+        JobRunner(project).prune()
+        assert not store.lock_path("solaris").exists()
+
+    def test_pruning_an_empty_store_is_harmless(self, project):
+        assert JobRunner(project).prune()["removed"] == 0

@@ -333,6 +333,29 @@ cloned, which is worth running once the cast is meant to be complete.
 
 ---
 
+## Task: find a log
+
+Everything lives under `data/`, and all of it is gitignored.
+
+| Where | What |
+|---|---|
+| `data/.studio/jobs/<id>.log` | Output of a stage started from the dashboard |
+| `data/audio/<slug>/progress.json` | Rewritten during a render |
+| `data/audio/<slug>/report.json` | Written when a render finishes |
+| `data/audio/<slug>/qa_report.json` | Word error rate per flagged fragment |
+| `training/<voice>/` | Fine-tune checkpoints and trainer logs |
+
+A stage run from the terminal prints to that terminal and is not captured; only
+jobs started from the dashboard get a log file. Nothing expires on its own, so:
+
+```bash
+just clean-jobs        # keep the 20 newest finished jobs
+just clean-jobs-all    # keep none
+```
+
+Neither touches a running job, and both clear locks left behind by a job that
+died, which would otherwise refuse the next render on that book.
+
 ## When something looks wrong
 
 **Chapter count is 1 when the book has many.** The parser found no headings.

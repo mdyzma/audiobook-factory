@@ -238,6 +238,14 @@ factory sample voice source slug language="pl" format="":
 
 # ------------------------------------------------------------- cleanup ----
 
+# Remove finished job records and their logs. Running jobs are left alone.
+clean-jobs keep="20":
+    cd apps/studio && uv run python -m studio.prune --keep {{keep}}
+
+# Remove every finished job record.
+clean-jobs-all:
+    cd apps/studio && uv run python -m studio.prune --all
+
 clean-audio slug:
     rm -rf "data/audio/{{slug}}"
 

@@ -92,6 +92,8 @@ pass `""` for the ones between.
 
 | Command | What it does |
 |---|---|
+| `just clean-jobs <keep="20">` | Deletes finished dashboard jobs and their logs, keeping the newest. Running jobs are untouched; stale locks are cleared. |
+| `just clean-jobs-all` | Deletes every finished job record. |
 | `just clean-audio <slug>` | Deletes rendered audio so the next `synth` starts fresh. |
 | `just clean-book <slug>` | Deletes the parsed text and its audio. |
 
