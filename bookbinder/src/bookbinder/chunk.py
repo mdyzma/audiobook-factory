@@ -17,6 +17,7 @@ from pathlib import Path
 
 import typer
 
+from bookbinder.paths import project_root
 from bookbinder.cast import Cast
 from bookbinder.manifest import (
     NARRATOR_ROLE,
@@ -32,7 +33,7 @@ app = typer.Typer(add_completion=False)
 
 
 def load_config(root: Path) -> dict:
-    path = Path(__file__).resolve().parents[3] / "config" / "pipeline.toml"
+    path = project_root() / "config" / "pipeline.toml"
     return tomllib.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
@@ -123,7 +124,7 @@ def main(
     ),
     max_chars: int = typer.Option(0, help="0 = use the XTTS limit for the book language"),
 ) -> None:
-    root = Path(__file__).resolve().parents[3]
+    root = project_root()
     book_dir = root / "data" / "book" / slug
     chapters_path = book_dir / "chapters.json"
     if not chapters_path.exists():

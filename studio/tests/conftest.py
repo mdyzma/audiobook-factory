@@ -9,8 +9,6 @@ import pytest
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
-    from studio import data
-
     (tmp_path / "data" / "voices" / "michal").mkdir(parents=True)
     (tmp_path / "data" / "datasets" / "michal").mkdir(parents=True)
     (tmp_path / "data" / "book" / "solaris").mkdir(parents=True)
@@ -45,5 +43,7 @@ def project(tmp_path, monkeypatch):
     (tmp_path / "data" / "book" / "solaris" / "chunks.jsonl").write_text(
         json.dumps(chunk) + "\n", encoding="utf-8")
 
-    monkeypatch.setattr(data, "project_root", lambda: tmp_path)
+    # The same environment variable the containers use, so the tests exercise
+    # real root discovery rather than a stand-in for it.
+    monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(tmp_path))
     return tmp_path

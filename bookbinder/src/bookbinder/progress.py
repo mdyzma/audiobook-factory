@@ -12,6 +12,7 @@ from pathlib import Path
 
 import typer
 
+from bookbinder.paths import project_root
 from bookbinder.manifest import RenderProgress
 
 app = typer.Typer(add_completion=False)
@@ -43,7 +44,7 @@ def main(
     slug: str = typer.Argument(..., help="Book slug under data/audio/"),
     raw: bool = typer.Option(False, help="Print the JSON instead of a summary"),
 ) -> None:
-    root = Path(__file__).resolve().parents[3]
+    root = project_root()
     path = root / "data" / "audio" / slug / "progress.json"
     if not path.exists():
         typer.echo(

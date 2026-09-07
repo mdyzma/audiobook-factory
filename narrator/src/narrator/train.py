@@ -21,6 +21,8 @@ that takes an hour on a 5090 takes days.
 
 from __future__ import annotations
 
+from narrator.paths import project_root
+
 import json
 from pathlib import Path
 
@@ -106,7 +108,7 @@ def main(
 ) -> None:
     import torch
 
-    root = Path(__file__).resolve().parents[3]
+    root = project_root()
     dataset_dir = root / "data" / "datasets" / voice
     metadata = dataset_dir / "metadata.csv"
     if not metadata.exists():

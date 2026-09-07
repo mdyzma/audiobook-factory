@@ -8,6 +8,8 @@ mirroring them.
 
 from __future__ import annotations
 
+from studio.paths import project_root as _project_root
+
 import json
 import re
 from dataclasses import dataclass, field
@@ -46,7 +48,7 @@ def check_name(name: str) -> str:
 
 
 def project_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+    return _project_root()
 
 
 def _load(path: Path, model):

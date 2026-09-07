@@ -22,6 +22,7 @@ from pathlib import Path
 
 import typer
 
+from bookbinder.paths import project_root
 from bookbinder.cast import Cast
 from bookbinder.manifest import (
     RenderFailure,
@@ -58,7 +59,7 @@ def main(
              "is cloned.",
     ),
 ) -> None:
-    root = Path(__file__).resolve().parents[3]
+    root = project_root()
     book_dir = root / "data" / "book" / slug
     chunks_path = book_dir / "chunks.jsonl"
     if not chunks_path.exists():

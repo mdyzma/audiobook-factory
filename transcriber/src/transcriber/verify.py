@@ -17,6 +17,8 @@ transcriber mishears too. What matters is the outliers.
 
 from __future__ import annotations
 
+from transcriber.paths import project_root
+
 import json
 import re
 import tomllib
@@ -85,7 +87,7 @@ def main(
 
     from transcriber.auto_label import pick_device
 
-    root = Path(__file__).resolve().parents[3]
+    root = project_root()
     rendered_path = root / "data" / "audio" / slug / "rendered.jsonl"
     if not rendered_path.exists():
         raise typer.BadParameter(f"missing {rendered_path}; run `just synth {slug}` first")

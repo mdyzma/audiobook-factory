@@ -64,10 +64,9 @@ def project(tmp_path, monkeypatch):
     books.mkdir(parents=True)
     (books / "solaris.txt").write_text(BOOK, encoding="utf-8")
 
-    # Each module derives the project root as parents[3] of its own file.
-    fake = str(tmp_path / "a" / "b" / "c" / "mod.py")
-    for module in (ingest_mod, chunk_mod, dryrun_mod, assemble_mod):
-        monkeypatch.setattr(module, "__file__", fake)
+    # Point every module at this tree through the same environment variable the
+    # containers use, which exercises the real discovery rather than a stand-in.
+    monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(tmp_path))
     return tmp_path
 
 

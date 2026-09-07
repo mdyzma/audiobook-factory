@@ -103,8 +103,7 @@ class TestAssembleEndToEnd:
 
     def test_produces_m4b_with_correct_chapters(self, tmp_path, monkeypatch):
         root, assemble = self._build(tmp_path, monkeypatch)
-        # assemble.py finds the project root as parents[3] of its own file.
-        monkeypatch.setattr(assemble, "__file__", str(root / "x" / "y" / "z" / "assemble.py"))
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(root))
 
         from typer.testing import CliRunner
         result = CliRunner().invoke(assemble.app, ["b"])
@@ -124,7 +123,7 @@ class TestAssembleEndToEnd:
 
     def test_total_duration_includes_pauses(self, tmp_path, monkeypatch):
         root, assemble = self._build(tmp_path, monkeypatch)
-        monkeypatch.setattr(assemble, "__file__", str(root / "x" / "y" / "z" / "assemble.py"))
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(root))
         from typer.testing import CliRunner
         assert CliRunner().invoke(assemble.app, ["b"]).exit_code == 0
         # 1.0 + 0.5 + 2.0 + 0.5 + 1.0 = 5.0 s

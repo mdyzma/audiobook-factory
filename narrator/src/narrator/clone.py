@@ -14,6 +14,7 @@ from pathlib import Path
 import torch
 import typer
 
+from narrator.paths import project_root
 from narrator.engine import VoiceProfile, compute_latents, load_model, pick_device
 
 app = typer.Typer(add_completion=False)
@@ -30,7 +31,7 @@ def main(
     device: str = typer.Option("auto", help="auto | cuda | mps | cpu"),
     text: str = typer.Option("", help="Audition text; defaults to a built-in phrase"),
 ) -> None:
-    root = Path(__file__).resolve().parents[3]
+    root = project_root()
     profile = VoiceProfile.load(root, voice)
     dev = pick_device(device)
     typer.echo(f"cloning '{voice}' from {len(profile.reference_wavs)} references on {dev}")

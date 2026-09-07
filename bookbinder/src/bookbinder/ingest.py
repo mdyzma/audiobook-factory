@@ -7,6 +7,8 @@ Output: data/book/<slug>/chapters.json, an ordered list of
 
 from __future__ import annotations
 
+from bookbinder.paths import project_root
+
 import json
 import re
 import unicodedata
@@ -193,7 +195,7 @@ def main(
     meta["language"] = meta["language"].split("-")[0] if meta["language"] != "zh-cn" else "zh-cn"
     book_slug = slug or slugify(meta["title"])
 
-    root = Path(__file__).resolve().parents[3]
+    root = project_root()
     out_dir = root / "data" / "book" / book_slug
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "chapters.json").write_text(

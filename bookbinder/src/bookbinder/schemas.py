@@ -15,6 +15,7 @@ from pathlib import Path
 
 import typer
 
+from bookbinder.paths import project_root
 from bookbinder.manifest import json_schemas
 
 app = typer.Typer(add_completion=False)
@@ -34,7 +35,7 @@ def main(
         False, help="Fail if the files on disk differ, instead of rewriting them"
     ),
 ) -> None:
-    root = Path(__file__).resolve().parents[3]
+    root = project_root()
     out_dir = schema_dir(root)
     out_dir.mkdir(parents=True, exist_ok=True)
 

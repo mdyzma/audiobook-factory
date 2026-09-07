@@ -12,6 +12,8 @@ clips the narrator should use for instant cloning.
 
 from __future__ import annotations
 
+from transcriber.paths import project_root
+
 import json
 import os
 from pathlib import Path
@@ -53,7 +55,7 @@ def main(
     from pydub import AudioSegment
     from tqdm import tqdm
 
-    root = Path(__file__).resolve().parents[3]
+    root = project_root()
     audio_path = audio or root / "data" / "processed" / voice / "cleaned_full.wav"
     if not audio_path.exists():
         raise typer.BadParameter(f"missing {audio_path}; run `just clean` first")

@@ -18,6 +18,7 @@ from pathlib import Path
 
 import typer
 
+from bookbinder.paths import project_root
 from bookbinder.manifest import read_book
 
 app = typer.Typer(add_completion=False)
@@ -52,7 +53,7 @@ def main(
     fmt: str = typer.Option("", help="m4b | mp3 | wav; defaults to config"),
     bitrate: str = typer.Option("", help="Defaults to config"),
 ) -> None:
-    root = Path(__file__).resolve().parents[3]
+    root = project_root()
     audio_dir = root / "data" / "audio" / slug
     rendered_path = audio_dir / "rendered.jsonl"
     if not rendered_path.exists():

@@ -25,6 +25,7 @@ from pathlib import Path
 import torch
 import typer
 
+from narrator.paths import project_root
 from narrator.engine import (
     VoiceProfile,
     compute_latents,
@@ -112,7 +113,7 @@ def main(
     import soundfile as sf
     from tqdm import tqdm
 
-    root = Path(__file__).resolve().parents[3]
+    root = project_root()
     book_dir = root / "data" / "book" / slug
     chunks_path = book_dir / "chunks.jsonl"
     if not chunks_path.exists():
