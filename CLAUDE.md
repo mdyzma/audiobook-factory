@@ -47,6 +47,9 @@ both consumers.
   you add or change one.
 - `docs/HANDOFF-GPU.md` is the brief for picking this up on the CUDA machine.
   Fine-tuning is the open task and has never run.
+- `docs/MANUAL.md` is written for someone who does not use a terminal. Keep it
+  in plain language, and check button names against the templates before
+  changing it.
 - `docs/RUNBOOK.md` holds task-oriented walkthroughs. Its terminal output is
   captured from real runs; if you change what a command prints, re-capture it
   rather than editing the block by hand.

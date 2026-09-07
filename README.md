@@ -84,6 +84,7 @@ The commands you need day to day:
 | `just ui` | Local dashboard: browse, listen, and run stages |
 
 Step by step for common tasks: [docs/RUNBOOK.md](docs/RUNBOOK.md).
+Not a terminal user? [docs/MANUAL.md](docs/MANUAL.md).
 Full command reference: [docs/COMMANDS.md](docs/COMMANDS.md).
 
 ## The dashboard
@@ -297,6 +298,7 @@ only. See [docs/ROADMAP-DOCKER.md](docs/ROADMAP-DOCKER.md).
 | [docs/ROADMAP-DOCKER.md](docs/ROADMAP-DOCKER.md) | Plan for containerising it, and what is wrong with the current Docker assets |
 | [docs/ROADMAP-UI.md](docs/ROADMAP-UI.md) | Plan for a front end, with effort estimates and the case against building one |
 | [docs/HANDOFF-GPU.md](docs/HANDOFF-GPU.md) | Moving to a CUDA machine: the Blackwell wheel trap, Windows notes, what is still unproven |
+| [docs/MANUAL.md](docs/MANUAL.md) | Plain-language manual for someone who does not use a terminal |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Everyday tasks with real terminal output: add a voice, make a book, check it |
 | [docs/COMMANDS.md](docs/COMMANDS.md) | Every `just` recipe and its arguments |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Day-to-day workflow, adding dependencies safely, failure modes |
