@@ -60,6 +60,21 @@
     border: 1px solid var(--line); border-radius: 4px; color: var(--dim);
     margin-right: .25rem; }
   .scroll { max-height: 26rem; overflow-y: auto; }
+  button { font: inherit; font-size: .85rem; padding: .35rem .8rem;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+    color: var(--ink); cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.danger:hover:not(:disabled) { border-color: var(--fail); color: var(--fail); }
+  .actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
+  select { font: inherit; font-size: .85rem; padding: .3rem .4rem;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel); color: var(--ink); }
+  pre.log { margin: .6rem 0 0; padding: .7rem .8rem; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; max-height: 20rem;
+    overflow: auto; font: .78rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap; word-break: break-word; }
+  .note { font-size: .8rem; color: var(--fail); margin-top: .5rem; }
 </style>
 </head>
 <body>
@@ -67,6 +82,61 @@
   <h1><a href="/">audiobook-factory</a></h1>
   <span class="crumb">{% block crumb %}{% endblock %}</span>
 </header>
+<script>
+async function api(url, options) {
+  const r = await fetch(url, options);
+  if (!r.ok) {
+    let detail = r.statusText;
+    try { detail = (await r.json()).detail || detail; } catch (e) {}
+    throw new Error(detail);
+  }
+  return r;
+}
+async function startJob(action, args, button) {
+  const note = document.getElementById('note');
+  if (note) note.textContent = '';
+  if (button) button.disabled = true;
+  try {
+    await api('/api/jobs', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action, args}),
+    });
+    location.reload();
+  } catch (e) {
+    if (note) note.textContent = e.message;
+    if (button) button.disabled = false;
+  }
+}
+async function cancelJob(id) {
+  try { await api('/api/jobs/' + id + '/cancel', {method: 'POST'}); } catch (e) {}
+  location.reload();
+}
+// A running job means the page is out of date the moment it renders, so poll
+// the two cheap endpoints rather than reloading the whole thing.
+function followJob(id, slug) {
+  const logEl = document.getElementById('log');
+  const barEl = document.getElementById('bar');
+  const statEl = document.getElementById('jobstat');
+  async function tick() {
+    try {
+      if (logEl) logEl.textContent = await (await fetch('/api/jobs/' + id + '/log?lines=120')).text();
+      const job = await (await fetch('/api/jobs/' + id)).json();
+      if (slug && barEl) {
+        const p = await (await fetch('/api/books/' + slug + '/progress')).json();
+        if (p && typeof p.percent === 'number') {
+          barEl.style.width = p.percent + '%';
+          if (statEl) statEl.textContent = p.percent + '% · ' +
+            (p.chunks_done || 0) + '/' + (p.chunks_total || 0) + ' fragments';
+        }
+      }
+      if (!job.running) { location.reload(); return; }
+    } catch (e) {}
+    setTimeout(tick, 2000);
+  }
+  tick();
+}
+</script>
 <main>{% block body %}{% endblock %}</main>
 </body>
 </html>

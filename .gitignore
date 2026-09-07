@@ -236,3 +236,4 @@ training/**
 # Raw Gemini transcript: contains a private conversation URL and local paths.
 # Its conclusions live in docs/DECISIONS.md instead.
 gemini-session.md
+data/.studio/

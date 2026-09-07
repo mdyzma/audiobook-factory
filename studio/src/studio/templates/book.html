@@ -20,6 +20,51 @@
   {% endif %}
 </div>
 
+<h2>Run</h2>
+<div class="card">
+  {% if active %}
+    <div class="row">
+      <span class="title">{{ active.action }} running</span>
+      <button class="danger" onclick="cancelJob('{{ active.id }}')">Cancel</button>
+    </div>
+    <div class="bar"><span id="bar" style="width: {{ book.percent }}%"></span></div>
+    <div class="meta" id="jobstat">{{ book.percent }}%</div>
+    <pre class="log" id="log">loading…</pre>
+    <script>followJob('{{ active.id }}', '{{ book.slug }}');</script>
+  {% else %}
+    <div class="actions">
+      <button onclick="startJob('chunk', {slug: '{{ book.slug }}'}, this)">Chunk</button>
+      <button onclick="startJob('dryrun', {slug: '{{ book.slug }}'}, this)">Dry run</button>
+      <button onclick="startJob('synth', {slug: '{{ book.slug }}', voice: ''}, this)">Synthesise</button>
+      <select id="fmt">
+        {% for f in formats %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
+      </select>
+      <button onclick="startJob('assemble', {slug: '{{ book.slug }}', format: document.getElementById('fmt').value}, this)">Assemble</button>
+      <button onclick="startJob('verify', {slug: '{{ book.slug }}'}, this)">Verify</button>
+    </div>
+    <div class="meta">Synthesis is resumable: fragments that already have audio are skipped.</div>
+    <div class="note" id="note"></div>
+  {% endif %}
+</div>
+
+{% if jobs %}
+<h2>Recent jobs</h2>
+<div class="card">
+  <table>
+    <tr><th>when</th><th>action</th><th>status</th><th>log</th></tr>
+    {% for j in jobs %}
+    <tr>
+      <td class="meta">{{ j.started_at }}</td>
+      <td>{{ j.action }}</td>
+      <td class="state {{ 'done' if j.status == 'succeeded' else ('rendering' if j.running else 'failed') }}">
+        {{ j.status }}{% if j.exit_code %} ({{ j.exit_code }}){% endif %}</td>
+      <td><a href="/api/jobs/{{ j.id }}/log" target="_blank"><code>{{ j.id }}</code></a></td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
 {% if book.meta and book.meta.chapters %}
 <h2>Chapters</h2>
 <div class="card">

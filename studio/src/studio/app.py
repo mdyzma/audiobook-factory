@@ -1,23 +1,23 @@
-"""A local, read-only dashboard for audiobook-factory.
+"""A local dashboard for audiobook-factory.
 
-Read-only on purpose: this phase proves the file-reading layer before any
-process supervision exists. Nothing here starts, stops or edits anything.
+It reads what the pipeline writes, and it can start and stop pipeline stages.
 
-It binds to localhost. That is not a default to drift away from later without
-thought: the machine running this has the pipeline on it, and a later phase will
-add the ability to start jobs.
+Starting things is why it binds to localhost and why `jobs.py` accepts an action
+name from a fixed table rather than a command. There is no authentication here,
+so anything that can reach this server can run a render.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 
 from studio import data
 from studio.data import UnsafeName
+from studio.jobs import ACTIONS, FORMATS, JobError, JobRunner
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -26,6 +26,12 @@ app = FastAPI(title="audiobook-factory studio", docs_url="/api/docs")
 
 def root() -> Path:
     return data.project_root()
+
+
+def runner() -> JobRunner:
+    # Built per request: everything it needs is on disk, so there is no state
+    # to keep and nothing to go stale if the server restarts.
+    return JobRunner(root())
 
 
 def safe(name: str) -> str:
@@ -54,6 +60,7 @@ def dashboard(request: Request):
     return TEMPLATES.TemplateResponse(request, "dashboard.html", {
         "books": data.list_books(root()),
         "voices": data.list_voices(root()),
+        "jobs": runner().jobs()[:10],
     })
 
 
@@ -62,8 +69,12 @@ def book_page(request: Request, slug: str):
     book = data.get_book(root(), safe(slug))
     if book is None:
         raise HTTPException(status_code=404, detail=f"no book '{slug}'")
+    jobs = [j for j in runner().jobs() if j.slug == slug]
     return TEMPLATES.TemplateResponse(request, "book.html", {
         "book": book,
+        "jobs": jobs[:10],
+        "active": next((j for j in jobs if j.running), None),
+        "formats": FORMATS,
         # A full book is tens of thousands of fragments; the page shows a
         # window, and the API serves the rest.
         "chunks": data.load_chunks(root(), slug, limit=300),
@@ -75,7 +86,12 @@ def voice_page(request: Request, name: str):
     voice = data.get_voice(root(), safe(name))
     if voice is None:
         raise HTTPException(status_code=404, detail=f"no voice '{name}'")
-    return TEMPLATES.TemplateResponse(request, "voice.html", {"voice": voice})
+    jobs = [j for j in runner().jobs() if j.voice == name]
+    return TEMPLATES.TemplateResponse(request, "voice.html", {
+        "voice": voice,
+        "jobs": jobs[:10],
+        "active": next((j for j in jobs if j.running), None),
+    })
 
 
 # --- json --------------------------------------------------------------------
@@ -161,3 +177,64 @@ def output(slug: str, filename: str):
         raise HTTPException(status_code=404, detail="no such output")
     media = {"m4b": "audio/mp4", "mp3": "audio/mpeg", "wav": "audio/wav"}
     return FileResponse(path, media_type=media.get(path.suffix.lstrip("."), "application/octet-stream"))
+
+
+# --- jobs --------------------------------------------------------------------
+
+def _job_json(job) -> dict:
+    return {
+        "id": job.id, "action": job.action, "args": job.args, "status": job.status,
+        "pid": job.pid, "started_at": job.started_at, "finished_at": job.finished_at,
+        "exit_code": job.exit_code, "command": " ".join(job.command),
+        "running": job.running,
+    }
+
+
+@app.get("/api/actions")
+def api_actions():
+    """What this server is willing to run. Nothing else can be started."""
+    return {name: spec["args"] for name, spec in ACTIONS.items()}
+
+
+@app.get("/api/jobs")
+def api_jobs(slug: str = "", voice: str = "", limit: int = 50):
+    jobs = runner().jobs()
+    if slug:
+        jobs = [j for j in jobs if j.slug == safe(slug)]
+    if voice:
+        jobs = [j for j in jobs if j.voice == safe(voice)]
+    return [_job_json(j) for j in jobs[:limit]]
+
+
+@app.post("/api/jobs")
+def api_start_job(payload: dict = Body(...)):
+    action = str(payload.get("action") or "")
+    args = {k: str(v) for k, v in (payload.get("args") or {}).items()}
+    try:
+        job = runner().start(action, args)
+    except JobError as exc:
+        # A refusal is the caller's fault, not a server fault: an unknown
+        # action, a bad argument, or a book already being rendered.
+        raise HTTPException(status_code=409, detail=str(exc))
+    return _job_json(job)
+
+
+@app.get("/api/jobs/{job_id}")
+def api_job(job_id: str):
+    job = runner().store.load(safe(job_id))
+    if job is None:
+        raise HTTPException(status_code=404, detail="no such job")
+    return _job_json(job)
+
+
+@app.get("/api/jobs/{job_id}/log", response_class=PlainTextResponse)
+def api_job_log(job_id: str, lines: int = 200):
+    return runner().tail(safe(job_id), lines=lines)
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def api_cancel_job(job_id: str):
+    try:
+        return _job_json(runner().cancel(safe(job_id)))
+    except JobError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))

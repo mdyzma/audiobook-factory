@@ -67,7 +67,7 @@ pass `""` for the ones between.
 
 | Command | What it does |
 |---|---|
-| `just ui <port="8765">` | Opens a local, read-only dashboard at `http://127.0.0.1:8765`. Shows books, voices, renders and quality checks, and plays the audio. |
+| `just ui <port="8765">` | Opens the local dashboard at `http://127.0.0.1:8765`. Shows books, voices, renders and quality checks, plays the audio, and runs pipeline stages. |
 
 ## Stage 6: quality
 

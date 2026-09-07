@@ -122,3 +122,36 @@ class TestSecurity:
     def test_a_non_audio_output_is_refused(self, client, project):
         (project / "data" / "out" / "solaris.txt").write_text("secret")
         assert client.get("/audio/out/solaris/solaris.txt").status_code == 400
+
+
+class TestJobRoutes:
+    def test_actions_are_advertised(self, client):
+        actions = client.get("/api/actions").json()
+        assert "synth" in actions and "chunk" in actions
+        # Nothing that would let a caller name its own command.
+        assert "run" not in actions and "exec" not in actions
+
+    def test_starting_an_unknown_action_is_refused(self, client):
+        r = client.post("/api/jobs", json={"action": "rm", "args": {"slug": "solaris"}})
+        assert r.status_code == 409
+        assert "unknown action" in r.json()["detail"]
+
+    def test_starting_with_an_unsafe_argument_is_refused(self, client):
+        r = client.post("/api/jobs", json={"action": "chunk", "args": {"slug": "../etc"}})
+        assert r.status_code == 409
+
+    def test_missing_job_is_404(self, client):
+        assert client.get("/api/jobs/deadbeef1234").status_code == 404
+
+    def test_log_of_an_unknown_job_is_empty(self, client):
+        r = client.get("/api/jobs/deadbeef1234/log")
+        assert r.status_code == 200 and r.text == ""
+
+    def test_cancelling_an_unknown_job_is_404(self, client):
+        assert client.post("/api/jobs/deadbeef1234/cancel").status_code == 404
+
+    def test_job_ids_are_validated(self, client):
+        assert client.get("/api/jobs/..%2F..%2Fetc/log").status_code in (400, 404)
+
+    def test_jobs_list_is_empty_before_anything_runs(self, client):
+        assert client.get("/api/jobs").json() == []

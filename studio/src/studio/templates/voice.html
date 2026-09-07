@@ -1,6 +1,78 @@
 {% extends "base.html" %}
-{% block title %}{{ voice.name }}{% endblock %}
-{% block crumb %}voice{% endblock %}
+{% block title %}{{ voice.name }}<h2>Run</h2>
+<div class="card">
+  {% if active %}
+    <div class="row">
+      <span class="title">{{ active.action }} running</span>
+      <button class="danger" onclick="cancelJob('{{ active.id }}')">Cancel</button>
+    </div>
+    <pre class="log" id="log">loading…</pre>
+    <script>followJob('{{ active.id }}', '');</script>
+  {% else %}
+    <div class="actions">
+      <button onclick="startJob('label', {voice: '{{ voice.name }}'}, this)">Re-label sample</button>
+      <button onclick="startJob('clone', {voice: '{{ voice.name }}'}, this)">Re-clone</button>
+    </div>
+    <div class="meta">Labelling re-cuts the cleaned recording; cloning rebuilds the latents and audition.</div>
+    <div class="note" id="note"></div>
+  {% endif %}
+</div>
+
+{% if jobs %}
+<h2>Recent jobs</h2>
+<div class="card">
+  <table>
+    <tr><th>when</th><th>action</th><th>status</th><th>log</th></tr>
+    {% for j in jobs %}
+    <tr>
+      <td class="meta">{{ j.started_at }}</td>
+      <td>{{ j.action }}</td>
+      <td class="state {{ 'done' if j.status == 'succeeded' else ('rendering' if j.running else 'failed') }}">{{ j.status }}</td>
+      <td><a href="/api/jobs/{{ j.id }}/log" target="_blank"><code>{{ j.id }}</code></a></td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+{% endblock %}
+{% block crumb %}voice<h2>Run</h2>
+<div class="card">
+  {% if active %}
+    <div class="row">
+      <span class="title">{{ active.action }} running</span>
+      <button class="danger" onclick="cancelJob('{{ active.id }}')">Cancel</button>
+    </div>
+    <pre class="log" id="log">loading…</pre>
+    <script>followJob('{{ active.id }}', '');</script>
+  {% else %}
+    <div class="actions">
+      <button onclick="startJob('label', {voice: '{{ voice.name }}'}, this)">Re-label sample</button>
+      <button onclick="startJob('clone', {voice: '{{ voice.name }}'}, this)">Re-clone</button>
+    </div>
+    <div class="meta">Labelling re-cuts the cleaned recording; cloning rebuilds the latents and audition.</div>
+    <div class="note" id="note"></div>
+  {% endif %}
+</div>
+
+{% if jobs %}
+<h2>Recent jobs</h2>
+<div class="card">
+  <table>
+    <tr><th>when</th><th>action</th><th>status</th><th>log</th></tr>
+    {% for j in jobs %}
+    <tr>
+      <td class="meta">{{ j.started_at }}</td>
+      <td>{{ j.action }}</td>
+      <td class="state {{ 'done' if j.status == 'succeeded' else ('rendering' if j.running else 'failed') }}">{{ j.status }}</td>
+      <td><a href="/api/jobs/{{ j.id }}/log" target="_blank"><code>{{ j.id }}</code></a></td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+{% endblock %}
 {% block body %}
 
 <h2>{{ voice.name }}</h2>
@@ -19,5 +91,41 @@
     <div class="meta">No audition clip. Run <code>just clone {{ voice.name }}</code>.</div>
   {% endif %}
 </div>
+
+<h2>Run</h2>
+<div class="card">
+  {% if active %}
+    <div class="row">
+      <span class="title">{{ active.action }} running</span>
+      <button class="danger" onclick="cancelJob('{{ active.id }}')">Cancel</button>
+    </div>
+    <pre class="log" id="log">loading…</pre>
+    <script>followJob('{{ active.id }}', '');</script>
+  {% else %}
+    <div class="actions">
+      <button onclick="startJob('label', {voice: '{{ voice.name }}'}, this)">Re-label sample</button>
+      <button onclick="startJob('clone', {voice: '{{ voice.name }}'}, this)">Re-clone</button>
+    </div>
+    <div class="meta">Labelling re-cuts the cleaned recording; cloning rebuilds the latents and audition.</div>
+    <div class="note" id="note"></div>
+  {% endif %}
+</div>
+
+{% if jobs %}
+<h2>Recent jobs</h2>
+<div class="card">
+  <table>
+    <tr><th>when</th><th>action</th><th>status</th><th>log</th></tr>
+    {% for j in jobs %}
+    <tr>
+      <td class="meta">{{ j.started_at }}</td>
+      <td>{{ j.action }}</td>
+      <td class="state {{ 'done' if j.status == 'succeeded' else ('rendering' if j.running else 'failed') }}">{{ j.status }}</td>
+      <td><a href="/api/jobs/{{ j.id }}/log" target="_blank"><code>{{ j.id }}</code></a></td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
 
 {% endblock %}

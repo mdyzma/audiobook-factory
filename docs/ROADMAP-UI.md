@@ -103,19 +103,35 @@ Two things worth carrying into phase 2:
   carries audio paths, so reading the chunker's manifest alone means per-fragment
   playback silently never appears.
 
-### Phase 2: run the pipeline — 3 to 4 days
+### Phase 2: run the pipeline — DONE (2026-09-07)
 
-Start and stop stages. Live progress from phase 0. Stream command output.
+Buttons on the book and voice pages start stages; a live panel shows the
+progress bar, fragment count and a streaming log, with a cancel button.
 
-This is the phase with real engineering in it, and the estimate reflects that:
+**It executes commands, so it never accepts one.** A request names an action
+from a fixed table in `jobs.py` and supplies arguments validated before they
+reach a process. Shell metacharacters, traversal and unknown containers are all
+refused, with tests for each.
 
-- **Jobs must outlive the page.** Someone will close the tab during a
-  twelve-hour render. The job is a subprocess the server supervises; the browser
-  only observes.
-- **One render per book.** Two concurrent syntheses on the same slug would
-  interleave writes to the same `rendered.jsonl`. Needs a lock file.
-- **Resumability is already there**, so a cancelled render restarts cleanly. That
-  is a real head start over building this from nothing.
+**Jobs outlive the page and the server.** Each runs in its own process group,
+detached, writing to a log file, with its metadata on disk. Verified by killing
+the server mid-render: the job carried on and completed, and the dashboard
+picked it up again on restart.
+
+**One render per book**, through a lock file naming the holding job. A lock held
+by a process that no longer exists is cleared rather than blocking forever.
+
+Three things worth knowing for phase 3:
+
+- **A detached process cannot be waited on later**, so its exit code is written
+  to a file by a small shell wrapper. Three states: exit file present means it
+  finished with that code; no exit file and no process means it was killed, which
+  is reported as `orphaned` rather than left running forever.
+- **Finished children become zombies** and keep answering signal 0, so they were
+  reported as alive. `reap()` clears them on every job listing; without it every
+  completed render leaked a process entry for the life of the server.
+- **The server's own virtualenv leaked into jobs**, making uv warn on every one
+  that the active environment did not match the project. It is stripped now.
 
 ### Phase 3: authoring — 4 to 5 days
 
@@ -152,7 +168,7 @@ Only worth it if the web UI proves people want to avoid the terminal entirely.
 |---|---|---|
 | 0. Progress signal | done | — |
 | 1. Read-only dashboard | done | — |
-| 2. Run the pipeline | 3–4 | 7.5 |
+| 2. Run the pipeline | done | — |
 | 3. Authoring | 4–5 | 12.5 |
 | 4. Quality review | 2 | 14.5 |
 | 5. Desktop packaging | 3–5 | 19.5 |
@@ -167,9 +183,9 @@ and then is not.
 
 ## What to do first
 
-Phases 0 and 1 are done. Phase 2 is next and is where the real engineering
-lives: jobs that outlive the browser tab, and a lock so two renders cannot
-interleave writes to the same book.
+Phases 0, 1 and 2 are done: the terminal is no longer necessary for ordinary
+use. Phase 3 is next, and its role-correction screen is the feature that
+justifies the rest.
 
 ## The alternative worth considering
 

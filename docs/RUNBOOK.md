@@ -85,14 +85,19 @@ want when something needs attention.
 just ui
 ```
 
-A read-only dashboard on `http://127.0.0.1:8765`: every book with its state and
-progress, every voice with its audition clip, the last render report, quality
-findings, and a player for the finished audiobook and each individual fragment.
+A dashboard on `http://127.0.0.1:8765`: every book with its state and progress,
+every voice with its audition clip, the last render report, quality findings, and
+a player for the finished audiobook and each individual fragment.
 
-It changes nothing. To run the pipeline, use the commands below.
+It also runs the pipeline. Buttons on a book page start chunking, a dry run,
+synthesis, assembly and verification; a voice page can re-label and re-clone.
+A running job shows a progress bar and a live log, and can be cancelled.
 
-It binds to localhost deliberately. It serves everything under `data/`, and there
-is no authentication.
+Jobs are detached, so closing the tab does not stop a render, and neither does
+stopping the dashboard. Only one render per book runs at a time.
+
+It binds to localhost deliberately. It serves everything under `data/`, it starts
+processes, and there is no authentication.
 
 ## Task: add a new voice
 
