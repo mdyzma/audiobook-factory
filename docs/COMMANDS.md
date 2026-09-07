@@ -97,10 +97,14 @@ pass `""` for the ones between.
 
 ## Docker
 
-For the CUDA host only. Docker on macOS runs in a Linux VM with no Metal
-access, so there is no GPU passthrough there.
+Two profiles. `cpu` runs anywhere including macOS; `gpu` needs an NVIDIA host
+with `nvidia-container-toolkit`, since macOS has no GPU passthrough.
 
 | Command | What it does |
 |---|---|
-| `just build-images` | Builds all three images. |
-| `just up <service>` | Runs one service against the shared `data/` mount. |
+| `just docker-build` | Builds the CPU images: bookbinder and studio. |
+| `just docker-build-gpu` | Builds the CUDA images. Never built on Apple Silicon. |
+| `just docker-run <service> [args]` | Runs one stage, e.g. `just docker-run bookbinder python -m bookbinder.chunk solaris`. |
+| `just docker-smoke [slug] [source]` | Ingest, chunk, silence and assemble entirely in containers. No GPU, no models. |
+| `just docker-ui` | The dashboard in a container on `127.0.0.1:8765`. Read-only there: `just` is absent, so the run buttons do nothing. |
+| `just docker-down` | Stops everything. |

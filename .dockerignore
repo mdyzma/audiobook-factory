@@ -1,0 +1,12 @@
+# Build context hygiene. Without this the context includes 3 GB of virtualenvs
+# and several gigabytes of audio, which is sent to the daemon on every build.
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+.git/
+.github/
+data/
+training/
+gemini-session.md
+*.md
+!README.md

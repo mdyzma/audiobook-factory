@@ -20,69 +20,53 @@ layer, not just the Python one.
 ## What exists today
 
 ```
-transcriber/Dockerfile     nvidia/cuda:12.4.1-runtime-ubuntu22.04
-narrator/Dockerfile        nvidia/cuda:12.4.1-runtime-ubuntu22.04
-bookbinder/Dockerfile      debian:bookworm-slim
-docker-compose.yml         three services, shared ./data mount, GPU reservations
+bookbinder/Dockerfile      debian:bookworm-slim + uv         BUILT, VERIFIED
+studio/Dockerfile          debian:bookworm-slim + uv         BUILT, VERIFIED
+transcriber/Dockerfile     nvidia/cuda:12.8.1 + uv           written, never built
+narrator/Dockerfile        nvidia/cuda:12.8.1 + uv           written, never built
+docker-compose.yml         cpu and gpu profiles
 ```
 
-The shape is right. The contents are stale, because they were written before the
-uv migration and before the version work that followed.
+The CUDA images cannot be built here: those bases are amd64 only and this is
+Apple Silicon. They are written to the same pattern as the two that work, but
+treat the first build as work rather than a formality.
 
-## What is wrong with it
+### Phase 1: make the images honest — DONE (2026-09-07)
 
-**1. The CUDA base is wrong for Blackwell.** `nvidia/cuda:12.4.1` has no kernels
-for sm_120, so the RTX 5090 will fail or fall back to CPU. Needs a 12.8 base.
-Same trap as [HANDOFF-GPU.md](HANDOFF-GPU.md).
+All four install from the committed `uv.lock` with `uv sync --frozen`, so a
+container resolves the same versions CI and the host resolve. Verified for
+bookbinder: every Python package matches the host exactly, down to the patch.
 
-**2. The images ignore the locks.** They `pip install` loose version ranges,
-which throws away the entire reason `uv.lock` is committed. A container that
-resolves different versions than the host is worse than no container.
+Details worth keeping:
 
-**3. The pins are missing.** Neither GPU image carries the constraints that keep
-XTTS working: numpy below 2, the spaCy 3.7 line, transformers 4.40.2, torch 2.8
-in the narrator and 2.14 in the transcriber. They would resolve to whatever is
-current and break in the ways DECISIONS.md documents.
+- **uv installs its own CPython**, the same 3.11.9 the host uses, so the image
+  is not merely similar to a working machine but identical to one.
+- **The layout mirrors the repository.** Modules find the project root as
+  `parents[3]` of their own file, so the code lives at
+  `/app/<env>/src/<env>/…` and `/app` is the root, with `data/` and `config/`
+  mounted there. Putting it anywhere else silently resolved the root to `/`.
+- **Dependencies are copied and synced before the source**, so editing code does
+  not re-resolve anything.
+- **No hard-coded stage.** `ENTRYPOINT ["uv", "run", "--frozen", "--no-dev"]`,
+  and the command names the module, so one image serves every stage of its
+  environment.
+- **ffmpeg is pinned by the base image**, at 5.1 on bookworm. That is deliberate:
+  FFmpeg major versions have already broken this project once. The host runs 9.0
+  and both produce byte-comparable chapter marks, which is the property that
+  matters here.
+- **A `.dockerignore`** keeps `data/`, `training/` and the virtualenvs out of the
+  build context. Without it every build ships several gigabytes to the daemon.
 
-**4. Entry points are wrong.** Each image hard-codes one module, so a service can
-only ever run one stage. `narrator` can synthesise but not clone.
+### Phase 2: CPU-only path first — DONE (2026-09-07)
 
-**5. The model cache is not persisted.** XTTS-v2 is 1.7 GB and would download on
-every container start.
+`docker compose --profile cpu` builds bookbinder and studio, around 690 MB each,
+and needs no GPU. `just docker-smoke` takes an ebook to a chaptered m4b of
+silence entirely in containers, which was the bar for this phase.
 
-**6. bookbinder has no ffmpeg-shaped story.** It shells out to ffmpeg for silence
-and assembly. The slim image installs it, but nothing verifies the version, and
-FFmpeg major versions have already bitten this project once.
-
-## Plan
-
-### Phase 1: make the images honest
-
-Rewrite all three to install from `uv.lock` with `uv sync --frozen`, the way the
-CI workflow already does. A container must get the same versions CI and the host
-get, or it is not reproducing anything.
-
-- Copy `pyproject.toml`, `uv.lock`, `.python-version` first, sync, then copy
-  `src/`, so a code change does not re-resolve dependencies.
-- Drop the hard-coded entry points. Use `ENTRYPOINT ["uv", "run"]` and pass the
-  module as the command, so one image serves every stage of its environment.
-- Pin the FFmpeg major version explicitly and record which one.
-
-**Done when:** `docker compose build` succeeds and `just doctor` run inside each
-container prints the same versions as the host.
-
-### Phase 2: CPU-only path first
-
-Get the whole pipeline working in containers with no GPU at all, using the
-dry-run renderer for synthesis. That validates the mounts, the data contract and
-the service wiring without touching CUDA.
-
-- `bookbinder` service: ingest, chunk, dryrun, assemble.
-- A compose profile that runs the four in sequence over a sample book.
-
-**Done when:** `docker compose run bookbinder` takes an EPUB to a chaptered m4b
-of silence, on a machine with no GPU. This is testable on the Mac, so it is the
-part that can be verified before the GPU box is free.
+The dashboard also runs containerised on `127.0.0.1:8765`, reading the shared
+`data/` mount. One limitation, deliberate: `just` is not in that image, so the
+buttons that start pipeline stages do not work there. In a container it is a
+browsing and listening view. Running stages across containers is phase 4.
 
 ### Phase 3: CUDA services
 

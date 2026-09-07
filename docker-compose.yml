@@ -1,36 +1,84 @@
-# All three services bind-mount ./data, which is the only channel between them.
-# No GPU passthrough on Apple Silicon - on the M1 use the native poetry envs.
-services:
-  transcriber:
-    build: ./transcriber
-    volumes:
-      - ./data:/app/data
-      - ~/.cache/huggingface:/root/.cache/huggingface
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+# Services share ./data, which is the only channel between them, exactly as the
+# native pipeline does.
+#
+# Two profiles, because they need different hardware:
+#
+#   cpu  bookbinder and studio. No GPU, runs anywhere, including macOS.
+#   gpu  narrator and transcriber. Needs an NVIDIA host with
+#        nvidia-container-toolkit. There is no GPU passthrough on macOS.
+#
+#   docker compose --profile cpu build
+#   docker compose --profile cpu run --rm bookbinder python -m bookbinder.chunk solaris
 
+x-project: &project
+  # /app is the project root inside every image, mirroring the repository so the
+  # modules resolve data/ and config/ the same way they do natively.
+  volumes:
+    - ./data:/app/data
+    - ./config:/app/config:ro
+  working_dir: /app
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+
+services:
   bookbinder:
-    build: ./bookbinder
+    <<: *project
+    profiles: [cpu]
+    build:
+      context: .
+      dockerfile: bookbinder/Dockerfile
+    image: audiobook-factory/bookbinder
+    working_dir: /app/bookbinder
+
+  studio:
+    <<: *project
+    profiles: [cpu]
+    build:
+      context: .
+      dockerfile: studio/Dockerfile
+    image: audiobook-factory/studio
+    working_dir: /app/studio
+    ports:
+      # Bound to localhost on purpose. This dashboard serves everything under
+      # data/ and has no authentication.
+      - "127.0.0.1:8765:8765"
+
+  transcriber:
+    <<: [*project, *gpu]
+    profiles: [gpu]
+    build:
+      context: .
+      dockerfile: transcriber/Dockerfile
+    image: audiobook-factory/transcriber
+    working_dir: /app/transcriber
     volumes:
       - ./data:/app/data
       - ./config:/app/config:ro
+      # Whisper weights are large; keep them across rebuilds.
+      - whisper-cache:/root/.cache
 
   narrator:
-    build: ./narrator
+    <<: [*project, *gpu]
+    profiles: [gpu]
+    build:
+      context: .
+      dockerfile: narrator/Dockerfile
+    image: audiobook-factory/narrator
+    working_dir: /app/narrator
     volumes:
       - ./data:/app/data
       - ./config:/app/config:ro
       - ./training:/app/training
-      - ~/.local/share/tts:/root/.local/share/tts
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+      # XTTS-v2 is ~1.7 GB and would otherwise download on every run.
+      - xtts-cache:/root/.local/share/tts
+
+volumes:
+  whisper-cache:
+  xtts-cache:

@@ -1,22 +1,5 @@
 {% extends "base.html" %}
-{% block crumb %}read-only view{% if jobs %}
-<h2>Recent jobs</h2>
-<div class="card">
-  <table>
-    <tr><th>when</th><th>action</th><th>target</th><th>status</th></tr>
-    {% for j in jobs %}
-    <tr>
-      <td class="meta">{{ j.started_at }}</td>
-      <td>{{ j.action }}</td>
-      <td><code>{{ j.slug or j.voice }}</code></td>
-      <td class="state {{ 'done' if j.status == 'succeeded' else ('rendering' if j.running else 'failed') }}">{{ j.status }}</td>
-    </tr>
-    {% endfor %}
-  </table>
-</div>
-{% endif %}
-
-{% endblock %}
+{% block crumb %}browse, listen, run{% endblock %}
 {% block body %}
 
 <h2>Books</h2>

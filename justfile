@@ -232,9 +232,37 @@ setup-studio:
     cd studio && uv sync
 
 # ------------------------------------------------------------ docker -----
+#
+# Two profiles. `cpu` runs anywhere including macOS; `gpu` needs an NVIDIA host
+# with nvidia-container-toolkit. See docs/ROADMAP-DOCKER.md.
 
-up service:
-    docker compose run --rm {{service}}
+# Build the CPU images: bookbinder and studio. No GPU needed.
+docker-build:
+    docker compose --profile cpu build
 
-build-images:
-    docker compose build
+# Build the CUDA images. NVIDIA host only; never built on Apple Silicon.
+docker-build-gpu:
+    docker compose --profile gpu build
+
+# Run one stage in a container, e.g:
+#   just docker-run bookbinder python -m bookbinder.chunk solaris
+docker-run service *args:
+    docker compose --profile cpu --profile gpu run --rm {{service}} {{args}}
+
+# Ingest, chunk, silence and assemble entirely in containers. No GPU, no models.
+docker-smoke slug="dockersmoke" source="data/raw/books/test-book.txt":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    run() { docker compose --profile cpu run --rm bookbinder "$@"; }
+    run python -m bookbinder.ingest "/app/{{source}}" --slug "{{slug}}" --language pl
+    run python -m bookbinder.chunk "{{slug}}"
+    run python -m bookbinder.dryrun "{{slug}}"
+    run python -m bookbinder.assemble "{{slug}}"
+    echo "-> data/out/{{slug}}.m4b"
+
+# The dashboard in a container, on http://127.0.0.1:8765
+docker-ui:
+    docker compose --profile cpu up studio
+
+docker-down:
+    docker compose --profile cpu --profile gpu down
