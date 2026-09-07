@@ -79,6 +79,21 @@ only if it has not been cloned before, and copies the result to `~/Downloads`.
 The rest of this runbook is the same work done stage by stage, which is what you
 want when something needs attention.
 
+## Task: look at everything at once
+
+```bash
+just ui
+```
+
+A read-only dashboard on `http://127.0.0.1:8765`: every book with its state and
+progress, every voice with its audition clip, the last render report, quality
+findings, and a player for the finished audiobook and each individual fragment.
+
+It changes nothing. To run the pipeline, use the commands below.
+
+It binds to localhost deliberately. It serves everything under `data/`, and there
+is no authentication.
+
 ## Task: add a new voice
 
 Roughly ten minutes, most of it reading aloud.

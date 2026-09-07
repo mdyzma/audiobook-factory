@@ -80,6 +80,7 @@ The commands you need day to day:
 | `just check` | Schemas, types and tests, about 8 seconds |
 | `just preview <slug> <voice>` | Render 20 fragments to sample the voice |
 | `just book-dry <source> <slug>` | Whole structure with silence, no models |
+| `just ui` | Local dashboard: books, voices, renders, audio |
 
 Step by step for common tasks: [docs/RUNBOOK.md](docs/RUNBOOK.md).
 Full command reference: [docs/COMMANDS.md](docs/COMMANDS.md).
@@ -132,7 +133,8 @@ just test-one narrator -k formatter
 
 | Environment | Tests |
 |---|---|
-| bookbinder | 104 |
+| bookbinder | 137 |
+| studio | 54 |
 | transcriber | 20 |
 | narrator | 17 |
 
@@ -185,6 +187,12 @@ audiobook-factory/
 │       ├── schemas.py      exports that contract to docs/schemas/
 │       ├── dryrun.py       silence at the right durations, for structure checks
 │       └── assemble.py     fragments + pauses -> chaptered m4b
+│
+├── studio/               Environment D - local dashboard; fastapi, no ML
+│   └── src/studio/
+│       ├── app.py          routes and JSON API
+│       ├── data.py         reads what the other stages write
+│       └── templates/      the pages
 │
 ├── narrator/             Environment C - Coqui XTTS-v2, numpy 1.x
 │   └── src/narrator/

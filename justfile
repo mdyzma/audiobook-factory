@@ -17,7 +17,7 @@ default:
 # ---------------------------------------------------------------- setup ----
 
 # Install the interpreter and all three environments. Run once per machine.
-setup: python setup-transcriber setup-bookbinder setup-narrator
+setup: python setup-transcriber setup-bookbinder setup-narrator setup-studio
     @echo "all environments ready - run 'just doctor' to verify"
 
 # uv downloads a prebuilt 3.11.9; nothing is compiled.
@@ -69,12 +69,14 @@ test:
     cd bookbinder  && uv run pytest
     cd narrator    && uv run pytest
     cd transcriber && uv run pytest
+    cd studio      && uv run pytest
 
 # Type-check every environment against its own installed dependencies.
 typecheck:
     cd bookbinder  && uv run pyright
     cd narrator    && uv run pyright
     cd transcriber && uv run pyright
+    cd studio      && uv run pyright
 
 # What to run before committing.
 check: schemas-check typecheck test
@@ -214,6 +216,15 @@ clean-audio slug:
 
 clean-book slug:
     rm -rf "data/book/{{slug}}" "data/audio/{{slug}}"
+
+# --------------------------------------------------------------- studio ----
+
+# Open the local dashboard. Read-only: it shows books, voices and renders.
+ui port="8765":
+    cd studio && uv run python -m studio --port {{port}}
+
+setup-studio:
+    cd studio && uv sync
 
 # ------------------------------------------------------------ docker -----
 

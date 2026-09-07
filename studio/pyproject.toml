@@ -1,0 +1,46 @@
+# Environment D - "studio": a local, read-only web view of the pipeline.
+#
+# No torch and no ML. It reads what the other stages write and renders it. It
+# depends on bookbinder so the manifest models are shared rather than mirrored:
+# bookbinder carries no torch, so this is safe in a way that depending on
+# narrator or transcriber would not be.
+[project]
+name = "studio"
+version = "0.1.0"
+description = "Local dashboard for audiobook-factory"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "bookbinder",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    "jinja2>=3.1.4",
+    "typer>=0.12.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/studio"]
+
+[tool.uv.sources]
+bookbinder = { path = "../bookbinder", editable = true }
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.411",
+    "pytest>=9.1.1",
+    "httpx>=0.28.0",
+]
+
+[tool.pyright]
+include = ["src", "tests"]
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "standard"
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

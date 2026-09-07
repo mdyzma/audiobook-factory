@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block crumb %}read-only view{% endblock %}
+{% block body %}
+
+<h2>Books</h2>
+{% if books %}
+  {% for b in books %}
+  <div class="card">
+    <div class="row">
+      <span class="title"><a href="/book/{{ b.slug }}">{{ b.title or b.slug }}</a></span>
+      <span class="state {{ b.state }}">{{ b.state }}</span>
+    </div>
+    <div class="meta">
+      {% if b.author and b.author != "Unknown" %}{{ b.author }} · {% endif %}
+      {{ b.chapter_count }} chapters · {{ b.chunk_count }} fragments
+      {% if b.est_hours %}· ~{{ b.est_hours }} h{% endif %}
+      {% if b.cast %}· {{ b.cast.values() | unique | list | length }} voice(s){% endif %}
+    </div>
+    {% if b.state in ("rendering", "stale") %}
+      <div class="bar"><span style="width: {{ b.percent }}%"></span></div>
+      <div class="meta">{{ b.percent }}%
+        {% if b.progress %} · {{ b.progress.chunks_done }}/{{ b.progress.chunks_total }}
+          {% if b.progress.eta_sec %}· about {{ b.progress.eta_sec | duration }} left{% endif %}
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="empty">No books yet. Run <code>just ingest &lt;file&gt; &lt;slug&gt;</code>.</div>
+{% endif %}
+
+<h2>Voices</h2>
+{% if voices %}
+  {% for v in voices %}
+  <div class="card">
+    <div class="row">
+      <span class="title"><a href="/voice/{{ v.name }}">{{ v.name }}</a></span>
+      <span class="meta">{{ v.mode }}</span>
+    </div>
+    <div class="meta">
+      {{ v.language }} · {{ v.segment_count }} segments · {{ v.total_minutes }} min
+      {% if v.has_audition %}<span class="tag">audition</span>{% endif %}
+      {% if v.has_latents %}<span class="tag">latents cached</span>{% endif %}
+      {% if v.has_dataset %}<span class="tag">dataset</span>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="empty">No voices yet. Run <code>just voice &lt;sample&gt; &lt;name&gt;</code>.</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}studio{% endblock %} · audiobook-factory</title>
+<style>
+  :root {
+    --bg: #fbfaf8; --panel: #fff; --ink: #1a1a1a; --dim: #6b6b6b;
+    --line: #e4e1dc; --accent: #7a5cff;
+    --done: #2e7d5b; --run: #b06f00; --fail: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16151a; --panel: #1e1d24; --ink: #ecebf0; --dim: #9a97a5;
+      --line: #302e38; --accent: #a894ff;
+      --done: #6fcf9a; --run: #e3a53d; --fail: #ef6b62;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header { border-bottom: 1px solid var(--line); padding: 1rem 1.5rem;
+    display: flex; align-items: baseline; gap: 1rem; }
+  header h1 { font-size: 1rem; margin: 0; letter-spacing: .02em; }
+  header .crumb { color: var(--dim); font-size: .85rem; }
+  main { max-width: 60rem; margin: 0 auto; padding: 1.5rem; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--dim); margin: 2rem 0 .75rem; font-weight: 600; }
+  h2:first-child { margin-top: 0; }
+  .card { background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 1rem 1.15rem; margin-bottom: .6rem; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+  .title { font-weight: 600; }
+  .meta { color: var(--dim); font-size: .85rem; }
+  .state { font-size: .75rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .06em; }
+  .state.done, .state.rendered { color: var(--done); }
+  .state.rendering { color: var(--run); }
+  .state.failed, .state.stale { color: var(--fail); }
+  .state.prepared { color: var(--dim); }
+  .bar { height: 5px; background: var(--line); border-radius: 3px;
+    overflow: hidden; margin-top: .7rem; }
+  .bar > span { display: block; height: 100%; background: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  th { text-align: left; color: var(--dim); font-weight: 600; font-size: .75rem;
+    text-transform: uppercase; letter-spacing: .05em;
+    padding: .4rem .5rem; border-bottom: 1px solid var(--line); }
+  td { padding: .4rem .5rem; border-bottom: 1px solid var(--line);
+    vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  code { font: .85em ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--dim); }
+  audio { width: 100%; margin-top: .6rem; }
+  .empty { color: var(--dim); padding: 1.5rem; text-align: center;
+    border: 1px dashed var(--line); border-radius: 10px; }
+  .tag { display: inline-block; font-size: .72rem; padding: .1rem .4rem;
+    border: 1px solid var(--line); border-radius: 4px; color: var(--dim);
+    margin-right: .25rem; }
+  .scroll { max-height: 26rem; overflow-y: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="/">audiobook-factory</a></h1>
+  <span class="crumb">{% block crumb %}{% endblock %}</span>
+</header>
+<main>{% block body %}{% endblock %}</main>
+</body>
+</html>

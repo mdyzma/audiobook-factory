@@ -26,7 +26,7 @@ jobs:
           enable-cache: true
       - name: Check every lock matches its manifest
         run: |
-          for env in bookbinder narrator transcriber; do
+          for env in bookbinder studio narrator transcriber; do
             echo "::group::$env"
             uv lock --check --directory "$env"
             echo "::endgroup::"
@@ -41,7 +41,8 @@ jobs:
       - run: just --list
 
   check:
-    # bookbinder is ~77 MB and finishes in under a minute. The other two pull
+    # bookbinder and studio are small and finish in under a minute. The other
+    # two pull
     # torch with its CUDA runtime libraries on Linux, roughly 4 GB each, which
     # is why they get their own runners rather than sharing one.
     name: ${{ matrix.env }}
@@ -50,12 +51,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: [bookbinder, narrator, transcriber]
+        env: [bookbinder, studio, narrator, transcriber]
     steps:
       - uses: actions/checkout@v5
 
       - name: Reclaim runner disk
-        if: matrix.env != 'bookbinder'
+        if: matrix.env == 'narrator' || matrix.env == 'transcriber'
         run: |
           # The default image ships ~25 GB of toolchains this project never uses.
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \

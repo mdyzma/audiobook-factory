@@ -18,6 +18,7 @@ pass `""` for the ones between.
 | `just python` | Installs the interpreter only. uv downloads a prebuilt build; nothing compiles. |
 | `just setup-bookbinder` | Syncs the ebook and assembly environment. |
 | `just setup-transcriber` | Syncs the WhisperX environment. |
+| `just setup-studio` | Syncs the dashboard environment. |
 | `just setup-narrator` | Syncs the XTTS environment in one pass. Pins live in its `[tool.uv] constraint-dependencies`. |
 | `just relock <env>` | Re-resolves from scratch, ignoring the lock. Use after changing a pin. |
 | `just gpu-torch <env="narrator">` | Swaps in CUDA 12.4 wheels. CUDA host only; skip on Apple Silicon. |
@@ -61,6 +62,12 @@ pass `""` for the ones between.
 | `just preview <slug> <voice>` | Renders the first 20 fragments only, to check the voice before committing hours. |
 | `just synth <slug> <voice> <device="auto">` | Renders every fragment. Resumable: re-run to continue after an interruption. |
 | `just assemble <slug> <format="">` | Muxes fragments, pauses and chapter marks into the finished audiobook. |
+
+## Dashboard
+
+| Command | What it does |
+|---|---|
+| `just ui <port="8765">` | Opens a local, read-only dashboard at `http://127.0.0.1:8765`. Shows books, voices, renders and quality checks, and plays the audio. |
 
 ## Stage 6: quality
 

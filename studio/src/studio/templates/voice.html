@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ voice.name }}{% endblock %}
+{% block crumb %}voice{% endblock %}
+{% block body %}
+
+<h2>{{ voice.name }}</h2>
+<div class="card">
+  <div class="meta">
+    {{ voice.mode }} cloning · {{ voice.language }} ·
+    {{ voice.segment_count }} labelled segments · {{ voice.total_minutes }} minutes ·
+    {{ voice.reference_count }} reference clips
+  </div>
+  {% if voice.total_minutes and voice.total_minutes < 30 %}
+    <div class="meta">Enough for instant cloning. A fine-tune wants 30 to 60 minutes.</div>
+  {% endif %}
+  {% if voice.has_audition %}
+    <audio controls preload="none" src="/audio/audition/{{ voice.name }}"></audio>
+  {% else %}
+    <div class="meta">No audition clip. Run <code>just clone {{ voice.name }}</code>.</div>
+  {% endif %}
+</div>
+
+{% endblock %}

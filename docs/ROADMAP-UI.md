@@ -83,14 +83,25 @@ schema mode omits computed fields, so `percent`, `eta_sec`, `realtime_factor`
 and `ok` were missing from the published contract even though every writer
 emits them. Schemas are now exported in serialization mode.
 
-### Phase 1: read-only dashboard — 2 to 3 days
+### Phase 1: read-only dashboard — DONE (2026-09-07)
 
-List books and voices. Show a book's chapters, estimated length, cast, and the
-last render report. Play the audition clip and the finished audiobook in the
-browser. No buttons that change anything.
+`studio/` is a fourth uv environment: fastapi, jinja2, no ML. It depends on
+`bookbinder` as a path dependency, so the manifest models are shared rather than
+mirrored a third time. `just ui` serves it on `http://127.0.0.1:8765`.
 
-Genuinely useful on its own, and it proves the file-reading layer before any
-process supervision exists.
+Pages: a dashboard listing books with state and progress and voices with their
+assets; a book page with chapters, cast, render report, quality findings, the
+finished audiobook and a player per fragment; a voice page with its audition.
+A JSON API mirrors all of it, including a cheap `/progress` endpoint for polling.
+
+Two things worth carrying into phase 2:
+
+- **Names from URLs become file paths**, so they are matched against a strict
+  pattern and rejected rather than sanitised. Six traversal attempts are covered
+  by tests.
+- **It reads `rendered.jsonl` in preference to `chunks.jsonl`.** Only the former
+  carries audio paths, so reading the chunker's manifest alone means per-fragment
+  playback silently never appears.
 
 ### Phase 2: run the pipeline — 3 to 4 days
 
@@ -140,7 +151,7 @@ Only worth it if the web UI proves people want to avoid the terminal entirely.
 | Phase | Days | Cumulative |
 |---|---|---|
 | 0. Progress signal | done | — |
-| 1. Read-only dashboard | 2–3 | 3.5 |
+| 1. Read-only dashboard | done | — |
 | 2. Run the pipeline | 3–4 | 7.5 |
 | 3. Authoring | 4–5 | 12.5 |
 | 4. Quality review | 2 | 14.5 |
@@ -156,8 +167,9 @@ and then is not.
 
 ## What to do first
 
-Phase 0 is done. Phase 1 is next, and it is enough to see whether a UI is
-actually wanted before committing the week that phase 2 costs.
+Phases 0 and 1 are done. Phase 2 is next and is where the real engineering
+lives: jobs that outlive the browser tab, and a lock so two renders cannot
+interleave writes to the same book.
 
 ## The alternative worth considering
 
