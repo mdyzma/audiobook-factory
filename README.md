@@ -230,6 +230,7 @@ is what keeps the two environments that cannot import it in step.
 | Document | What is in it |
 |---|---|
 | [docs/ROADMAP-DOCKER.md](docs/ROADMAP-DOCKER.md) | Plan for containerising it, and what is wrong with the current Docker assets |
+| [docs/ROADMAP-UI.md](docs/ROADMAP-UI.md) | Plan for a front end, with effort estimates and the case against building one |
 | [docs/HANDOFF-GPU.md](docs/HANDOFF-GPU.md) | Moving to a CUDA machine: the Blackwell wheel trap, Windows notes, what is still unproven |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Everyday tasks with real terminal output: add a voice, make a book, check it |
 | [docs/COMMANDS.md](docs/COMMANDS.md) | Every `just` recipe and its arguments |

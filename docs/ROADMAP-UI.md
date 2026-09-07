@@ -1,0 +1,162 @@
+# Roadmap: a front end
+
+A plan for putting a graphical face on the pipeline, with effort estimates.
+Nothing here is built. Written 2026-09-07.
+
+## The constraint that shapes everything
+
+A front end **cannot import this pipeline**. The three environments exist
+precisely because they cannot share an interpreter: the narrator needs numpy 1.x
+and the transcriber 2.x. No single process can hold both.
+
+So the UI is an orchestrator, not a library consumer. It launches the same
+commands `bin/audiobook` launches and reads the same files they write. That is a
+constraint, but a mild one, because the stages already communicate entirely
+through structured files:
+
+| File | What the UI gets from it |
+|---|---|
+| `data/voices/<name>.json` | The voice list |
+| `data/voices/<name>/audition.wav` | Something to play before committing hours |
+| `data/book/<slug>/book.json` | Title, author, chapters, cast, estimated length |
+| `data/book/<slug>/chunks.jsonl` | Every fragment with its text and role |
+| `data/audio/<slug>/*.wav` | Progress, by counting them |
+| `data/audio/<slug>/report.json` | Counts, failures, realtime factor |
+| `data/audio/<slug>/qa_report.json` | Fragments whose audio disagrees with the text |
+
+Four of those already have exported JSON Schemas in `docs/schemas/`, so the wire
+format is defined before a line of UI exists.
+
+## Recommendation
+
+**A local web app, served by a small fourth environment, launched with
+`just ui`.** Not Electron or Tauri to begin with.
+
+The reasoning: packaging a desktop app means shipping a 3 GB multi-environment
+Python backend inside an installer, which is the hardest part of the whole idea
+and adds nothing until the interface itself is proven. A local web app skips it.
+The browser is already installed, the backend is a process the user already runs,
+and the same code becomes the inside of a desktop shell later if it earns one.
+
+```
+studio/                     a fourth uv environment; no torch, no ML
+├── pyproject.toml          fastapi, uvicorn, and nothing heavy
+└── src/studio/
+    ├── app.py              routes
+    ├── jobs.py             subprocess supervision
+    └── static/             the interface
+```
+
+It stays a peer of the other three: its own lock, its own tests, its own pyright.
+
+**Bind to localhost only.** This thing runs shell commands on behalf of whoever
+can reach it. On `0.0.0.0` it is a remote code execution service. That is a
+one-line decision worth making deliberately rather than by default.
+
+## Phases
+
+Ordered so something useful exists early, and each phase is independently worth
+stopping at.
+
+### Phase 0: emit progress — half a day
+
+`synth` writes `report.json` only when it finishes, so a UI has nothing to show
+during the hours that matter. Counting wav files works but is a guess.
+
+Have `synth` write `progress.json` every N fragments: current index, total,
+elapsed, current voice, last error. Small change, and it makes every later phase
+straightforward.
+
+**Worth doing regardless of whether a UI happens.** It also improves the CLI.
+
+### Phase 1: read-only dashboard — 2 to 3 days
+
+List books and voices. Show a book's chapters, estimated length, cast, and the
+last render report. Play the audition clip and the finished audiobook in the
+browser. No buttons that change anything.
+
+Genuinely useful on its own, and it proves the file-reading layer before any
+process supervision exists.
+
+### Phase 2: run the pipeline — 3 to 4 days
+
+Start and stop stages. Live progress from phase 0. Stream command output.
+
+This is the phase with real engineering in it, and the estimate reflects that:
+
+- **Jobs must outlive the page.** Someone will close the tab during a
+  twelve-hour render. The job is a subprocess the server supervises; the browser
+  only observes.
+- **One render per book.** Two concurrent syntheses on the same slug would
+  interleave writes to the same `rendered.jsonl`. Needs a lock file.
+- **Resumability is already there**, so a cancelled render restarts cleanly. That
+  is a real head start over building this from nothing.
+
+### Phase 3: authoring — 4 to 5 days
+
+Upload a voice sample or record one in the browser. Upload an ebook. Edit
+`config/cast.yml` through a form rather than a text editor. Preview the chunked
+book with each fragment's assigned role, and correct one by hand where the
+typographic detection guessed wrong.
+
+The role-correction screen is the part with the most product value in the whole
+plan, because it turns a heuristic into something a person can supervise. It also
+needs a manifest change: a corrected role has to survive re-chunking, which means
+storing overrides separately rather than editing `chunks.jsonl`.
+
+### Phase 4: quality review — 2 days
+
+Show the flagged fragments from `qa_report.json` side by side: expected text,
+what the transcriber heard, and the audio. Re-render a single fragment with one
+click.
+
+Small phase, high value, because it closes the loop on the one failure mode that
+is otherwise invisible.
+
+### Phase 5: desktop packaging — 3 to 5 days, optional
+
+Wrap the local server in Tauri so it launches from an icon. Inherits every
+packaging problem in [ROADMAP-DOCKER.md](ROADMAP-DOCKER.md), plus code signing on
+both platforms.
+
+Only worth it if the web UI proves people want to avoid the terminal entirely.
+
+## Effort
+
+| Phase | Days | Cumulative |
+|---|---|---|
+| 0. Progress signal | 0.5 | 0.5 |
+| 1. Read-only dashboard | 2–3 | 3.5 |
+| 2. Run the pipeline | 3–4 | 7.5 |
+| 3. Authoring | 4–5 | 12.5 |
+| 4. Quality review | 2 | 14.5 |
+| 5. Desktop packaging | 3–5 | 19.5 |
+
+**Roughly 15 to 20 focused days for all of it**, and about a week to phase 2,
+which is the point where the terminal stops being necessary for ordinary use.
+
+These are estimates for someone who knows the codebase. Treat the range as real:
+phase 2 is where surprises live, because process supervision across three
+environments on two operating systems is the kind of thing that looks finished
+and then is not.
+
+## What to do first
+
+Phase 0, whatever else happens. It is half a day, it improves the CLI on its own,
+and every other phase depends on it.
+
+Then phase 1, which is enough to see whether a UI is actually wanted before
+committing the week that phase 2 costs.
+
+## The alternative worth considering
+
+None of this is necessary. `bin/audiobook` already does the whole job in one
+command, and an audiobook is not something anyone makes ten times a day. The
+honest comparison is against improving the CLI: better progress output, a
+`--watch` mode, nicer errors. That is a day of work rather than three weeks, and
+it may be all this needs.
+
+A UI earns its place if the role-correction screen from phase 3 turns out to
+matter, because supervising the cast is genuinely awkward in a text editor and
+genuinely pleasant in a browser. If that feature is not wanted, the case for the
+rest is weak.
