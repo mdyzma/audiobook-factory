@@ -219,3 +219,38 @@ class TestAuthoringRoutes:
         r = client.post("/api/jobs", json={"action": "ingest",
                                            "args": {"source": "../../justfile", "slug": "x"}})
         assert r.status_code == 409
+
+
+class TestQualityReview:
+    def test_page_without_a_report(self, client):
+        r = client.get("/book/solaris/quality")
+        assert r.status_code == 200
+        assert "No quality check yet" in r.text
+
+    def test_page_lists_findings_worst_first(self, client, project):
+        (project / "data" / "audio" / "solaris" / "qa_report.json").write_text(json.dumps({
+            "slug": "solaris", "model": "large-v3", "max_wer": 0.15,
+            "chunks_checked": 3, "mean_wer": 0.2,
+            "findings": [
+                {"chunk_id": "ch001_0001", "expected": "a b", "heard": "a", "wer": 0.5},
+                {"chunk_id": "ch001_0002", "expected": "c d", "heard": "", "wer": 1.0},
+            ],
+        }), encoding="utf-8")
+        r = client.get("/book/solaris/quality")
+        assert r.status_code == 200
+        # The worst offender is the one worth looking at first.
+        assert r.text.index("ch001_0002") < r.text.index("ch001_0001")
+
+    def test_page_says_so_when_nothing_is_flagged(self, client, project):
+        (project / "data" / "audio" / "solaris" / "qa_report.json").write_text(json.dumps({
+            "slug": "solaris", "chunks_checked": 3, "mean_wer": 0.01, "findings": [],
+        }), encoding="utf-8")
+        assert "Nothing flagged" in client.get("/book/solaris/quality").text
+
+    def test_missing_book_is_404(self, client):
+        assert client.get("/book/absent/quality").status_code == 404
+
+    def test_resynth_rejects_an_unsafe_fragment_id(self, client):
+        r = client.post("/api/jobs", json={"action": "resynth",
+                                           "args": {"slug": "solaris", "chunks": "../etc"}})
+        assert r.status_code == 409

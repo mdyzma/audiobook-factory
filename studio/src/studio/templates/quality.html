@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}{{ book.title or book.slug }} · quality{% endblock %}
+{% block crumb %}<a href="/book/{{ book.slug }}">{{ book.title or book.slug }}</a> · quality{% endblock %}
+{% block body %}
+
+<h2>Quality check</h2>
+{% if book.qa %}
+<div class="card">
+  <div class="meta">
+    mean word error rate {{ book.qa.mean_wer }} over {{ book.qa.chunks_checked }} fragments,
+    flagging anything above {{ book.qa.max_wer }} · model {{ book.qa.model }}
+  </div>
+  <div class="meta">
+    A non-zero baseline is normal: the transcriber mishears too. What matters is
+    an outlier, especially one whose tail is missing, which is what a truncation
+    looks like.
+  </div>
+</div>
+{% else %}
+<div class="empty">
+  No quality check yet. Run it from the <a href="/book/{{ book.slug }}">book page</a>,
+  or <code>just verify {{ book.slug }}</code>.
+</div>
+{% endif %}
+
+{% if active %}
+<div class="card">
+  <div class="row">
+    <span class="title">{{ active.action }} running</span>
+    <button class="danger" onclick="cancelJob('{{ active.id }}')">Cancel</button>
+  </div>
+  <pre class="log" id="log">loading…</pre>
+  <script>followJob('{{ active.id }}', '{{ book.slug }}');</script>
+</div>
+{% endif %}
+
+{% if findings %}
+<h2>Flagged fragments ({{ findings | length }})</h2>
+<div class="note" id="note"></div>
+{% if not active %}
+<div class="card">
+  <div class="actions">
+    <button onclick="resynthAll(this)">Re-render all flagged</button>
+    <span class="meta">Then re-assemble, and run the check again.</span>
+  </div>
+</div>
+{% endif %}
+
+{% for f in findings %}
+<div class="card">
+  <div class="row">
+    <span class="title"><code>{{ f.chunk_id }}</code>
+      {% if f.role %}<span class="tag">{{ f.role }}</span>{% endif %}</span>
+    <span class="state {{ 'failed' if f.wer >= 0.5 else 'rendering' }}">wer {{ f.wer }}</span>
+  </div>
+  <table>
+    <tr><th style="width:5rem">written</th><td>{{ f.expected }}</td></tr>
+    <tr><th>heard</th><td>{{ f.heard or "(nothing)" }}</td></tr>
+  </table>
+  {% if f.has_audio %}
+    <audio controls preload="none" src="/audio/fragment/{{ book.slug }}/{{ f.chunk_id }}"></audio>
+  {% endif %}
+  {% if not active %}
+  <div class="actions" style="margin-top:.5rem">
+    <button onclick="resynth('{{ f.chunk_id }}', this)">Re-render this fragment</button>
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+
+{% elif book.qa %}
+<div class="empty">Nothing flagged: every fragment checked matched its text closely enough.</div>
+{% endif %}
+
+<script>
+const FLAGGED = {{ findings | map(attribute='chunk_id') | list | tojson }};
+function resynth(ids, button) {
+  startJob('resynth', {slug: '{{ book.slug }}', chunks: ids}, button);
+}
+function resynthAll(button) {
+  if (!FLAGGED.length) return;
+  resynth(FLAGGED.join(','), button);
+}
+</script>
+{% endblock %}

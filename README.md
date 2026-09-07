@@ -126,6 +126,10 @@ just verify solaris 20     # re-transcribe every 20th fragment and compare
 Every render also writes `data/audio/<slug>/report.json` with what was rendered,
 what was skipped, what failed, and the realtime factor.
 
+`just ui` shows what was flagged side by side with the audio, and re-renders a
+single fragment on one click. Synthesis is stochastic, so a second attempt often
+lands cleanly.
+
 ## Tests and types
 
 ```bash
@@ -138,7 +142,7 @@ just test-one narrator -k formatter
 | Environment | Tests |
 |---|---|
 | bookbinder | 140 |
-| studio | 140 |
+| studio | 153 |
 | transcriber | 20 |
 | narrator | 17 |
 

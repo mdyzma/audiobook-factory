@@ -148,6 +148,11 @@ synth slug voice device="auto":
     cd narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.synth "{{slug}}" \
       --voice "{{voice}}" --device {{device}}
 
+# Re-render named fragments, e.g. after a quality check flagged them.
+resynth slug chunks:
+    cd narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.synth "{{slug}}" \
+      --voice "" --only "{{chunks}}"
+
 # Render the first 20 fragments only, to sanity-check the voice.
 preview slug voice:
     cd narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.synth "{{slug}}" \

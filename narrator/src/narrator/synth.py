@@ -103,6 +103,11 @@ def main(
     device: str = typer.Option("auto", help="auto | cuda | mps | cpu"),
     limit: int = typer.Option(0, help="Render only the first N chunks (smoke test)"),
     force: bool = typer.Option(False, help="Re-render chunks that already have audio"),
+    only: str = typer.Option(
+        "", help="Comma-separated chunk ids to re-render, e.g. ch002_0041. "
+                 "Implies --force for those, and merges into the existing "
+                 "rendered.jsonl rather than replacing it."
+    ),
 ) -> None:
     import soundfile as sf
     from tqdm import tqdm
@@ -116,9 +121,20 @@ def main(
     book = json.loads((book_dir / "book.json").read_text(encoding="utf-8"))
     cast: dict[str, str] = book.get("cast") or {}
 
-    chunks = [json.loads(line) for line in chunks_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    if limit:
-        chunks = chunks[:limit]
+    all_chunks = [json.loads(line) for line in chunks_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    # `--only` re-renders named fragments, which is how a single bad one gets
+    # fixed after a quality check without redoing the book.
+    wanted = [c.strip() for c in only.split(",") if c.strip()]
+    if wanted:
+        by_id = {c["id"]: c for c in all_chunks}
+        missing = [c for c in wanted if c not in by_id]
+        if missing:
+            raise typer.BadParameter(f"no such chunk(s): {', '.join(missing)}")
+        chunks = [by_id[c] for c in wanted]
+        force = True
+    else:
+        chunks = all_chunks[:limit] if limit else all_chunks
 
     def voice_for(chunk: dict) -> str:
         if voice:
@@ -236,8 +252,26 @@ def main(
     progress(running=False)
 
     manifest_path = out_dir / "rendered.jsonl"
+    if wanted and manifest_path.exists():
+        # Only some fragments were touched, so merge rather than replace:
+        # writing just these would silently throw away the rest of the book.
+        existing: list[dict] = [json.loads(line) for line
+                                in manifest_path.read_text(encoding="utf-8").splitlines()
+                                if line.strip()]
+        replaced = {c["id"]: c for c in rendered}
+
+        merged: list[dict] = []
+        for chunk in existing:
+            merged.append(replaced.pop(chunk["id"], None) or chunk)
+        # Anything re-rendered that was not already in the manifest.
+        merged.extend(replaced.values())
+        merged.sort(key=lambda c: c["order"])
+        rendered_out = merged
+    else:
+        rendered_out = rendered
+
     with manifest_path.open("w", encoding="utf-8") as fh:
-        for chunk in rendered:
+        for chunk in rendered_out:
             fh.write(json.dumps(chunk, ensure_ascii=False) + "\n")
 
     elapsed = time.time() - started

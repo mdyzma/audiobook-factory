@@ -37,6 +37,7 @@ ACTIONS: dict[str, dict] = {
     "chunk":    {"recipe": "chunk",    "args": ["slug"],            "locks": False},
     "dryrun":   {"recipe": "dryrun",   "args": ["slug"],            "locks": True},
     "synth":    {"recipe": "synth",    "args": ["slug", "voice"],   "locks": True},
+    "resynth":  {"recipe": "resynth",  "args": ["slug", "chunks"],  "locks": True},
     "assemble": {"recipe": "assemble", "args": ["slug", "format"],  "locks": False},
     "verify":   {"recipe": "verify",   "args": ["slug"],            "locks": False},
     "clone":    {"recipe": "clone",    "args": ["voice"],           "locks": False},
@@ -268,6 +269,21 @@ class JobRunner:
                 continue
             if name == "voice" and action == "synth" and not value:
                 clean[name] = ""       # use the cast recorded in book.json
+                continue
+            if name == "chunks":
+                # A comma-separated list, each item validated on its own: this
+                # becomes an argument to a command.
+                ids = [c.strip() for c in value.split(",") if c.strip()]
+                if not ids:
+                    raise JobError("no fragments given")
+                if len(ids) > 200:
+                    raise JobError("too many fragments at once; re-render the book")
+                for chunk_id in ids:
+                    try:
+                        check_name(chunk_id)
+                    except UnsafeName:
+                        raise JobError(f"invalid fragment id: {chunk_id!r}")
+                clean[name] = ",".join(ids)
                 continue
             if name == "source":
                 # A file already inside data/raw/books, never an arbitrary path:

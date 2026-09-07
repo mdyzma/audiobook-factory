@@ -128,19 +128,9 @@
     mean word error rate {{ book.qa.mean_wer }} over {{ book.qa.chunks_checked }} fragments,
     threshold {{ book.qa.max_wer }} · {{ book.qa.findings | length }} flagged
   </div>
-  {% if book.qa.findings %}
-  <table>
-    <tr><th>fragment</th><th>wer</th><th>written</th><th>heard</th></tr>
-    {% for f in book.qa.findings[:20] %}
-    <tr>
-      <td><code>{{ f.chunk_id }}</code></td>
-      <td>{{ f.wer }}</td>
-      <td>{{ f.expected }}</td>
-      <td>{{ f.heard }}</td>
-    </tr>
-    {% endfor %}
-  </table>
-  {% endif %}
+  <div class="actions" style="margin-top:.6rem">
+    <a href="/book/{{ book.slug }}/quality"><button>Review flagged fragments</button></a>
+  </div>
 </div>
 {% endif %}
 

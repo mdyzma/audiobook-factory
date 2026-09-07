@@ -155,14 +155,19 @@ Worth noting for phase 4: writing `cast.yml` by hand rather than with a yaml
 dumper keeps its explanatory comments, and one backup is kept at
 `cast.yml.bak`.
 
-### Phase 4: quality review — 2 days
+### Phase 4: quality review — DONE (2026-09-07)
 
-Show the flagged fragments from `qa_report.json` side by side: expected text,
-what the transcriber heard, and the audio. Re-render a single fragment with one
-click.
+`/book/<slug>/quality` lists flagged fragments worst first: what was written,
+what the transcriber heard, the audio, and a button to re-render just that one.
 
-Small phase, high value, because it closes the loop on the one failure mode that
-is otherwise invisible.
+It needed a pipeline change, not only a page. `narrator.synth` gained `--only`,
+which re-renders named fragments and **merges into `rendered.jsonl` rather than
+replacing it**. Writing just the re-rendered fragments would have silently
+discarded the rest of the book, which is the kind of defect that surfaces only at
+assembly. `just resynth <slug> <ids>` exposes it.
+
+Fragment ids reach a command line, so each is validated individually rather than
+the list as a whole, and more than 200 at once is refused.
 
 ### Phase 5: desktop packaging — 3 to 5 days, optional
 
@@ -180,7 +185,7 @@ Only worth it if the web UI proves people want to avoid the terminal entirely.
 | 1. Read-only dashboard | done | — |
 | 2. Run the pipeline | done | — |
 | 3. Authoring | done | — |
-| 4. Quality review | 2 | 14.5 |
+| 4. Quality review | done | — |
 | 5. Desktop packaging | 3–5 | 19.5 |
 
 **Roughly 15 to 20 focused days for all of it**, and about a week to phase 2,
@@ -193,9 +198,12 @@ and then is not.
 
 ## What to do first
 
-Phases 0 to 3 are done, including the role-correction screen that was the
-argument for building any of this. Phase 4, the quality review, is two days and
-closes the loop on the one failure mode that is otherwise invisible.
+Phases 0 to 4 are done. Only phase 5, desktop packaging, remains, and it is the
+one phase whose value is least certain: it buys an icon to click, at the cost of
+inheriting every packaging problem in ROADMAP-DOCKER.md plus code signing.
+
+Nothing needs it. The honest next step is to use the thing on a real book and
+see what annoys you.
 
 ## The alternative worth considering
 

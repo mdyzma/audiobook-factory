@@ -265,6 +265,17 @@ On a real book, sample rather than checking everything:
 just verify solaris 20     # every 20th fragment
 ```
 
+**Reviewing what it flagged.** `just ui` then the quality page for that book
+shows each flagged fragment worst first: the written text, what the transcriber
+heard, and the audio. One button re-renders a single fragment, which is usually
+enough since synthesis is stochastic and a second attempt often lands cleanly.
+
+```bash
+just resynth solaris ch002_0041         # or several, comma-separated
+```
+
+Re-assemble afterwards, then run the check again.
+
 ---
 
 ## Task: read the report from a run

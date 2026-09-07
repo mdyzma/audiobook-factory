@@ -85,6 +85,37 @@ def book_page(request: Request, slug: str):
     })
 
 
+@app.get("/book/{slug}/quality", response_class=HTMLResponse)
+def quality_page(request: Request, slug: str):
+    """Flagged fragments, side by side with what the transcriber heard.
+
+    This closes the loop on the one failure mode that is otherwise invisible:
+    XTTS truncating or repeating without raising anything.
+    """
+    book = data.get_book(root(), safe(slug))
+    if book is None:
+        raise HTTPException(status_code=404, detail=f"no book '{slug}'")
+
+    by_id = {c.id: c for c in data.load_chunks(root(), slug)}
+    findings = []
+    for finding in (book.qa.findings if book.qa else []):
+        chunk = by_id.get(finding.chunk_id)
+        findings.append({
+            "chunk_id": finding.chunk_id,
+            "wer": finding.wer,
+            "expected": finding.expected,
+            "heard": finding.heard,
+            "has_audio": bool(chunk and chunk.audio_path),
+            "role": chunk.role if chunk else "",
+        })
+    jobs = [j for j in runner().jobs() if j.slug == slug]
+    return TEMPLATES.TemplateResponse(request, "quality.html", {
+        "book": book,
+        "findings": sorted(findings, key=lambda f: f["wer"], reverse=True),
+        "active": next((j for j in jobs if j.running), None),
+    })
+
+
 @app.get("/voice/{name}", response_class=HTMLResponse)
 def voice_page(request: Request, name: str):
     voice = data.get_voice(root(), safe(name))

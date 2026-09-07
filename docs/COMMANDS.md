@@ -73,6 +73,7 @@ pass `""` for the ones between.
 
 | Command | What it does |
 |---|---|
+| `just resynth <slug> <chunks>` | Re-renders named fragments, comma-separated. Merges into the existing render rather than replacing it. |
 | `just verify <slug> <sample="0">` | Re-transcribes the rendered audio and flags chunks that disagree with the source. `sample=20` checks every 20th chunk. |
 | `just progress <slug>` | Live state of a running render. Safe from another terminal. |
 | `just watch <slug> <interval="5">` | Follows a render until it finishes. |

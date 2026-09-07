@@ -168,3 +168,30 @@ class TestReaping:
         assert _alive(p.pid)
         reap()
         assert not _alive(p.pid)
+
+
+class TestResynth:
+    """Re-rendering named fragments, which is how a flagged one gets fixed."""
+
+    def test_accepts_a_list_of_fragment_ids(self, runner):
+        clean = runner.validate("resynth", {"slug": "solaris",
+                                            "chunks": "ch001_0004, ch002_0041"})
+        assert clean["chunks"] == "ch001_0004,ch002_0041"
+
+    def test_refuses_an_empty_list(self, runner):
+        with pytest.raises(JobError, match="no fragments"):
+            runner.validate("resynth", {"slug": "solaris", "chunks": " , "})
+
+    @pytest.mark.parametrize("bad", ["../etc", "a;rm -rf /", "a/b", "a b"])
+    def test_every_id_is_validated_individually(self, runner, bad):
+        with pytest.raises(JobError, match="invalid fragment id"):
+            runner.validate("resynth", {"slug": "solaris", "chunks": f"ch001_0001,{bad}"})
+
+    def test_refuses_an_absurd_number_at_once(self, runner):
+        many = ",".join(f"ch001_{i:04d}" for i in range(300))
+        with pytest.raises(JobError, match="too many"):
+            runner.validate("resynth", {"slug": "solaris", "chunks": many})
+
+    def test_it_locks_the_book(self):
+        # It writes into the same rendered.jsonl a full render would.
+        assert ACTIONS["resynth"]["locks"] is True
