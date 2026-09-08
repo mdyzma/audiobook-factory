@@ -237,3 +237,7 @@ training/**
 # Its conclusions live in docs/DECISIONS.md instead.
 gemini-session.md
 data/.studio/
+
+# pytest tmpdir when TMPDIR points at the repo, and uv resolver scratch
+pytest-of-*/
+uv-*.lock

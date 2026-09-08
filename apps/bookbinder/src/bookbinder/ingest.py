@@ -172,6 +172,9 @@ def main(
     source: Path = typer.Argument(..., help="Path to .epub, .pdf or .txt"),
     slug: str = typer.Option("", help="Output name; defaults to a slug of the title"),
     language: str = typer.Option("", help="Override the language detected in metadata"),
+    title: str = typer.Option("", help="Override the title. Plain text carries no "
+                                       "metadata, so it otherwise comes from the filename"),
+    author: str = typer.Option("", help="Override the author; otherwise 'Unknown'"),
     strip_front_matter: bool = typer.Option(True),
     strip_footnotes: bool = typer.Option(True),
 ) -> None:
@@ -190,6 +193,13 @@ def main(
         typer.echo("no readable text found", err=True)
         raise typer.Exit(code=1)
 
+    # These belong to ingestion rather than to a later hand-edit of book.json,
+    # because chunking rebuilds book.json from chapters.json and would discard
+    # anything written there afterwards.
+    if title:
+        meta["title"] = title
+    if author:
+        meta["author"] = author
     if language:
         meta["language"] = language
     meta["language"] = meta["language"].split("-")[0] if meta["language"] != "zh-cn" else "zh-cn"

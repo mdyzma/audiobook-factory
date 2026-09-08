@@ -146,12 +146,14 @@ voice input name language="pl":
 # ----------------------------------------- stages 2-3: text preparation ----
 
 # 2. Parse an ebook into normalised chapters.
-ingest source slug="" language="":
+ingest source slug="" language="" title="" author="":
     # absolute_path so this works from anywhere and with absolute inputs; the
     # recipe cds into bookbinder, which would otherwise break a relative path.
     cd apps/bookbinder && uv run python -m bookbinder.ingest "{{absolute_path(source)}}" \
       {{ if slug != "" { "--slug " + slug } else { "" } }} \
-      {{ if language != "" { "--language " + language } else { "" } }}
+      {{ if language != "" { "--language " + language } else { "" } }} \
+      {{ if title != "" { "--title '" + title + "'" } else { "" } }} \
+      {{ if author != "" { "--author '" + author + "'" } else { "" } }}
 
 # 3. Split chapters into fragments, assigning a cast role to each.
 chunk slug voice="":

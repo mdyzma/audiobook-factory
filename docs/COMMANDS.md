@@ -50,7 +50,7 @@ pass `""` for the ones between.
 
 | Command | What it does |
 |---|---|
-| `just ingest <source> <slug=""> <language="">` | Parses an EPUB, PDF or text file into normalised chapters. |
+| `just ingest <source> <slug=""> <language=""> <title=""> <author="">` | Parses an EPUB, PDF or text file into normalised chapters. Plain text carries no metadata, so pass `title` and `author` or they come from the filename. Setting them later by editing `book.json` does not last: chunking rebuilds it. |
 | `just chunk <slug> <voice="">` | Splits chapters into fragments under the per-language XTTS limit, assigning a cast role to each. |
 | `just chunk-single <slug> <voice>` | As above but narrates everything in one voice, ignoring `config/cast.yml`. |
 

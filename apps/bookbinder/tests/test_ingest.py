@@ -6,10 +6,13 @@ the finished audiobook, so these are correctness tests rather than cosmetics.
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
+from typer.testing import CliRunner
 
+import bookbinder.ingest as ingest_mod
 from bookbinder.ingest import from_text, normalise, slugify
 
 
@@ -147,3 +150,48 @@ class TestIsNavigation:
         from bookbinder.ingest import is_navigation
 
         assert is_navigation(SimpleNamespace(get_name=lambda: "x.xhtml", properties=["nav"]))
+
+
+class TestMetadataOverrides:
+    """Plain text carries no metadata, so the title comes from the filename.
+
+    It cannot be corrected afterwards by editing book.json, because chunking
+    rebuilds that file from chapters.json every time it runs.
+    """
+
+    def test_title_and_author_can_be_given(self, tmp_path, monkeypatch):
+        src = tmp_path / "some_scanned_file_682.txt"
+        src.write_text("# Rozdział\n\nZdanie pierwsze.\n", encoding="utf-8")
+        (tmp_path / "justfile").write_text("", encoding="utf-8")
+        (tmp_path / "config").mkdir()
+        (tmp_path / "config" / "pipeline.toml").write_text("", encoding="utf-8")
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(tmp_path))
+
+        result = CliRunner().invoke(ingest_mod.app, [
+            str(src), "--slug", "book", "--language", "pl",
+            "--title", "Kroniki Jakuba Wędrowycza", "--author", "Andrzej Pilipiuk",
+        ])
+        assert result.exit_code == 0, result.output
+
+        meta = json.loads(
+            (tmp_path / "data" / "book" / "book" / "chapters.json").read_text(encoding="utf-8")
+        )["meta"]
+        assert meta["title"] == "Kroniki Jakuba Wędrowycza"
+        assert meta["author"] == "Andrzej Pilipiuk"
+
+    def test_without_them_the_filename_still_wins(self, tmp_path, monkeypatch):
+        src = tmp_path / "some_scanned_file_682.txt"
+        src.write_text("# Rozdział\n\nZdanie pierwsze.\n", encoding="utf-8")
+        (tmp_path / "justfile").write_text("", encoding="utf-8")
+        (tmp_path / "config").mkdir()
+        (tmp_path / "config" / "pipeline.toml").write_text("", encoding="utf-8")
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(tmp_path))
+
+        result = CliRunner().invoke(ingest_mod.app, [str(src), "--slug", "book"])
+        assert result.exit_code == 0, result.output
+
+        meta = json.loads(
+            (tmp_path / "data" / "book" / "book" / "chapters.json").read_text(encoding="utf-8")
+        )["meta"]
+        assert meta["title"] == "some_scanned_file_682"
+        assert meta["author"] == "Unknown"
