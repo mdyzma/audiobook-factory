@@ -19,7 +19,13 @@ import bookbinder.assemble as assemble_mod
 import bookbinder.chunk as chunk_mod
 import bookbinder.dryrun as dryrun_mod
 import bookbinder.ingest as ingest_mod
-from bookbinder.manifest import read_book, read_chunks
+from bookbinder.manifest import (
+    DRY_RUN_MARKER,
+    clear_dry_run,
+    is_dry_run_audio,
+    read_book,
+    read_chunks,
+)
 
 pytestmark = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
@@ -234,3 +240,156 @@ class TestStructuralPipeline:
             (project / "data" / "audio" / "solaris" / "report.json").read_text(encoding="utf-8"))
         assert report["ok"] is False
         assert any("kelvin_voice" in f["error"] for f in report["failures"])
+
+
+class TestDryRunIsLabelled:
+    """Silence must never be mistaken for narration.
+
+    A dry run writes a wav per fragment at the estimated duration, using the
+    same names and the same sample rate as a real render. Stage 4 resumes by
+    skipping fragments that already have a wav, so once a dry run has run,
+    every later stage needs a way to tell the two apart. The marker file is
+    that way, and these tests pin the behaviour that depends on it.
+    """
+
+    def prepared(self, project):
+        run(ingest_mod.app, [str(project / "data/raw/books/solaris.txt"),
+                             "--slug", "solaris", "--language", "pl"])
+        run(chunk_mod.app, ["solaris"])
+        return project / "data" / "audio" / "solaris"
+
+    def test_dry_run_marks_its_own_output(self, project):
+        audio_dir = self.prepared(project)
+        assert not is_dry_run_audio(audio_dir)
+        run(dryrun_mod.app, ["solaris"])
+        assert is_dry_run_audio(audio_dir)
+
+        marker = json.loads((audio_dir / DRY_RUN_MARKER).read_text(encoding="utf-8"))
+        assert marker["slug"] == "solaris"
+        assert marker["chunks"] > 0
+
+    def test_assembling_silence_says_so(self, project):
+        self.prepared(project)
+        run(dryrun_mod.app, ["solaris"])
+        result = run(assemble_mod.app, ["solaris"])
+        assert "silen" in result.output.lower()
+
+    def test_clearing_removes_the_silence_and_the_marker(self, project):
+        audio_dir = self.prepared(project)
+        run(dryrun_mod.app, ["solaris"])
+        wavs = len(list(audio_dir.glob("*.wav")))
+        assert wavs > 0
+
+        assert clear_dry_run(audio_dir) == wavs
+        assert not list(audio_dir.glob("*.wav"))
+        assert not (audio_dir / "rendered.jsonl").exists()
+        assert not is_dry_run_audio(audio_dir)
+        # Idempotent: a second call has nothing to do and must not object.
+        assert clear_dry_run(audio_dir) == 0
+
+    def test_clearing_leaves_a_real_render_alone(self, project):
+        """The guard rail on the guard rail.
+
+        Nothing may delete hours of finished narration. Without a marker,
+        clearing is a no-op no matter what else is in the directory.
+        """
+        audio_dir = self.prepared(project)
+        run(dryrun_mod.app, ["solaris"])
+        (audio_dir / DRY_RUN_MARKER).unlink()  # as a real render would
+
+        before = sorted(p.name for p in audio_dir.glob("*.wav"))
+        assert clear_dry_run(audio_dir) == 0
+        assert sorted(p.name for p in audio_dir.glob("*.wav")) == before
+
+    def test_an_interrupted_dry_run_is_still_marked(self, project, monkeypatch):
+        """The marker is written before the first wav, not after the last.
+
+        A dry run killed halfway leaves silence behind too, and that silence
+        would otherwise look exactly like a render that stopped early.
+        """
+        audio_dir = self.prepared(project)
+        calls = {"n": 0}
+        real = dryrun_mod.write_silence
+
+        def die_partway(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] > 2:
+                raise RuntimeError("killed")
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(dryrun_mod, "write_silence", die_partway)
+        with pytest.raises(RuntimeError):
+            CliRunner().invoke(dryrun_mod.app, ["solaris"], catch_exceptions=False)
+
+        assert is_dry_run_audio(audio_dir)
+        assert list(audio_dir.glob("*.wav"))
+
+
+class TestSilenceIsCaughtWithoutAMarker:
+    """The check that does not depend on knowing the cause.
+
+    Audio rendered before the marker existed carries no marker, and a voice
+    that renders to nothing carries no marker either. Both produce an
+    audiobook of exactly the right length that plays as nothing, which is the
+    one defect a listener finds only by pressing play.
+    """
+
+    def test_a_marked_dry_run_is_still_reported_once(self, project):
+        run(ingest_mod.app, [str(project / "data/raw/books/solaris.txt"),
+                             "--slug", "solaris", "--language", "pl"])
+        run(chunk_mod.app, ["solaris"])
+        run(dryrun_mod.app, ["solaris"])
+        result = run(assemble_mod.app, ["solaris"])
+        assert result.output.lower().count("warning:") == 1
+
+    def test_unmarked_silence_is_still_reported(self, project):
+        """Exactly the state a dry run from an older version leaves behind."""
+        run(ingest_mod.app, [str(project / "data/raw/books/solaris.txt"),
+                             "--slug", "solaris", "--language", "pl"])
+        run(chunk_mod.app, ["solaris"])
+        run(dryrun_mod.app, ["solaris"])
+        (project / "data" / "audio" / "solaris" / DRY_RUN_MARKER).unlink()
+
+        result = run(assemble_mod.app, ["solaris"])
+        assert "every fragment sampled" in result.output
+
+    def test_real_audio_is_not_flagged(self, project):
+        """Narration must assemble without a word of complaint."""
+        run(ingest_mod.app, [str(project / "data/raw/books/solaris.txt"),
+                             "--slug", "solaris", "--language", "pl"])
+        run(chunk_mod.app, ["solaris"])
+        run(dryrun_mod.app, ["solaris"])
+        audio_dir = project / "data" / "audio" / "solaris"
+        (audio_dir / DRY_RUN_MARKER).unlink()
+
+        # Replace the silence with a tone: the same durations, but audible.
+        for wav in audio_dir.glob("*.wav"):
+            duration = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", str(wav)],
+                capture_output=True, text=True, check=True).stdout.strip()
+            subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                 "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=24000",
+                 "-t", duration, "-c:a", "pcm_s16le", str(wav)], check=True)
+
+        result = run(assemble_mod.app, ["solaris"])
+        assert "warning" not in result.output.lower()
+
+    def test_a_book_with_one_audible_fragment_is_not_flagged(self, project):
+        """Only wholesale silence is a defect; a quiet fragment is not."""
+        run(ingest_mod.app, [str(project / "data/raw/books/solaris.txt"),
+                             "--slug", "solaris", "--language", "pl"])
+        run(chunk_mod.app, ["solaris"])
+        run(dryrun_mod.app, ["solaris"])
+        audio_dir = project / "data" / "audio" / "solaris"
+        (audio_dir / DRY_RUN_MARKER).unlink()
+
+        wav = sorted(audio_dir.glob("*.wav"))[0]
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=24000",
+             "-t", "1", "-c:a", "pcm_s16le", str(wav)], check=True)
+
+        result = run(assemble_mod.app, ["solaris"])
+        assert "every fragment sampled" not in result.output

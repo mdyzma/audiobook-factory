@@ -22,6 +22,7 @@ from bookbinder.manifest import (
     QaReport,
     RenderProgress,
     RenderReport,
+    is_dry_run_audio,
     read_chunks,
 )
 
@@ -100,12 +101,17 @@ class BookView:
     progress: RenderProgress | None = None
     qa: QaReport | None = None
     outputs: list[str] = field(default_factory=list)
+    dry_run_audio: bool = False
 
     @property
     def state(self) -> str:
         """One word for the dashboard: what is happening to this book."""
         if self.progress and self.progress.running:
             return "stale" if self._stale else "rendering"
+        # Checked before `done`, because a dry run produces outputs that look
+        # finished in every way except that they are silent.
+        if self.dry_run_audio:
+            return "silence"
         if self.outputs:
             return "done"
         if self.report:
@@ -196,6 +202,7 @@ def get_book(root: Path, slug: str) -> BookView | None:
         progress=_load(audio_dir / "progress.json", RenderProgress),
         qa=_load(audio_dir / "qa_report.json", QaReport),
         outputs=find_outputs(root, slug),
+        dry_run_audio=is_dry_run_audio(audio_dir),
     )
     return view
 

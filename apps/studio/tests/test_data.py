@@ -88,6 +88,34 @@ class TestBooks:
         book = data.get_book(project, "solaris")
         assert book is not None and book.state == "failed"
 
+    def test_state_is_silence_when_the_audio_came_from_a_dry_run(self, project):
+        (project / "data" / "audio" / "solaris" / ".dry-run.json").write_text(
+            json.dumps({"schema_version": 1, "slug": "solaris", "chunks": 2}),
+            encoding="utf-8")
+        book = data.get_book(project, "solaris")
+        assert book is not None
+        assert book.dry_run_audio is True
+        assert book.state == "silence"
+
+    def test_silence_outranks_done(self, project):
+        """A dry run assembles a finished-looking file that plays as nothing.
+
+        `done` would be a lie here, and it is the one state a reader trusts
+        without listening.
+        """
+        (project / "data" / "out" / "solaris.m4b").write_bytes(b"x")
+        (project / "data" / "audio" / "solaris" / ".dry-run.json").write_text(
+            "{}", encoding="utf-8")
+        book = data.get_book(project, "solaris")
+        assert book is not None and book.state == "silence"
+
+    def test_a_real_render_is_not_flagged(self, project):
+        (project / "data" / "out" / "solaris.m4b").write_bytes(b"x")
+        book = data.get_book(project, "solaris")
+        assert book is not None
+        assert book.dry_run_audio is False
+        assert book.state == "done"
+
     def test_corrupt_json_greys_out_one_card_rather_than_crashing(self, project):
         (project / "data" / "audio" / "solaris" / "report.json").write_text(
             "{not json", encoding="utf-8")

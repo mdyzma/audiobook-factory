@@ -41,11 +41,38 @@ app = typer.Typer(add_completion=False)
 # bookbinder side; docs/schemas/render_report_v1.json is the contract.
 SCHEMA_VERSION = 1
 
+# Mirrors bookbinder.manifest.DRY_RUN_MARKER. A dry run leaves silence at
+# exactly the paths a real render writes, and resume skips any fragment that
+# already has a wav, so without this the two combine into a book-length file of
+# nothing. Keep the name in step with bookbinder.
+DRY_RUN_MARKER = ".dry-run.json"
+
 
 # How often progress.json is rewritten. Synthesising a fragment takes seconds,
 # so per-fragment writes are free; skipped fragments are near-instant on a
 # resumed run, hence the throttle.
 PROGRESS_INTERVAL_SEC = 0.5
+
+
+def discard_dry_run(out_dir: Path) -> int:
+    """Remove dry-run silence so resume cannot mistake it for narration.
+
+    A dry run writes a wav per fragment at the estimated duration, which is
+    what makes it useful for checking structure and what makes it dangerous
+    here: the resume rule below is `skip anything that already has a wav`, so
+    silence left in place would be adopted wholesale and the book would come
+    out empty. Returns the number of files removed.
+    """
+    marker = out_dir / DRY_RUN_MARKER
+    if not marker.exists():
+        return 0
+    removed = 0
+    for wav in out_dir.glob("*.wav"):
+        wav.unlink()
+        removed += 1
+    (out_dir / "rendered.jsonl").unlink(missing_ok=True)
+    marker.unlink()
+    return removed
 
 
 def write_progress(path: Path, payload: dict) -> None:
@@ -153,6 +180,10 @@ def main(
     cfg = load_synth_config(root)
     out_dir = root / "data" / "audio" / slug
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    discarded = discard_dry_run(out_dir)
+    if discarded:
+        typer.echo(f"discarding {discarded} dry-run silence files before rendering")
 
     typer.echo(
         f"synthesising {len(chunks)} chunks on {dev}\n"

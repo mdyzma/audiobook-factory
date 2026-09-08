@@ -362,6 +362,12 @@ died, which would otherwise refuse the next render on that book.
 **Chapter count is 1 when the book has many.** The parser found no headings.
 EPUBs usually work; plain text needs markdown-style `#` headings.
 
+**The audiobook is the right length and completely silent.** A dry run was left
+in place. `just synth` skips fragments that already have audio, so it adopted
+the silence and finished in a second. Run `just synth <slug>` again: it now
+discards marked silence before rendering, and `just assemble` warns when the
+fragments it is joining have no sound in them.
+
 **A character reads in the narrator's voice.** Either the speaker label is not
 in `config/cast.yml`, or the label is not the shape the detector recognises.
 Detection is typographic and deliberately cautious: it would rather leave

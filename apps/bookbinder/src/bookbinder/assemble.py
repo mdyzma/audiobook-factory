@@ -19,7 +19,7 @@ from pathlib import Path
 import typer
 
 from bookbinder.paths import project_root
-from bookbinder.manifest import read_book
+from bookbinder.manifest import is_dry_run_audio, read_book
 
 app = typer.Typer(add_completion=False)
 
@@ -38,6 +38,47 @@ def make_silence(path: Path, ms: int, sample_rate: int, channels: int) -> None:
          "-t", f"{ms / 1000:.3f}", "-c:a", "pcm_s16le", str(path)],
         check=True,
     )
+
+
+# Below this, a fragment holds no speech. Real narration peaks near -1 dB;
+# ffmpeg reports -91 dB for digital silence.
+SILENCE_DBFS = -60.0
+
+# Enough fragments to be certain, few enough to stay instant on a long book.
+SILENCE_SAMPLE = 12
+
+
+def peak_dbfs(path: Path) -> float | None:
+    """Loudest sample in a wav, in dBFS. None if ffmpeg cannot read it."""
+    probe = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(path),
+         "-af", "volumedetect", "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    for line in probe.stderr.splitlines():
+        if "max_volume:" in line:
+            try:
+                return float(line.split("max_volume:")[1].strip().split()[0])
+            except (IndexError, ValueError):
+                return None
+    return None
+
+
+def all_silent(paths: list[Path]) -> bool:
+    """True when every fragment sampled is silence.
+
+    The marker file catches the usual cause, a dry run left in place. This
+    catches the rest: audio from an older version with no marker, a voice that
+    rendered to nothing, a truncated write. It samples rather than reads
+    everything, because being sure costs a full pass over hours of audio and
+    twelve fragments spread across a book already settles the question.
+    """
+    if not paths:
+        return False
+    step = max(1, len(paths) // SILENCE_SAMPLE)
+    peaks = [peak_dbfs(p) for p in paths[::step][:SILENCE_SAMPLE] if p.exists()]
+    heard = [p for p in peaks if p is not None]
+    return bool(heard) and all(p <= SILENCE_DBFS for p in heard)
 
 
 def format_timestamp(seconds: float) -> str:
@@ -59,6 +100,18 @@ def main(
     if not rendered_path.exists():
         raise typer.BadParameter(f"missing {rendered_path}; run `just synth` first")
 
+    # `just book-dry` assembles silence on purpose, so this is a warning and not
+    # an error. It exists because the resulting file is a normal-looking
+    # audiobook of the right length, and the only other way to find out is to
+    # press play.
+    dry = is_dry_run_audio(audio_dir)
+    if dry:
+        typer.echo(
+            f"warning: data/audio/{slug}/ is dry-run silence, so this file will "
+            f"be silent. Run `just synth {slug}` for real audio.",
+            err=True,
+        )
+
     cfg = load_config(root, "assemble")
     fmt = fmt or cfg.get("format", "m4b")
     bitrate = bitrate or cfg.get("bitrate", "64k")
@@ -68,6 +121,16 @@ def main(
     book = read_book(root / "data" / "book" / slug / "book.json")
     chunks = [json.loads(l) for l in rendered_path.read_text(encoding="utf-8").splitlines() if l.strip()]
     chunks.sort(key=lambda c: c["order"])
+
+    # Second line of defence, and the one that does not depend on knowing why.
+    # Skipped when the marker already said so, to avoid warning twice.
+    if not dry and all_silent([root / c["audio_path"] for c in chunks if c.get("audio_path")]):
+        dry = True
+        typer.echo(
+            f"warning: every fragment sampled from data/audio/{slug}/ is silent, "
+            f"so this file will be too. Re-run `just synth {slug}`.",
+            err=True,
+        )
 
     out_dir = root / "data" / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -148,7 +211,7 @@ def main(
     typer.echo(
         f"{book.title} - {book.author}\n"
         f"{len(chapter_marks)} chapters, {format_timestamp(clock)}, {size_mb:.1f} MB\n"
-        f"-> {out_path}"
+        f"-> {out_path}" + ("  (silence: dry run)" if dry else "")
     )
 
 

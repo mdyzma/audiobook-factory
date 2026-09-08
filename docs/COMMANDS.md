@@ -58,7 +58,7 @@ pass `""` for the ones between.
 
 | Command | What it does |
 |---|---|
-| `just dryrun <slug> [strict]` | Renders silence at the right durations. No models, no GPU. Pass any value for `strict` to fail on a role whose voice is not cloned. |
+| `just dryrun <slug> [strict]` | Renders silence at the right durations. No models, no GPU. Pass any value for `strict` to fail on a role whose voice is not cloned. Marks its own output, and `just synth` discards it. |
 | `just preview <slug> <voice>` | Renders the first 20 fragments only, to check the voice before committing hours. |
 | `just synth <slug> <voice> <device="auto">` | Renders every fragment. Resumable: re-run to continue after an interruption. |
 | `just assemble <slug> <format="">` | Muxes fragments, pauses and chapter marks into the finished audiobook. |
@@ -83,7 +83,7 @@ pass `""` for the ones between.
 
 | Command | What it does |
 |---|---|
-| `just book-dry <source> <slug=""> <language="">` | Ingest, chunk, silence, assemble. The whole structure with no model loaded. |
+| `just book-dry <source> <slug=""> <language="">` | Ingest, chunk, silence, assemble. The whole structure with no model loaded. The audiobook it produces is silent by design; `just synth <slug>` then replaces the silence with narration. |
 | `bin/audiobook -v <sample> -b <ebook> [-o <path>]` | Everything, with named inputs and a `~/Downloads` default. |
 | `just book <source> <voice> <slug=""> <language=""> <format="">` | Stages 2 to 5 for a voice that is already cloned. |
 | `just factory <sample> <voice> <source> <slug> <language="pl"> <format="">` | Everything, positionally. `bin/audiobook` is friendlier. |

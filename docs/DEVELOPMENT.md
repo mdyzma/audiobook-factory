@@ -237,6 +237,27 @@ It is pinned to 4.40.2 for a reason.
 cannot read the reference clips. Check they exist, are 24 kHz mono, and are not
 silent.
 
+**A finished audiobook of the right length that plays as silence.** A dry run
+fills `data/audio/<slug>/` with a wav per fragment, at the estimated duration
+and under the name a real render would use. Stage 4 resumes by skipping any
+fragment that already has audio, so a render started on top of a dry run adopts
+all of it, finishes in under a second and reports success.
+
+Three things now stand in the way, and all three matter because each covers a
+case the others miss:
+
+- `bookbinder.dryrun` writes `.dry-run.json` beside the silence, before the
+  first wav rather than after the last, so an interrupted dry run is marked too.
+- `narrator.synth.discard_dry_run` deletes marked silence before the resume
+  logic sees it. Without the marker it deletes nothing, which is what keeps it
+  from ever touching a real render.
+- `bookbinder.assemble.all_silent` samples twelve fragments and warns when they
+  are all silent. This is the one that does not depend on knowing the cause, so
+  it also catches audio from before the marker existed and a voice that
+  rendered to nothing.
+
+`just verify` refuses outright on marked silence, before whisperx is imported.
+
 ## Conventions
 
 - Every command is a `just` recipe. Add one rather than documenting a bare

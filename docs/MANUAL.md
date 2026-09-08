@@ -274,6 +274,15 @@ exactly `http://127.0.0.1:8765`.
 recognised. `.epub` files usually work best. A plain text file needs its chapter
 titles written on their own line starting with `# `, like `# Chapter One`.
 
+**The audiobook is the right length but silent.** You pressed **Dry run**
+before **Synthesise**. A dry run is a rehearsal: it makes a file of exactly the
+right shape and length out of silence, in seconds, so you can check the
+chapters without waiting hours. Pressing **Synthesise** afterwards now throws
+that silence away and records for real. Do that, then **Assemble** again.
+
+The book shows **silence** next to its name for as long as its audio is a
+rehearsal, and assembling one prints a warning in the Terminal.
+
 **The voice sounds robotic or metallic.** Almost always the recording. Try again
 in a quieter room, closer to the microphone, and read for longer. Two minutes is
 the minimum; three to five is better.
@@ -300,7 +309,8 @@ reads one at a time. A book becomes thousands of them.
 **Chunk** — splitting the book into those fragments. It happens automatically.
 
 **Dry run** — a silent rehearsal. It checks the structure in seconds without
-doing the slow work.
+doing the slow work. What it produces is silence, and **Synthesise** replaces
+it.
 
 **Synthesise** — actually producing the speech. This is the long step.
 

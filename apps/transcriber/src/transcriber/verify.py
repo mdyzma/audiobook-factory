@@ -29,6 +29,9 @@ import typer
 
 app = typer.Typer(add_completion=False)
 
+# Mirrors bookbinder.manifest.DRY_RUN_MARKER; this environment cannot import it.
+DRY_RUN_MARKER = ".dry-run.json"
+
 SCHEMA_VERSION = 1
 
 
@@ -82,15 +85,27 @@ def main(
         0, help="Check every Nth chunk instead of all of them; much faster on a long book"
     ),
 ) -> None:
+    # Both checks run before whisperx is imported: loading it costs seconds and
+    # a model download, and neither failure needs it.
+    root = project_root()
+    audio_dir = root / "data" / "audio" / slug
+    rendered_path = audio_dir / "rendered.jsonl"
+    if not rendered_path.exists():
+        raise typer.BadParameter(f"missing {rendered_path}; run `just synth {slug}` first")
+
+    # Transcribing silence takes as long as transcribing narration and every
+    # fragment fails, which reads as a catastrophic voice problem rather than
+    # the missing render it is. Mirrors bookbinder.manifest.DRY_RUN_MARKER.
+    if (audio_dir / DRY_RUN_MARKER).exists():
+        raise typer.BadParameter(
+            f"data/audio/{slug}/ is dry-run silence, not narration. "
+            f"Run `just synth {slug}` first."
+        )
+
     import whisperx
     from tqdm import tqdm
 
     from transcriber.auto_label import pick_device
-
-    root = project_root()
-    rendered_path = root / "data" / "audio" / slug / "rendered.jsonl"
-    if not rendered_path.exists():
-        raise typer.BadParameter(f"missing {rendered_path}; run `just synth {slug}` first")
 
     cfg = load_qa_config(root)
     threshold = max_wer or cfg.get("max_wer", 0.15)

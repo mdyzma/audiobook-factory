@@ -28,6 +28,7 @@ from bookbinder.manifest import (
     RenderFailure,
     RenderProgress,
     RenderReport,
+    mark_dry_run,
     read_book,
     read_chunks,
 )
@@ -69,6 +70,11 @@ def main(
     chunks = list(read_chunks(chunks_path))
     out_dir = root / "data" / "audio" / slug
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Written before the first wav, not after the last: an interrupted dry run
+    # leaves silence on disk too, and that silence must not be mistaken for a
+    # partial render that stage 4 can resume from.
+    mark_dry_run(out_dir, slug, len(chunks))
 
     started = time.time()
     report = RenderReport(
@@ -137,11 +143,15 @@ def main(
     report.elapsed_sec = round(time.time() - started, 3)
     report_path = report.write(out_dir / "report.json")
 
+    mark_dry_run(out_dir, slug, report.chunks_rendered)
+
     typer.echo(
         f"dry run: {report.chunks_rendered}/{report.chunks_total} chunks, "
         f"{report.audio_sec / 60:.1f} min of silence in {report.elapsed_sec:.1f} s\n"
         f"cast: " + (", ".join(f"{r}->{v}" for r, v in book.cast.items()) or "none") + "\n"
-        f"-> {report_path}"
+        f"-> {report_path}\n"
+        f"data/audio/{slug}/ now holds silence. `just synth {slug}` discards it "
+        f"and renders for real."
     )
     for role, voice in missing.items():
         typer.echo(

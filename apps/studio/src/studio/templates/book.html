@@ -18,6 +18,12 @@
       {% for role, v in book.cast.items() %}<span class="tag">{{ role }} → {{ v }}</span>{% endfor %}
     </div>
   {% endif %}
+  {% if book.dry_run_audio %}
+    <div class="meta" style="color: var(--run)">
+      The audio for this book is dry-run silence, not narration. Synthesise
+      discards it and renders for real.
+    </div>
+  {% endif %}
 </div>
 
 <h2>Run</h2>

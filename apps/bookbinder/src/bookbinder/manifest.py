@@ -38,9 +38,53 @@ ChunkKind = Literal["paragraph", "heading", "break"]
 
 NARRATOR_ROLE = "narrator"
 
+# A dry run fills data/audio/<slug>/ with silence that is byte-for-byte a
+# plausible render: right sample rate, right duration, right filename. Stage 4
+# resumes by skipping fragments that already have a wav, so without a marker on
+# disk a dry run followed by a real render silently produces hours of nothing,
+# and every downstream stage believes it. The marker is what tells them apart.
+#
+# It has to survive stage 4 rewriting report.json and progress.json, so it is
+# its own file rather than a flag inside either of them. narrator mirrors the
+# name; it cannot import this module.
+DRY_RUN_MARKER = ".dry-run.json"
+
 
 def char_limit(language: str) -> int:
     return XTTS_CHAR_LIMITS.get(language, 250)
+
+
+def mark_dry_run(audio_dir: Path, slug: str, chunks: int = 0) -> Path:
+    """Record that the wavs in `audio_dir` are silence, not narration."""
+    path = audio_dir / DRY_RUN_MARKER
+    path.write_text(
+        json.dumps({"schema_version": SCHEMA_VERSION, "slug": slug, "chunks": chunks}, indent=2),
+        encoding="utf-8",
+    )
+    return path
+
+
+def is_dry_run_audio(audio_dir: Path) -> bool:
+    return (audio_dir / DRY_RUN_MARKER).exists()
+
+
+def clear_dry_run(audio_dir: Path) -> int:
+    """Delete dry-run silence and its marker. Returns the number of wavs removed.
+
+    Called by stage 4 before rendering for real: once there is narration to
+    make, silence at the same paths is worse than nothing, because resume
+    would keep it.
+    """
+    marker = audio_dir / DRY_RUN_MARKER
+    if not marker.exists():
+        return 0
+    removed = 0
+    for wav in audio_dir.glob("*.wav"):
+        wav.unlink()
+        removed += 1
+    (audio_dir / "rendered.jsonl").unlink(missing_ok=True)
+    marker.unlink()
+    return removed
 
 
 class StrictModel(BaseModel):
