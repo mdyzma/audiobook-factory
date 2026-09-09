@@ -286,6 +286,20 @@ them apart, and `charset-normalizer` alone gets it wrong. The decision comes
 from scoring each candidate's text, with the detector used only to order
 otherwise-equal readings.
 
+**The narration says something the page does not.** Three representations of
+every book are kept, and they are meant to differ. The staged source under
+`data/sources/` is what arrived. Each chunk's `source_text` is the printed
+spelling. Its `text` is what the model reads, with abbreviations expanded and a
+few symbols spoken. `substitutions` records every change with its span on both
+sides, so a fragment can be read in either direction and quality checking does
+not report "doktor" as a mismatch against "dr.".
+
+Numbers are deliberately left as digits. Polish inflects numerals for case and
+gender, so one fixed expansion of "3" is wrong more often than the digits are.
+Settle individual cases in `data/book/<slug>/pronunciation.yml`, a mapping of
+written form to spoken form that wins over every built-in rule. Whether the
+models read digits well enough is a question for slice B.
+
 **A `busy` refusal from the dashboard.** No two jobs run on one book at a time,
 whether or not they take the render lock. Chunking during a render rewrites the
 manifest underneath it, assembling reads a fragment list still being appended

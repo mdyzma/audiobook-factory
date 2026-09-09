@@ -91,22 +91,38 @@ additionally confirmed by running the new tests against the committed version.
 Assembly refuses a book with a deleted fragment, an unrendered fragment, a
 duplicate, or ids outside the chunk plan.
 
-## Slice A — Text and language (TEXT-01, LANG-01) — in progress
+## Slice A — Text and language (TEXT-01, LANG-01) — done
 
 The assessment's workstreams 1 and 2. Nothing downstream can recover characters
 or passages lost here.
 
-| ID | Work | Size | State |
+Completed 2026-09-09.
+
+| ID | Work | Size | Outcome |
 |---|---|---|---|
-| A-1 | Immutable source import. Copy each input under `data/sources/<book_id>/` with its SHA-256. Later edits to the input folder cannot change a queued book. | M | part: the hash is recorded at ingestion from the bytes actually read; the staged copy is still to do and pairs with D-12 |
-| A-2 | New `bookbinder/decode.py`. Explicit override, then BOM, then strict UTF-8, then the candidate set: UTF-8 with and without BOM, UTF-16 with BOM, Windows-1250, ISO-8859-2, Windows-1252. Rank ambiguity with `charset-normalizer` plus text-quality checks. No `replace`, no `ignore`. Store accepted text as NFC UTF-8. | L | done |
-| A-3 | EPUB decodes through its parser, honouring declared XHTML encodings per document. No whole-file decoder over ZIP bytes. Flag malformed declarations. | M | done |
-| A-4 | Keep three representations with anchors between them: source bytes, extracted text, spoken text. Record every transformation. Display names keep Polish diacritics; slugification stays separate. | M | to do |
-| A-5 | New `bookbinder/language.py`. Sample beginning, middle, end, and chapter bodies, excluding navigation and boilerplate. Cross-check EPUB metadata against content. Abstain to `needs_review` rather than defaulting to `pl`. | L | done |
-| A-6 | Manifest v2: `source_sha256`, `encoding`, `encoding_method`, `encoding_scores`, `decoder_version`, `language_source`, `language_scores`, `metadata_language`, `needs_review`, `review_reasons`. Bump schema, regenerate, update consumers. | M | done |
-| A-7 | Language-aware spoken-text preparation: numbers, dates, units, currency, abbreviations, and a per-book pronunciation dictionary. Conservative and previewable. Applied before token-budget validation. (FEAT-01 basic) | L | to do |
-| A-8 | Fixture corpus (TEST-08, TEST-03). The same Polish text in four encodings; `dr.`, `prof.`, `np.`, `itd.`; English possessives and contractions; curly quotes, non-breaking spaces, soft hyphens; mixed line endings; out-of-order EPUB spine; English front matter inside a Polish book; wrong EPUB metadata language; a short ambiguous file; German text outside product scope. | M | part: encoding and language fixtures done; the abbreviation and punctuation set belongs with A-7 |
-| A-9 | Surface it. `just ingest` gains `--encoding`, `--language`, and a review flag. Studio shows the encoding preview, candidate text, and detected language with an override. (DX-02, DX-01 subset) | M | part: the CLI half is done, including a `just inspect` recipe; Studio is still to do |
+| A-1 | Immutable source import. Copy each input under `data/sources/<book_id>/` with its SHA-256. Later edits to the input folder cannot change a queued book. | M | Staged copy written by rename, hashed from the copy. `source_file` points at it and `original_source` records where it came from. Editing or deleting the original afterwards changes nothing. |
+| A-2 | New `bookbinder/decode.py`. Explicit override, then BOM, then strict UTF-8, then the candidate set. Rank ambiguity with `charset-normalizer` plus text-quality checks. No `replace`, no `ignore`. Store accepted text as NFC UTF-8. | L | Done, with the detector demoted to a tie-breaker; see the finding below. |
+| A-3 | EPUB decodes through its parser, honouring declared XHTML encodings per document. No whole-file decoder over ZIP bytes. Flag malformed declarations. | M | Done. Documents whose decoded text reads as neither language are named, and `--encoding` is reported as inapplicable rather than ignored. |
+| A-4 | Keep three representations with anchors between them: source bytes, extracted text, spoken text. Record every transformation. | M | Staged bytes, `Chunk.source_text`, `Chunk.text`. Every substitution carries its span on both sides, and `source_text` is stored only where it differs. |
+| A-5 | New `bookbinder/language.py`. Sample across the book, excluding navigation and boilerplate. Cross-check EPUB metadata against content. Abstain to `needs_review` rather than defaulting to `pl`. | L | Done. Short, ambiguous, mixed and third-language books stop instead of becoming Polish. |
+| A-6 | Manifest: the encoding and language provenance, `needs_review`, `review_reasons`. Bump schema, regenerate, update consumers. | M | Schema 3. Two bumps: 2 for the book-level provenance, 3 for the per-chunk spelling and substitutions. The exporter now deletes superseded files. |
+| A-7 | Language-aware spoken-text preparation and a per-book pronunciation dictionary. Conservative and previewable. Applied before token-budget validation. (FEAT-01 basic) | L | Abbreviations and symbols per language, plus `pronunciation.yml` per book. Preparation runs before packing, so the character budget measures what the model reads. Numbers are deliberately left alone; see below. |
+| A-8 | Fixture corpus (TEST-08, TEST-03). | M | Done: four encodings of one Polish text, Polish and English abbreviations, possessives and contractions, an out-of-order EPUB spine, English front matter in a Polish book, wrong EPUB metadata, a short ambiguous file, and German. |
+| A-9 | Surface it. `just ingest` gains `--encoding`, `--language`, and a review flag. Studio shows the encoding and detected language. (DX-02, DX-01 subset) | M | Both halves. `just inspect` reports the evidence without writing; the dashboard shows encoding, language and review state, and the book page shows the samples and warnings behind them. |
+
+**Numbers are left as digits, on purpose.** Polish inflects numerals for case
+and gender, so "3 koty" and "o 3 kotach" need different words and a rule that
+cannot tell them apart makes narration worse rather than better. The machinery
+for expansion exists in the per-book dictionary, where a person decides.
+Whether the models read digits acceptably is a listening question, and belongs
+to slice B.
+
+**Exit evidence.** `just check` green: schema 3, Pyright clean in all four
+environments, 601 tests, up from 454 at the start of slice 0. The same Polish
+text in UTF-8, UTF-16, Windows-1250 and ISO-8859-2 decodes to identical
+accepted text. A mixed folder routes each book by its own words. A Windows-1250
+Polish book was imported, chunked and shown in the dashboard end to end, with
+every substitution span verified against both representations.
 
 **Decision, settled 2026-09-09: `lingua-language-detector`.** All four
 candidates install on Python 3.11.9, so the binding was not the discriminator.
