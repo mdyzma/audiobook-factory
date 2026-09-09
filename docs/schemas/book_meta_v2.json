@@ -1,0 +1,260 @@
+{
+  "$defs": {
+    "ChapterRef": {
+      "additionalProperties": false,
+      "properties": {
+        "chunk_count": {
+          "minimum": 0,
+          "title": "Chunk Count",
+          "type": "integer"
+        },
+        "first_chunk": {
+          "minimum": 0,
+          "title": "First Chunk",
+          "type": "integer"
+        },
+        "index": {
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "title",
+        "first_chunk",
+        "chunk_count"
+      ],
+      "title": "ChapterRef",
+      "type": "object"
+    },
+    "EncodingRecord": {
+      "additionalProperties": false,
+      "description": "How the source bytes became text.\n\nKept because the answer is a judgement, not a fact: a legacy Polish file\ndecodes without error under several tables and only one of them is right.\nRecording the reasoning is what lets a reader disagree with it later.",
+      "properties": {
+        "decoder_version": {
+          "default": 1,
+          "description": "Bumped when the decoding rules change, not the schema",
+          "title": "Decoder Version",
+          "type": "integer"
+        },
+        "encoding": {
+          "default": "",
+          "title": "Encoding",
+          "type": "string"
+        },
+        "equivalent": {
+          "description": "Encodings that produced identical text, so nothing distinguishes them",
+          "items": {
+            "type": "string"
+          },
+          "title": "Equivalent",
+          "type": "array"
+        },
+        "method": {
+          "default": "",
+          "description": "override | bom | utf-8 | quality | ascii",
+          "title": "Method",
+          "type": "string"
+        },
+        "score": {
+          "default": 0.0,
+          "title": "Score",
+          "type": "number"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "title": "EncodingRecord",
+      "type": "object"
+    },
+    "LanguageRecord": {
+      "additionalProperties": false,
+      "description": "How the book's language was chosen.\n\n`BookMeta.language` is the answer; this is the working. A detector score is\nevidence rather than a guarantee, so it is stored as what it is.",
+      "properties": {
+        "confidence": {
+          "default": 0.0,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "coverage_chars": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Coverage Chars",
+          "type": "integer"
+        },
+        "detector": {
+          "default": "",
+          "title": "Detector",
+          "type": "string"
+        },
+        "metadata_language": {
+          "default": "",
+          "description": "What the container claimed, believed or not",
+          "title": "Metadata Language",
+          "type": "string"
+        },
+        "method": {
+          "default": "",
+          "description": "override | content | metadata | unresolved",
+          "title": "Method",
+          "type": "string"
+        },
+        "samples": {
+          "items": {
+            "$ref": "#/$defs/LanguageSample"
+          },
+          "title": "Samples",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "title": "LanguageRecord",
+      "type": "object"
+    },
+    "LanguageSample": {
+      "additionalProperties": false,
+      "description": "One passage the detector was shown, and what it made of it.",
+      "properties": {
+        "chars": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Chars",
+          "type": "integer"
+        },
+        "confidence": {
+          "default": 0.0,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "language": {
+          "default": "",
+          "title": "Language",
+          "type": "string"
+        },
+        "where": {
+          "default": "",
+          "title": "Where",
+          "type": "string"
+        }
+      },
+      "title": "LanguageSample",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "What `book.json` holds. Chunks live beside it in chunks.jsonl.",
+  "properties": {
+    "author": {
+      "default": "Unknown",
+      "title": "Author",
+      "type": "string"
+    },
+    "cast": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "role -> voice name, as resolved when the book was chunked",
+      "title": "Cast",
+      "type": "object"
+    },
+    "chapters": {
+      "items": {
+        "$ref": "#/$defs/ChapterRef"
+      },
+      "title": "Chapters",
+      "type": "array"
+    },
+    "chunk_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Chunk Count",
+      "type": "integer"
+    },
+    "encoding": {
+      "$ref": "#/$defs/EncodingRecord"
+    },
+    "est_hours": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Est Hours",
+      "type": "number"
+    },
+    "language": {
+      "default": "pl",
+      "minLength": 2,
+      "title": "Language",
+      "type": "string"
+    },
+    "language_decision": {
+      "$ref": "#/$defs/LanguageRecord"
+    },
+    "needs_review": {
+      "default": false,
+      "title": "Needs Review",
+      "type": "boolean"
+    },
+    "review_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Review Reasons",
+      "type": "array"
+    },
+    "schema_version": {
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "slug": {
+      "minLength": 1,
+      "title": "Slug",
+      "type": "string"
+    },
+    "source_file": {
+      "default": "",
+      "title": "Source File",
+      "type": "string"
+    },
+    "source_sha256": {
+      "default": "",
+      "title": "Source Sha256",
+      "type": "string"
+    },
+    "title": {
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "voice": {
+      "default": "",
+      "title": "Voice",
+      "type": "string"
+    }
+  },
+  "required": [
+    "slug",
+    "title"
+  ],
+  "title": "BookMeta",
+  "type": "object"
+}

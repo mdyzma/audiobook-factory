@@ -43,8 +43,8 @@ app = typer.Typer(add_completion=False)
 
 # narrator cannot import bookbinder (different environments, incompatible
 # numpy), so the report shape is mirrored here. It is validated on the
-# bookbinder side; docs/schemas/render_report_v1.json is the contract.
-SCHEMA_VERSION = 1
+# bookbinder side; docs/schemas/render_report_v2.json is the contract.
+SCHEMA_VERSION = 2
 
 # Mirrors bookbinder.manifest.DRY_RUN_MARKER. A dry run leaves silence at
 # exactly the paths a real render writes, and resume skips any fragment that
@@ -210,7 +210,7 @@ def main(
 
     # A book is hours of work and report.json only lands at the end, so this is
     # the only view into a running render. Shape mirrors bookbinder's
-    # RenderProgress; docs/schemas/render_progress_v1.json is the contract.
+    # RenderProgress; docs/schemas/render_progress_v2.json is the contract.
     progress_path = out_dir / "progress.json"
     last_progress = 0.0
 

@@ -20,7 +20,10 @@ from typing import Iterator, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
-SCHEMA_VERSION = 1
+# 2 added the decoding and language provenance below to book.json. The other
+# four shapes are unchanged; the set is versioned as a unit so a reader only
+# has to check one number. narrator and transcriber mirror this constant.
+SCHEMA_VERSION = 2
 
 # XTTS-v2 silently truncates text past these per-language limits.
 # Source: Coqui TTS xtts.py char_limits.
@@ -150,6 +153,54 @@ class ChapterRef(StrictModel):
     chunk_count: int = Field(ge=0)
 
 
+class EncodingRecord(StrictModel):
+    """How the source bytes became text.
+
+    Kept because the answer is a judgement, not a fact: a legacy Polish file
+    decodes without error under several tables and only one of them is right.
+    Recording the reasoning is what lets a reader disagree with it later.
+    """
+
+    encoding: str = ""
+    method: str = Field(default="", description="override | bom | utf-8 | quality | ascii")
+    score: float = 0.0
+    equivalent: list[str] = Field(
+        default_factory=list,
+        description="Encodings that produced identical text, so nothing distinguishes them",
+    )
+    decoder_version: int = Field(
+        default=1, description="Bumped when the decoding rules change, not the schema"
+    )
+    warnings: list[str] = Field(default_factory=list)
+
+
+class LanguageSample(StrictModel):
+    """One passage the detector was shown, and what it made of it."""
+
+    where: str = ""
+    chars: int = Field(default=0, ge=0)
+    language: str = ""
+    confidence: float = Field(default=0.0, ge=0, le=1)
+
+
+class LanguageRecord(StrictModel):
+    """How the book's language was chosen.
+
+    `BookMeta.language` is the answer; this is the working. A detector score is
+    evidence rather than a guarantee, so it is stored as what it is.
+    """
+
+    method: str = Field(default="", description="override | content | metadata | unresolved")
+    confidence: float = Field(default=0.0, ge=0, le=1)
+    detector: str = ""
+    metadata_language: str = Field(
+        default="", description="What the container claimed, believed or not"
+    )
+    coverage_chars: int = Field(default=0, ge=0)
+    samples: list[LanguageSample] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class BookMeta(StrictModel):
     """What `book.json` holds. Chunks live beside it in chunks.jsonl."""
 
@@ -169,6 +220,14 @@ class BookMeta(StrictModel):
     chunk_count: int = Field(default=0, ge=0)
     est_hours: float = Field(default=0.0, ge=0)
 
+    encoding: EncodingRecord = Field(default_factory=EncodingRecord)
+    language_decision: LanguageRecord = Field(default_factory=LanguageRecord)
+
+    # Hoisted out of the two records above so a folder of books can be shown
+    # and filtered without opening each one.
+    needs_review: bool = False
+    review_reasons: list[str] = Field(default_factory=list)
+
 
 class BookManifest(StrictModel):
     """Book-level metadata plus its chunks, as held in memory while chunking."""
@@ -183,6 +242,10 @@ class BookManifest(StrictModel):
     cast: dict[str, str] = Field(default_factory=dict)
     chapters: list[ChapterRef] = Field(default_factory=list)
     chunks: list[Chunk] = Field(default_factory=list)
+    encoding: EncodingRecord = Field(default_factory=EncodingRecord)
+    language_decision: LanguageRecord = Field(default_factory=LanguageRecord)
+    needs_review: bool = False
+    review_reasons: list[str] = Field(default_factory=list)
 
     @computed_field
     @property
@@ -199,7 +262,9 @@ class BookManifest(StrictModel):
             language=self.language, source_file=self.source_file,
             source_sha256=self.source_sha256, voice=self.voice, cast=self.cast,
             chapters=self.chapters, chunk_count=len(self.chunks),
-            est_hours=self.est_hours,
+            est_hours=self.est_hours, encoding=self.encoding,
+            language_decision=self.language_decision,
+            needs_review=self.needs_review, review_reasons=self.review_reasons,
         )
 
     def write(self, out_dir: Path) -> tuple[Path, Path]:

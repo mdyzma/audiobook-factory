@@ -6,18 +6,20 @@ silent divergence. These pin the fields those two environments depend on.
 
 from __future__ import annotations
 
-from bookbinder.manifest import json_schemas
+from bookbinder.manifest import SCHEMA_VERSION, json_schemas
+
+V = SCHEMA_VERSION  # the set is versioned as a unit; these follow it
 
 
 class TestExportedSchemas:
     def test_exports_every_cross_environment_model(self):
         assert set(json_schemas()) == {
-            "chunk_v1", "book_meta_v1", "render_report_v1",
-            "render_progress_v1", "qa_report_v1",
+            f"chunk_v{V}", f"book_meta_v{V}", f"render_report_v{V}",
+            f"render_progress_v{V}", f"qa_report_v{V}",
         }
 
     def test_chunk_carries_what_the_narrator_reads_and_writes(self):
-        props = json_schemas()["chunk_v1"]["properties"]
+        props = json_schemas()[f"chunk_v{V}"]["properties"]
         # narrator reads these
         for field in ("id", "text", "language", "role", "order"):
             assert field in props
@@ -26,24 +28,24 @@ class TestExportedSchemas:
             assert field in props
 
     def test_book_meta_carries_the_cast(self):
-        assert "cast" in json_schemas()["book_meta_v1"]["properties"]
+        assert "cast" in json_schemas()[f"book_meta_v{V}"]["properties"]
 
     def test_schemas_describe_computed_fields_too(self):
         # Exported in serialization mode on purpose: a validation-mode schema
         # omits computed fields, which are present in the files on disk.
-        assert "realtime_factor" in json_schemas()["render_report_v1"]["properties"]
-        assert "percent" in json_schemas()["render_progress_v1"]["properties"]
+        assert "realtime_factor" in json_schemas()[f"render_report_v{V}"]["properties"]
+        assert "percent" in json_schemas()[f"render_progress_v{V}"]["properties"]
 
     def test_render_report_matches_what_narrator_writes(self):
         # narrator/synth.py builds this dict by hand; keep the two in step.
-        props = json_schemas()["render_report_v1"]["properties"]
+        props = json_schemas()[f"render_report_v{V}"]["properties"]
         for field in ("slug", "voice", "cast", "device", "dry_run", "started_at",
                       "finished_at", "elapsed_sec", "chunks_total",
                       "chunks_rendered", "chunks_skipped", "audio_sec", "failures"):
             assert field in props
 
     def test_render_progress_matches_what_narrator_writes(self):
-        props = json_schemas()["render_progress_v1"]["properties"]
+        props = json_schemas()[f"render_progress_v{V}"]["properties"]
         for field in ("slug", "running", "pid", "dry_run", "device", "started_at",
                       "updated_at", "elapsed_sec", "chunks_total", "chunks_done",
                       "chunks_rendered", "chunks_skipped", "chunks_failed",
@@ -52,7 +54,7 @@ class TestExportedSchemas:
             assert field in props
 
     def test_qa_report_matches_what_transcriber_writes(self):
-        props = json_schemas()["qa_report_v1"]["properties"]
+        props = json_schemas()[f"qa_report_v{V}"]["properties"]
         for field in ("slug", "model", "max_wer", "chunks_checked",
                       "mean_wer", "findings"):
             assert field in props

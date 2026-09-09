@@ -39,8 +39,9 @@ def main(
     out_dir = schema_dir(root)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    current = json_schemas()
     stale: list[str] = []
-    for name, schema in json_schemas().items():
+    for name, schema in current.items():
         path = out_dir / f"{name}.json"
         rendered = render(schema)
         if check:
@@ -49,16 +50,27 @@ def main(
         else:
             path.write_text(rendered, encoding="utf-8")
 
+    # A version bump renames every file, so the previous set would otherwise
+    # sit here looking current and be read by someone checking the contract.
+    superseded = sorted(p.name for p in out_dir.glob("*.json")
+                        if p.stem not in current)
+    if superseded and not check:
+        for name in superseded:
+            (out_dir / name).unlink()
+
     if check:
-        if stale:
+        if stale or superseded:
             typer.echo(
-                "schemas are out of date: " + ", ".join(stale) + "\nrun: just schemas",
+                "schemas are out of date: "
+                + ", ".join(stale + [f"{n} (superseded)" for n in superseded])
+                + "\nrun: just schemas",
                 err=True,
             )
             raise typer.Exit(code=1)
-        typer.echo(f"{len(json_schemas())} schemas up to date")
+        typer.echo(f"{len(current)} schemas up to date")
     else:
-        typer.echo(f"wrote {len(json_schemas())} schemas -> {out_dir}")
+        removed = f", removed {len(superseded)} superseded" if superseded else ""
+        typer.echo(f"wrote {len(current)} schemas{removed} -> {out_dir}")
 
 
 if __name__ == "__main__":
