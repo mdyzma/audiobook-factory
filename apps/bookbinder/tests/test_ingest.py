@@ -84,6 +84,36 @@ class TestFromText:
         _meta, chapters = from_text(f, strip_footnotes=True)
         assert chapters[0]["paragraphs"] == ["Akapit.", "Drugi."]
 
+    def test_text_before_the_first_heading_is_kept(self, tmp_path):
+        # A dedication, an epigraph or an untitled opening chapter. Splitting on
+        # headings used to discard everything preceding the first one.
+        f = tmp_path / "b.txt"
+        f.write_text("Dedykacja dla żony.\n\nMotto rozdziału.\n\n"
+                     "# Jeden\n\nTreść pierwsza.\n", encoding="utf-8")
+        _meta, chapters = from_text(f, strip_footnotes=True)
+        assert [c["title"] for c in chapters] == ["b", "Jeden"]
+        assert chapters[0]["paragraphs"] == ["Dedykacja dla żony.", "Motto rozdziału."]
+
+    def test_no_preamble_chapter_when_the_file_opens_with_a_heading(self, tmp_path):
+        f = tmp_path / "b.txt"
+        f.write_text("# Jeden\n\nTreść pierwsza.\n", encoding="utf-8")
+        _meta, chapters = from_text(f, strip_footnotes=True)
+        assert [c["title"] for c in chapters] == ["Jeden"]
+
+    def test_wrapped_hyphenation_rejoined_through_the_real_path(self, tmp_path):
+        # normalise() has always handled this, but _paragraphs() collapsed the
+        # newlines first, so the rule could never match on a real file.
+        f = tmp_path / "b.txt"
+        f.write_text("Treść roz-\ndziału pierwszego trwa dalej.\n", encoding="utf-8")
+        _meta, chapters = from_text(f, strip_footnotes=True)
+        assert chapters[0]["paragraphs"] == ["Treść rozdziału pierwszego trwa dalej."]
+
+    def test_wrapped_line_without_hyphen_becomes_one_space(self, tmp_path):
+        f = tmp_path / "b.txt"
+        f.write_text("Pierwsza linia\ndruga linia.\n", encoding="utf-8")
+        _meta, chapters = from_text(f, strip_footnotes=True)
+        assert chapters[0]["paragraphs"] == ["Pierwsza linia druga linia."]
+
 
 class TestFromEpub:
     """Every EPUB carries a navigation document. Narrating it means reading the
@@ -130,6 +160,66 @@ class TestFromEpub:
 
         _meta, chapters = from_epub(self._book(tmp_path), True, True)
         assert chapters[0]["paragraphs"] == ["Zszedłem po drabince."]
+
+
+class TestEpubStructureIsPreserved:
+    """Three ways a converter-produced EPUB used to lose or scramble text.
+
+    None of them raised: the book simply came out shuffled, doubled or short,
+    and the only way to notice was to listen to the finished audiobook.
+    """
+
+    def _awkward_book(self, tmp_path):
+        from ebooklib import epub
+
+        book = epub.EpubBook()
+        book.set_identifier("t"); book.set_title("Solaris"); book.set_language("pl")
+        book.add_author("Lem")
+
+        c1 = epub.EpubHtml(title="Jeden", file_name="c1.xhtml", lang="pl")
+        c1.content = ("<h1>Jeden</h1><p>Pierwszy akapit.</p>"
+                      "<blockquote><p>Cytat wewnętrzny.</p></blockquote>")
+        # A converter that wraps prose in bare divs, with no block element.
+        c2 = epub.EpubHtml(title="Dwa", file_name="c2.xhtml", lang="pl")
+        c2.content = "<h1>Dwa</h1><div>Tekst bez akapitu.</div>"
+        c3 = epub.EpubHtml(title="Trzy", file_name="c3.xhtml", lang="pl")
+        c3.content = "<h1>Trzy</h1><p>Trzeci akapit.</p>"
+
+        # Manifest order deliberately differs from reading order, which is what
+        # real EPUBs do and what `get_items_of_type` alone cannot see.
+        for c in (c3, c2, c1):
+            book.add_item(c)
+        book.toc = (c1, c2, c3)  # type: ignore[assignment]
+        book.add_item(epub.EpubNcx()); book.add_item(epub.EpubNav())
+        book.spine = ["nav", c1, c2, c3]
+        path = tmp_path / "awkward.epub"
+        epub.write_epub(str(path), book)
+        return path
+
+    def test_chapters_follow_the_spine_not_the_manifest(self, tmp_path):
+        from bookbinder.ingest import from_epub
+
+        _meta, chapters = from_epub(self._awkward_book(tmp_path), True, True)
+        assert [c["title"] for c in chapters] == ["Jeden", "Dwa", "Trzy"]
+
+    def test_nested_block_is_read_once(self, tmp_path):
+        from bookbinder.ingest import from_epub
+
+        _meta, chapters = from_epub(self._awkward_book(tmp_path), True, True)
+        assert chapters[0]["paragraphs"] == ["Pierwszy akapit.", "Cytat wewnętrzny."]
+
+    def test_chapter_without_block_tags_survives(self, tmp_path):
+        from bookbinder.ingest import from_epub
+
+        _meta, chapters = from_epub(self._awkward_book(tmp_path), True, True)
+        assert chapters[1]["paragraphs"] == ["Tekst bez akapitu."]
+
+    def test_fallback_does_not_repeat_the_chapter_title(self, tmp_path):
+        # Chunking narrates the title as its own fragment already.
+        from bookbinder.ingest import from_epub
+
+        _meta, chapters = from_epub(self._awkward_book(tmp_path), True, True)
+        assert "Dwa" not in chapters[1]["paragraphs"]
 
 
 class TestIsNavigation:

@@ -47,25 +47,34 @@ def slugify(value: str) -> str:
 
 
 def normalise(text: str, strip_footnotes: bool = True) -> str:
-    """Clean text the way a narrator would want it read aloud."""
+    """Clean text the way a narrator would want it read aloud.
+
+    Line breaks must still be present when this runs: de-hyphenation matches
+    them, and collapsing whitespace beforehand leaves "prze- rwa" where the
+    source had a wrapped "przerwa". Callers pass blocks unchanged and let the
+    final collapse below fold the newlines away.
+    """
     import ftfy
 
     text = ftfy.fix_text(text)
     text = text.replace("­", "")                 # soft hyphen
-    text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)      # de-hyphenate line breaks
+    # A hyphen at a line end is a wrap, not punctuation. A real compound word
+    # broken across lines is indistinguishable without a dictionary and comes
+    # out joined; see TEXT-01 in docs/WORKPLAN.md.
+    text = re.sub(r"(\w)-[ \t]*\r?\n[ \t]*(\w)", r"\1\2", text)
     text = text.replace("’", "'").replace("‘", "'")
     text = text.replace("“", '"').replace("”", '"')
     text = text.replace("…", "...").replace("—", " - ").replace("–", " - ")
     if strip_footnotes:
         text = FOOTNOTE_MARKER.sub("", text)
-    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
 def _paragraphs(raw: str, strip_footnotes: bool) -> list[str]:
     out = []
     for block in re.split(r"\n\s*\n", raw):
-        cleaned = normalise(block.replace("\n", " "), strip_footnotes)
+        cleaned = normalise(block, strip_footnotes)
         if len(cleaned) > 1:
             out.append(cleaned)
     return out
@@ -84,6 +93,56 @@ def is_navigation(item) -> bool:
     return "nav" in (getattr(item, "properties", None) or [])
 
 
+# Block elements that hold a narratable paragraph. A blockquote or list item
+# usually wraps its own <p>, so both would match and the text would be read
+# twice; only the outermost match of this set is taken.
+BLOCK_TAGS = ["p", "blockquote", "li"]
+
+
+def spine_documents(book, ebooklib) -> list:
+    """Content documents in reading order.
+
+    The manifest that `get_items_of_type` walks is unordered in practice, so
+    taking it directly can narrate a book's chapters shuffled. The spine is
+    what defines reading order; fall back to the manifest only when a malformed
+    EPUB has no usable spine.
+    """
+    ordered, seen = [], set()
+    for idref, _linear in getattr(book, "spine", None) or []:
+        item = book.get_item_with_id(idref)
+        if item is not None and item.get_type() == ebooklib.ITEM_DOCUMENT:
+            ordered.append(item)
+            seen.add(idref)
+
+    # Anything the spine forgot still holds text, so it follows in manifest
+    # order rather than being dropped.
+    for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+        if getattr(item, "id", None) not in seen:
+            ordered.append(item)
+    return ordered
+
+
+def epub_paragraphs(soup, strip_footnotes: bool) -> list[str]:
+    """Narratable paragraphs from one content document, each read once."""
+    paragraphs = []
+    for node in soup.find_all(BLOCK_TAGS):
+        # An ancestor in the same set already contributed this text.
+        if node.find_parent(BLOCK_TAGS) is not None:
+            continue
+        cleaned = normalise(node.get_text(" "), strip_footnotes)
+        if len(cleaned) > 1:
+            paragraphs.append(cleaned)
+
+    if paragraphs:
+        return paragraphs
+
+    # Some converters emit chapters as bare <div>s or loose text with no block
+    # element anywhere. Dropping those silently loses whole chapters, so fall
+    # back to the document's own text split on blank lines.
+    body = soup.find("body") or soup
+    return _paragraphs(body.get_text("\n"), strip_footnotes)
+
+
 def from_epub(path: Path, strip_front_matter: bool, strip_footnotes: bool) -> tuple[dict, list[dict]]:
     import ebooklib
     from bs4 import BeautifulSoup
@@ -97,7 +156,7 @@ def from_epub(path: Path, strip_front_matter: bool, strip_footnotes: bool) -> tu
     }
 
     chapters: list[dict] = []
-    for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+    for item in spine_documents(book, ebooklib):
         if is_navigation(item):
             continue
         soup = BeautifulSoup(item.get_content(), "lxml")
@@ -108,13 +167,12 @@ def from_epub(path: Path, strip_front_matter: bool, strip_footnotes: bool) -> tu
         title = normalise(heading.get_text(" "), strip_footnotes) if heading else ""
         if strip_front_matter and title and SKIP_TITLES.match(title):
             continue
+        # Chunking narrates the title as its own fragment, so the heading must
+        # not also reach the fallback below as a paragraph.
+        if heading is not None:
+            heading.decompose()
 
-        paragraphs = []
-        for node in soup.find_all(["p", "blockquote", "li"]):
-            cleaned = normalise(node.get_text(" "), strip_footnotes)
-            if len(cleaned) > 1:
-                paragraphs.append(cleaned)
-
+        paragraphs = epub_paragraphs(soup, strip_footnotes)
         if not paragraphs:
             continue
         chapters.append({
@@ -153,6 +211,15 @@ def from_text(path: Path, strip_footnotes: bool) -> tuple[dict, list[dict]]:
     parts = re.split(r"^\s{0,3}#{1,3}\s+(.+)$", raw, flags=re.MULTILINE)
     chapters: list[dict] = []
     if len(parts) > 1:
+        # parts[0] is everything before the first heading: a dedication, an
+        # epigraph, an author's note, or a whole untitled opening chapter. The
+        # loop below starts at the first heading, so this used to be discarded.
+        preamble = _paragraphs(parts[0], strip_footnotes)
+        if preamble:
+            chapters.append({"index": 1, "title": meta["title"],
+                             "source_ref": f"{path.name}#0",
+                             "paragraphs": preamble})
+
         for i in range(1, len(parts), 2):
             paragraphs = _paragraphs(parts[i + 1], strip_footnotes)
             if paragraphs:
