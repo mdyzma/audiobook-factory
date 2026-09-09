@@ -70,6 +70,58 @@ class TestUploads:
             authoring.store_upload(project, "book", "big.txt", io.BytesIO(b"x" * 256))
         assert not (project / "data" / "raw" / "books" / "big.txt").exists()
 
+    def test_a_failed_re_upload_does_not_destroy_the_existing_file(self, project, monkeypatch):
+        # The upload used to open the target directly, truncating it, then
+        # delete it on failure. Re-uploading a book you already had, over the
+        # limit or from a dropped connection, destroyed the copy you had.
+        authoring.store_upload(project, "book", "solaris.txt", io.BytesIO(b"oryginal"))
+        kept = project / "data" / "raw" / "books" / "solaris.txt"
+
+        monkeypatch.setattr(authoring, "MAX_UPLOAD_BYTES", 4)
+        with pytest.raises(AuthoringError, match="exceeds"):
+            authoring.store_upload(project, "book", "solaris.txt", io.BytesIO(b"x" * 256))
+
+        assert kept.read_bytes() == b"oryginal"
+
+    def test_an_empty_re_upload_does_not_destroy_the_existing_file(self, project):
+        authoring.store_upload(project, "book", "solaris.txt", io.BytesIO(b"oryginal"))
+        kept = project / "data" / "raw" / "books" / "solaris.txt"
+
+        with pytest.raises(AuthoringError, match="empty"):
+            authoring.store_upload(project, "book", "solaris.txt", io.BytesIO(b""))
+
+        assert kept.read_bytes() == b"oryginal"
+
+    def test_a_stream_that_dies_mid_upload_leaves_the_original_intact(self, project):
+        authoring.store_upload(project, "book", "solaris.txt", io.BytesIO(b"oryginal"))
+        kept = project / "data" / "raw" / "books" / "solaris.txt"
+
+        class Dying:
+            def __init__(self):
+                self.calls = 0
+
+            def read(self, _n):
+                self.calls += 1
+                if self.calls > 1:
+                    raise ConnectionError("client went away")
+                return b"y" * 16
+
+        with pytest.raises(ConnectionError):
+            authoring.store_upload(project, "book", "solaris.txt", Dying())
+
+        assert kept.read_bytes() == b"oryginal"
+
+    def test_a_successful_re_upload_replaces_the_file(self, project):
+        authoring.store_upload(project, "book", "solaris.txt", io.BytesIO(b"stary"))
+        authoring.store_upload(project, "book", "solaris.txt", io.BytesIO(b"nowy"))
+        assert (project / "data" / "raw" / "books" / "solaris.txt").read_bytes() == b"nowy"
+
+    def test_failed_uploads_leave_no_partial_files_behind(self, project, monkeypatch):
+        monkeypatch.setattr(authoring, "MAX_UPLOAD_BYTES", 4)
+        with pytest.raises(AuthoringError):
+            authoring.store_upload(project, "book", "big.txt", io.BytesIO(b"x" * 256))
+        assert list((project / "data" / "raw" / "books").iterdir()) == []
+
     def test_lists_what_has_been_uploaded(self, project):
         authoring.store_upload(project, "book", "a.txt", io.BytesIO(b"xy"))
         listed = authoring.list_raw(project, "book")

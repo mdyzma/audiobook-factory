@@ -116,6 +116,43 @@ class TestBooks:
         assert book.dry_run_audio is False
         assert book.state == "done"
 
+    def _report(self, project, *, ok: bool):
+        failures = [] if ok else [{"chunk_id": "ch001_0001", "error": "boom"}]
+        (project / "data" / "audio" / "solaris" / "report.json").write_text(json.dumps({
+            "slug": "solaris", "chunks_total": 2,
+            "chunks_rendered": 2 if ok else 1, "failures": failures,
+        }), encoding="utf-8")
+
+    def test_failure_outranks_a_leftover_output(self, project):
+        """`done` used to mean nothing more than a file existing in data/out/.
+
+        A render that failed leaves the previous export sitting there, so the
+        book reported itself finished while its audio was incomplete.
+        """
+        (project / "data" / "out" / "solaris.m4b").write_bytes(b"x")
+        self._report(project, ok=False)
+        book = data.get_book(project, "solaris")
+        assert book is not None and book.state == "failed"
+
+    def test_percent_does_not_claim_a_failed_book_is_complete(self, project):
+        (project / "data" / "out" / "solaris.m4b").write_bytes(b"x")
+        self._report(project, ok=False)
+        book = data.get_book(project, "solaris")
+        assert book is not None and book.percent == 0.0
+
+    def test_a_successful_report_with_an_output_is_done(self, project):
+        (project / "data" / "out" / "solaris.m4b").write_bytes(b"x")
+        self._report(project, ok=True)
+        book = data.get_book(project, "solaris")
+        assert book is not None
+        assert book.state == "done"
+        assert book.percent == 100.0
+
+    def test_a_successful_report_without_an_output_is_only_rendered(self, project):
+        self._report(project, ok=True)
+        book = data.get_book(project, "solaris")
+        assert book is not None and book.state == "rendered"
+
     def test_corrupt_json_greys_out_one_card_rather_than_crashing(self, project):
         (project / "data" / "audio" / "solaris" / "report.json").write_text(
             "{not json", encoding="utf-8")
@@ -163,3 +200,69 @@ class TestFileResolution:
 
     def test_fragment_returns_none_when_not_rendered(self, project):
         assert data.rendered_audio(project, "solaris", "ch001_0000") is None
+
+
+class TestContainment:
+    """A legitimate name can still resolve outside the project.
+
+    `check_name` rejects traversal in the URL, but not a symlink already on
+    disk: `data/out/solaris.m4b` pointing at a file elsewhere has a perfectly
+    valid name, and serving it follows the link.
+    """
+
+    @pytest.fixture
+    def outside(self, tmp_path_factory):
+        """A directory that is a sibling of the project, never inside it."""
+        return tmp_path_factory.mktemp("elsewhere")
+
+    def test_a_path_inside_the_project_is_returned_resolved(self, project):
+        inside = project / "data" / "out" / "solaris.m4b"
+        inside.write_bytes(b"x")
+        assert data.contained(project, inside) == inside.resolve()
+
+    def test_a_path_outside_the_project_is_refused(self, project, outside):
+        secret = outside / "secret.m4b"
+        secret.write_bytes(b"x")
+        with pytest.raises(UnsafeName, match="outside the project"):
+            data.contained(project, secret)
+
+    def test_a_sibling_directory_sharing_a_prefix_is_refused(self, project):
+        # A string prefix check would accept this; is_relative_to does not.
+        sibling = project.parent / f"{project.name}-backup"
+        sibling.mkdir(parents=True, exist_ok=True)
+        leak = sibling / "leak.m4b"
+        leak.write_bytes(b"x")
+        with pytest.raises(UnsafeName):
+            data.contained(project, leak)
+
+    def test_a_symlinked_output_is_not_served(self, project, outside):
+        secret = outside / "secret.m4b"
+        secret.write_bytes(b"not yours")
+        (project / "data" / "out" / "solaris.m4b").symlink_to(secret)
+
+        assert data.output_file(project, "solaris", "solaris.m4b") is None
+
+    def test_a_symlinked_output_is_not_listed(self, project, outside):
+        secret = outside / "secret.m4b"
+        secret.write_bytes(b"not yours")
+        (project / "data" / "out" / "solaris.m4b").symlink_to(secret)
+
+        assert data.find_outputs(project, "solaris") == []
+
+    def test_a_symlinked_fragment_is_not_served(self, project, outside):
+        secret = outside / "secret.wav"
+        secret.write_bytes(b"not yours")
+        (project / "data" / "audio" / "solaris" / "ch001_0000.wav").symlink_to(secret)
+
+        assert data.rendered_audio(project, "solaris", "ch001_0000") is None
+
+    def test_a_real_output_is_still_served(self, project):
+        real = project / "data" / "out" / "solaris.m4b"
+        real.write_bytes(b"x")
+        assert data.output_file(project, "solaris", "solaris.m4b") == real
+        assert data.find_outputs(project, "solaris") == ["solaris.m4b"]
+
+    def test_a_real_fragment_is_still_served(self, project):
+        real = project / "data" / "audio" / "solaris" / "ch001_0000.wav"
+        real.write_bytes(b"RIFF")
+        assert data.rendered_audio(project, "solaris", "ch001_0000") == real

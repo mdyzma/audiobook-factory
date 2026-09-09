@@ -37,11 +37,15 @@ LANGUAGES = frozenset(XTTS_CHAR_LIMITS)
 # Actions the dashboard may start, and how each maps to a `just` recipe.
 # `args` names the parameters the action takes, in the order the recipe wants
 # them. Anything not in this table cannot be run.
+# `scope` and `lock_key` name the thing an action works on. Two jobs on the
+# same book, or on the same voice, are never safe to run together: chunking
+# rewrites the manifest a render is reading, assembly reads the fragment list a
+# render is still appending to, and verification reads audio mid-write.
 ACTIONS: dict[str, dict] = {
     # Cleans a recording, cuts and labels it, then clones the voice. Minutes,
     # not seconds: the labelling step downloads a speech model the first time.
     "voice":    {"recipe": "voice",    "args": ["sample", "name", "language"],
-                 "locks": True, "lock_key": "name"},
+                 "locks": True, "lock_key": "name", "scope": "voice"},
     "ingest":   {"recipe": "ingest",   "args": ["source", "slug"],  "locks": False},
     "chunk":    {"recipe": "chunk",    "args": ["slug"],            "locks": False},
     "dryrun":   {"recipe": "dryrun",   "args": ["slug"],            "locks": True},
@@ -49,8 +53,10 @@ ACTIONS: dict[str, dict] = {
     "resynth":  {"recipe": "resynth",  "args": ["slug", "chunks"],  "locks": True},
     "assemble": {"recipe": "assemble", "args": ["slug", "format"],  "locks": False},
     "verify":   {"recipe": "verify",   "args": ["slug"],            "locks": False},
-    "clone":    {"recipe": "clone",    "args": ["voice"],           "locks": False},
-    "label":    {"recipe": "label",    "args": ["voice"],           "locks": False},
+    "clone":    {"recipe": "clone",    "args": ["voice"],           "locks": False,
+                 "lock_key": "voice", "scope": "voice"},
+    "label":    {"recipe": "label",    "args": ["voice"],           "locks": False,
+                 "lock_key": "voice", "scope": "voice"},
 }
 
 FORMATS = ("m4b", "mp3", "wav")
@@ -93,6 +99,17 @@ class Job:
     def lock_target(self) -> str:
         spec = ACTIONS.get(self.action) or {}
         return self.args.get(spec.get("lock_key", "slug"), "")
+
+    @property
+    def conflict_key(self) -> str:
+        """The book or voice this job has to itself while it runs.
+
+        Namespaced, so a book and a voice that happen to share a name are not
+        mistaken for the same resource.
+        """
+        spec = ACTIONS.get(self.action) or {}
+        target = self.lock_target
+        return f"{spec.get('scope', 'book')}:{target}" if target else ""
 
     @property
     def running(self) -> bool:
@@ -250,11 +267,34 @@ class JobStore:
         return None
 
     def acquire(self, slug: str, job_id: str) -> None:
+        """Take the render lock for a book, or refuse.
+
+        Created with O_EXCL because check-then-write loses the race: two
+        requests arriving together both saw no holder, both wrote, and the two
+        renders then shared one audio directory and one rendered.jsonl.
+        """
         self.locks.mkdir(parents=True, exist_ok=True)
-        held = self.holder(slug)
-        if held:
-            raise JobError(f"'{slug}' is already being rendered by job {held}")
-        self.lock_path(slug).write_text(job_id, encoding="utf-8")
+        path = self.lock_path(slug)
+        for _attempt in range(2):
+            try:
+                fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            except FileExistsError:
+                # Either a live holder, or a lock whose owner died. `holder`
+                # clears the second case, so one retry is enough.
+                held = self.holder(slug)
+                if held:
+                    raise JobError(f"'{slug}' is already being rendered by job {held}")
+                continue
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(job_id)
+            return
+        raise JobError(f"could not take the render lock for '{slug}'")
+
+    def conflicting_job(self, key: str) -> Job | None:
+        """A running job already working on the same book or voice."""
+        if not key:
+            return None
+        return next((j for j in self.all() if j.running and j.conflict_key == key), None)
 
     def release(self, job: Job) -> None:
         target = job.lock_target
@@ -358,6 +398,17 @@ class JobRunner:
             started_at=_now(),
             command=["just", spec["recipe"], *[clean[a] for a in spec["args"]]],
         )
+
+        # No two jobs on one book, whether or not either takes the render lock.
+        # Chunking during a render rewrites the manifest under it, assembling
+        # reads a fragment list still being appended to, and verifying reads
+        # audio mid-write. None of those failed loudly.
+        busy = self.store.conflicting_job(job.conflict_key)
+        if busy is not None:
+            raise JobError(
+                f"'{busy.lock_target}' is busy: job {busy.id} is running "
+                f"'{busy.action}'. Wait for it, or cancel it first."
+            )
 
         if spec["locks"]:
             # Most actions lock the book they render; creating a voice locks the

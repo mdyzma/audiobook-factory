@@ -189,6 +189,10 @@ def api_voices():
 @app.get("/audio/audition/{name}")
 def audition(name: str):
     path = data.voice_dir(root(), safe(name)) / "audition.wav"
+    try:
+        data.contained(root(), path)
+    except UnsafeName:
+        raise HTTPException(status_code=404, detail="no audition clip")
     if not path.is_file():
         raise HTTPException(status_code=404, detail="no audition clip")
     return FileResponse(path, media_type="audio/wav")

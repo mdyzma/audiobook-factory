@@ -93,17 +93,66 @@ class TestLifecycle:
 
 
 class TestLocking:
-    def test_a_second_render_is_refused(self, project):
+    def _holder(self, project, action="synth", args=None):
+        """A running job owned by this test's own process, so it looks alive."""
         store = JobStore(project)
         store.dir.mkdir(parents=True, exist_ok=True)
-        # A live holder: this test's own process, which is certainly alive.
-        holder = Job(id="aaaaaaaaaaaa", action="synth", args={"slug": "solaris"},
-                     status="running", pid=os.getpid(), started_at="2026-01-01T00:00:00+00:00")
-        store.save(holder)
+        job = Job(id="aaaaaaaaaaaa", action=action, args=args or {"slug": "solaris"},
+                  status="running", pid=os.getpid(), started_at="2026-01-01T00:00:00+00:00")
+        store.save(job)
+        return store, job
+
+    def test_a_second_render_is_refused(self, project):
+        store, holder = self._holder(project)
+        store.acquire("solaris", holder.id)
+
+        with pytest.raises(JobError, match="busy"):
+            JobRunner(project).start("synth", {"slug": "solaris", "voice": ""})
+
+    def test_acquire_refuses_a_book_already_locked(self, project):
+        # The lock itself, independent of the conflict check above it.
+        store, holder = self._holder(project)
         store.acquire("solaris", holder.id)
 
         with pytest.raises(JobError, match="already being rendered"):
-            JobRunner(project).start("synth", {"slug": "solaris", "voice": ""})
+            store.acquire("solaris", "bbbbbbbbbbbb")
+
+    def test_acquire_is_atomic(self, project):
+        # Check-then-write let two callers both pass the check and both write,
+        # leaving two renders sharing one audio directory.
+        store = JobStore(project)
+        store.dir.mkdir(parents=True, exist_ok=True)
+        store.locks.mkdir(parents=True, exist_ok=True)
+        store.lock_path("solaris").write_text("", encoding="utf-8")
+
+        # An empty lock names no job, so `holder` treats it as stale and clears
+        # it; the retry must then create the file rather than find it gone.
+        store.acquire("solaris", "cccccccccccc")
+        assert store.lock_path("solaris").read_text(encoding="utf-8") == "cccccccccccc"
+
+    def test_a_non_locking_stage_is_refused_while_a_render_runs(self, project):
+        # Assembling mid-render reads a fragment list still being appended to,
+        # and used to be allowed because assemble takes no lock.
+        store, _holder = self._holder(project)
+
+        with pytest.raises(JobError, match="busy"):
+            JobRunner(project).start("assemble", {"slug": "solaris", "format": "m4b"})
+
+    def test_chunking_is_refused_while_a_render_runs(self, project):
+        # Re-chunking rewrites the manifest the render is reading from.
+        store, _holder = self._holder(project)
+
+        with pytest.raises(JobError, match="busy"):
+            JobRunner(project).start("chunk", {"slug": "solaris"})
+
+    def test_another_book_is_unaffected(self, project):
+        store, _holder = self._holder(project)
+        assert store.conflicting_job("book:inne-morze") is None
+
+    def test_a_voice_job_does_not_block_a_book_of_the_same_name(self, project):
+        store, _holder = self._holder(project, action="clone", args={"voice": "solaris"})
+        assert store.conflicting_job("voice:solaris") is not None
+        assert store.conflicting_job("book:solaris") is None
 
     def test_a_lock_held_by_a_dead_job_is_cleared(self, project):
         store = JobStore(project)

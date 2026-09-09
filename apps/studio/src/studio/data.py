@@ -48,6 +48,23 @@ def check_name(name: str) -> str:
     return name
 
 
+def contained(root: Path, path: Path) -> Path:
+    """Resolve `path` and confirm it is still inside the project.
+
+    `check_name` stops traversal through a URL, but not a symlink already on
+    disk: `data/out/solaris.m4b` pointing at /etc/passwd is a perfectly legal
+    name that resolves somewhere else entirely, and serving it follows the
+    link. Both sides are resolved before comparing, because the project root
+    itself is often reached through a symlink, and the comparison uses
+    `is_relative_to` rather than a string prefix, which would also accept a
+    sibling directory whose name merely starts with the root's.
+    """
+    resolved = path.resolve()
+    if not resolved.is_relative_to(root.resolve()):
+        raise UnsafeName(f"path resolves outside the project: {path}")
+    return resolved
+
+
 def project_root() -> Path:
     return _project_root()
 
@@ -112,10 +129,16 @@ class BookView:
         # finished in every way except that they are silent.
         if self.dry_run_audio:
             return "silence"
+        # Also checked before `done`. A failed render leaves any earlier export
+        # sitting in data/out/, so the presence of a file says nothing about
+        # this book: the report is the only record of whether the audio behind
+        # it is complete.
+        if self.report and not self.report.ok:
+            return "failed"
         if self.outputs:
             return "done"
         if self.report:
-            return "failed" if not self.report.ok else "rendered"
+            return "rendered"
         return "prepared"
 
     @property
@@ -129,7 +152,9 @@ class BookView:
     def percent(self) -> float:
         if self.progress:
             return self.progress.percent
-        return 100.0 if self.outputs else 0.0
+        # Tied to `state` so a stale export left by a failed render cannot
+        # report a book as finished.
+        return 100.0 if self.state == "done" else 0.0
 
 
 def voice_dir(root: Path, name: str) -> Path:
@@ -170,6 +195,14 @@ def get_voice(root: Path, name: str) -> VoiceView | None:
     return next((v for v in list_voices(root) if v.name == name), None)
 
 
+def _inside(root: Path, path: Path) -> bool:
+    try:
+        contained(root, path)
+    except UnsafeName:
+        return False
+    return True
+
+
 def find_outputs(root: Path, slug: str) -> list[str]:
     out_dir = root / "data" / "out"
     if not out_dir.is_dir():
@@ -177,6 +210,7 @@ def find_outputs(root: Path, slug: str) -> list[str]:
     return sorted(
         p.name for p in out_dir.iterdir()
         if p.is_file() and p.stem == slug and p.suffix in AUDIO_SUFFIXES
+        and _inside(root, p)
     )
 
 
@@ -246,7 +280,9 @@ def rendered_audio(root: Path, slug: str, chunk_id: str) -> Path | None:
     check_name(slug)
     check_name(chunk_id)
     path = root / "data" / "audio" / slug / f"{chunk_id}.wav"
-    return path if path.is_file() else None
+    if not path.is_file() or not _inside(root, path):
+        return None
+    return path
 
 
 def output_file(root: Path, slug: str, filename: str) -> Path | None:
@@ -254,4 +290,6 @@ def output_file(root: Path, slug: str, filename: str) -> Path | None:
     if Path(filename).name != filename or Path(filename).suffix not in AUDIO_SUFFIXES:
         raise UnsafeName(f"unsafe output name: {filename!r}")
     path = root / "data" / "out" / filename
-    return path if path.is_file() and path.stem == slug else None
+    if not path.is_file() or path.stem != slug or not _inside(root, path):
+        return None
+    return path

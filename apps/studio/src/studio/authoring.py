@@ -6,8 +6,10 @@ it writes and none of them accept a path from the caller.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -81,24 +83,35 @@ def store_upload(root: Path, kind: str, filename: str, stream) -> Upload:
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / f"{stem}{suffix}"
 
+    # Staged beside the target, then renamed over it. Writing straight to
+    # `target` truncated any existing file the moment the stream opened, and
+    # the failure paths below then deleted it outright: re-uploading a book you
+    # already had, over the size limit or from a dropped connection, destroyed
+    # the copy you had. A rename is atomic, so the old file survives until a
+    # complete new one is ready to take its place.
+    fd, staged_name = tempfile.mkstemp(dir=target_dir, prefix=f".{stem}-",
+                                       suffix=f"{suffix}.part")
+    staged = Path(staged_name)
     written = 0
-    with target.open("wb") as out:
-        while True:
-            block = stream.read(1024 * 1024)
-            if not block:
-                break
-            written += len(block)
-            if written > MAX_UPLOAD_BYTES:
-                out.close()
-                target.unlink(missing_ok=True)
-                raise AuthoringError(
-                    f"upload exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB"
-                )
-            out.write(block)
+    try:
+        with os.fdopen(fd, "wb") as out:
+            while True:
+                block = stream.read(1024 * 1024)
+                if not block:
+                    break
+                written += len(block)
+                if written > MAX_UPLOAD_BYTES:
+                    raise AuthoringError(
+                        f"upload exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB"
+                    )
+                out.write(block)
+        if written == 0:
+            raise AuthoringError("upload was empty")
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
 
-    if written == 0:
-        target.unlink(missing_ok=True)
-        raise AuthoringError("upload was empty")
+    os.replace(staged, target)
     return Upload(path=target, bytes_written=written)
 
 
