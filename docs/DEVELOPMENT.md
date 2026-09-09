@@ -258,6 +258,25 @@ case the others miss:
 
 `just verify` refuses outright on marked silence, before whisperx is imported.
 
+**`'<slug>' is not ready to assemble`.** Stage 5 now checks the rendered
+fragments against the chunk plan before it runs ffmpeg, and names what is
+wrong: fragments that were never rendered, a wav that has been deleted, a
+duplicate, or ids that are absent from the plan because the book was re-chunked
+after the render. It used to print one line per missing fragment to stderr and
+assemble the book anyway, producing a shorter audiobook whose chapter marks
+were all past their real positions. Finish the render with `just synth`, or
+repair named fragments with `just resynth`.
+
+**A book the dashboard calls `failed` that has a file in `data/out/`.** That is
+correct, and it is the point: a render that fails leaves the previous export in
+place, so the presence of a file says nothing about the current state. The
+render report decides, and `failed` outranks `done`.
+
+**A `busy` refusal from the dashboard.** No two jobs run on one book at a time,
+whether or not they take the render lock. Chunking during a render rewrites the
+manifest underneath it, assembling reads a fragment list still being appended
+to, and verifying reads audio mid-write. Wait for the running job or cancel it.
+
 ## Conventions
 
 - Every command is a `just` recipe. Add one rather than documenting a bare

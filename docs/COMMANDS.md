@@ -61,7 +61,7 @@ pass `""` for the ones between.
 | `just dryrun <slug> [strict]` | Renders silence at the right durations. No models, no GPU. Pass any value for `strict` to fail on a role whose voice is not cloned. Marks its own output, and `just synth` discards it. |
 | `just preview <slug> <voice>` | Renders the first 20 fragments only, to check the voice before committing hours. |
 | `just synth <slug> <voice> <device="auto">` | Renders every fragment. Resumable: re-run to continue after an interruption. |
-| `just assemble <slug> <format="">` | Muxes fragments, pauses and chapter marks into the finished audiobook. |
+| `just assemble <slug> <format="">` | Muxes fragments, pauses and chapter marks into the finished audiobook. Refuses if the rendered fragments do not match the chunk plan exactly, so an unfinished render cannot become a short audiobook. |
 
 ## Dashboard
 

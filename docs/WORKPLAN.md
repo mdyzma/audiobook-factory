@@ -12,7 +12,9 @@ new modules, `just` recipes, tests, and exit evidence.
 ## Current state, verified today
 
 Read before planning any item: each claim below was checked against the code at
-`5a35a01`, not carried over from the assessment.
+`5a35a01`, not carried over from the assessment. **Every row was fixed in slice
+0 below**, which is recorded here rather than deleted so the next slice can see
+what the code used to do.
 
 | Site | Condition |
 |---|---|
@@ -61,27 +63,33 @@ Sizes are relative: **S** is a focused change with its tests, **M** is a new
 module or a contract change across environments, **L** needs hardware time or
 spans all four environments. No calendar estimates, per the assessment.
 
-## Slice 0 — Defect sweep
+## Slice 0 — Defect sweep — done
 
 Independent of the architecture work, cheap, and each one currently destroys or
 misreports output. Doing these first means later slices are built on a pipeline
 whose failures are visible. Every item lands with a regression test (TEST-05).
 
-| ID | Work | Size |
-|---|---|---|
-| D-01 | Fix EPUB spine ordering, nested-block duplication, and omitted text-only containers in `from_epub`. | M |
-| D-02 | Stop discarding the TXT preamble. Reorder `_paragraphs()` and `normalise()` so de-hyphenation runs while line boundaries still exist. | M |
-| D-03 | Replace the truncating branch in `hard_split` with a split that preserves every character. Never shorten text to fit a limit. | S |
-| D-04 | Make a missing fragment fail assembly instead of skipping it. Pairs with C-6. | S |
-| D-05 | Stop deriving `done` from output existence. Requires C-6's fragment set check to be meaningful; land the refusal now and tighten it there. | S |
-| D-06 | Canonical, symlink-aware containment for every read and write path. Use `is_relative_to` on resolved paths, not string prefixes. (PATH-01) | M |
-| D-07 | Audit and fix `just` shell interpolation and ffmpeg concat/metadata escaping. Valid filenames with punctuation must keep working. (CMD-01) | M |
-| D-08 | Stage uploads to a temp file and rename on success, so a failed re-upload cannot delete the existing file. (PATH-02) | S |
-| D-09 | Make lock acquisition atomic with `O_EXCL`. Reject overlapping stage jobs on one slug. (JOB-01) | M |
-| D-10 | Key `VoicePool` by checkpoint identity so a fine-tuned voice never lends its weights to another voice. | M |
+Completed 2026-09-09. What each one turned out to be:
 
-**Exit evidence.** Each defect has a test that fails on `5a35a01` and passes
-after. `just check` green. A book with a deleted fragment refuses to assemble.
+| ID | Work | What was actually wrong |
+|---|---|---|
+| D-01 | EPUB spine ordering, nested-block duplication, omitted text-only containers | All three, and worse than described. Chapters came back in manifest order, a `blockquote` wrapping a `p` was narrated twice, and a chapter built from bare `div`s was dropped entirely with no message. |
+| D-02 | TXT preamble, de-hyphenation ordering | Everything before the first markdown heading was discarded. De-hyphenation could never fire, because `_paragraphs` collapsed the newlines its pattern matched, so a wrapped word came out as "prze- rwa". |
+| D-03 | Overlong-token truncation in `hard_split` | A 500-character token kept 224 characters and dropped 276. The existing test only checked the length of each piece, never the content. |
+| D-04 | Missing fragments in assembly | Both a deleted wav and a partly failed render assembled into a short book. Assembly never compared the rendered fragments against the chunk plan at all. |
+| D-05 | `done` derived from output existence | A failed render left the previous export in place and the book reported itself finished. The report's verdict now outranks the file. |
+| D-06 | Path containment | The name checks already blocked traversal. The gap was symlinks, which resolve past a legitimate name. |
+| D-07 | Shell and ffmpeg escaping | `--title '<value>'` was built by concatenation, so an apostrophe in a title injected shell. An apostrophe in a path broke the ffmpeg concat list, and a newline in an ebook title wrote extra tags into the finished audiobook. |
+| D-08 | Destructive failed re-upload | The upload opened the target directly, truncating it, then deleted it on failure. Re-uploading a book you already had destroyed the copy you had. |
+| D-09 | Lock races and overlapping stages | `acquire` was check-then-write. Separately, any non-locking stage could run on a book mid-render. |
+| D-10 | One checkpoint across voices | `VoicePool` cached a single model, so a fine-tuned narrator's weights narrated every other voice in the cast. |
+
+**Exit evidence.** `just check` green: five schemas, Pyright clean in all four
+environments, and 454 tests, up from 396 at `5a35a01`. Each defect has a test
+that fails on the previous code and passes now; D-01, D-02, D-03 and D-10 were
+additionally confirmed by running the new tests against the committed version.
+Assembly refuses a book with a deleted fragment, an unrendered fragment, a
+duplicate, or ids outside the chunk plan.
 
 ## Slice A — Text and language (TEXT-01, LANG-01)
 
