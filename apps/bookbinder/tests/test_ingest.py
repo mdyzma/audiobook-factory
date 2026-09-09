@@ -424,3 +424,79 @@ class TestIngestEstablishesEncodingAndLanguage:
         result = runner.invoke(ingest_mod.app, [str(src), "--slug", "book"])
         assert result.exit_code != 0
         assert not (tmp_path / "data" / "book" / "book").exists()
+
+
+class TestSourceStaging:
+    """An imported book must not change when its input file does.
+
+    Everything downstream reads the staged copy, so editing, moving or
+    replacing the file it came from cannot alter a book already in the queue.
+    """
+
+    def _project(self, tmp_path, monkeypatch):
+        (tmp_path / "justfile").write_text("", encoding="utf-8")
+        (tmp_path / "config").mkdir()
+        (tmp_path / "config" / "pipeline.toml").write_text("", encoding="utf-8")
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(tmp_path))
+        return CliRunner()
+
+    def _ingest(self, tmp_path, monkeypatch, name="solaris.txt", text=None):
+        runner = self._project(tmp_path, monkeypatch)
+        src = tmp_path / "inbox" / name
+        src.parent.mkdir(exist_ok=True)
+        src.write_text(text if text is not None else POLISH_PAGE, encoding="utf-8")
+        result = runner.invoke(ingest_mod.app, [str(src), "--slug", "book"])
+        assert result.exit_code == 0, result.output
+        meta = json.loads((tmp_path / "data" / "book" / "book" / "chapters.json")
+                          .read_text(encoding="utf-8"))["meta"]
+        return src, meta
+
+    def test_the_input_is_copied_under_data_sources(self, tmp_path, monkeypatch):
+        _src, meta = self._ingest(tmp_path, monkeypatch)
+        staged = tmp_path / meta["source_file"]
+        assert staged.exists()
+        assert staged.read_text(encoding="utf-8") == POLISH_PAGE
+
+    def test_source_file_points_at_the_copy_not_the_original(self, tmp_path, monkeypatch):
+        src, meta = self._ingest(tmp_path, monkeypatch)
+        assert meta["source_file"].startswith("data/sources/")
+        assert meta["original_source"] == str(src)
+
+    def test_editing_the_original_afterwards_changes_nothing(self, tmp_path, monkeypatch):
+        src, meta = self._ingest(tmp_path, monkeypatch)
+        src.write_text("Zupełnie inna książka.\n", encoding="utf-8")
+
+        staged = tmp_path / meta["source_file"]
+        assert staged.read_text(encoding="utf-8") == POLISH_PAGE
+
+    def test_deleting_the_original_afterwards_leaves_the_book_readable(
+            self, tmp_path, monkeypatch):
+        src, meta = self._ingest(tmp_path, monkeypatch)
+        src.unlink()
+        assert (tmp_path / meta["source_file"]).exists()
+
+    def test_the_hash_describes_the_staged_copy(self, tmp_path, monkeypatch):
+        import hashlib
+        _src, meta = self._ingest(tmp_path, monkeypatch)
+        staged = tmp_path / meta["source_file"]
+        assert meta["source_sha256"] == hashlib.sha256(staged.read_bytes()).hexdigest()
+
+    def test_re_ingesting_replaces_the_copy(self, tmp_path, monkeypatch):
+        runner = self._project(tmp_path, monkeypatch)
+        src = tmp_path / "inbox" / "solaris.txt"
+        src.parent.mkdir(exist_ok=True)
+        src.write_text(POLISH_PAGE, encoding="utf-8")
+        runner.invoke(ingest_mod.app, [str(src), "--slug", "book"])
+
+        revised = POLISH_PAGE + "Nowy akapit dopisany później do tej samej książki.\n"
+        src.write_text(revised, encoding="utf-8")
+        assert runner.invoke(ingest_mod.app, [str(src), "--slug", "book"]).exit_code == 0
+
+        meta = json.loads((tmp_path / "data" / "book" / "book" / "chapters.json")
+                          .read_text(encoding="utf-8"))["meta"]
+        assert (tmp_path / meta["source_file"]).read_text(encoding="utf-8") == revised
+
+    def test_no_partial_file_is_left_behind(self, tmp_path, monkeypatch):
+        _src, meta = self._ingest(tmp_path, monkeypatch)
+        staged_dir = (tmp_path / meta["source_file"]).parent
+        assert [p.name for p in staged_dir.iterdir()] == ["solaris.txt"]

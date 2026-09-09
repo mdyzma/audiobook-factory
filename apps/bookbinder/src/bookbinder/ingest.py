@@ -27,6 +27,28 @@ from bookbinder.decode import (
 app = typer.Typer(add_completion=False)
 
 
+def stage_source(root: Path, slug: str, source: Path) -> Path:
+    """Copy the input under `data/sources/` and read from that copy afterwards.
+
+    A book that has been imported must not change because someone edited,
+    moved or replaced the file it came from. Everything downstream refers to
+    this copy, and its hash is what says whether a re-scan found the same book
+    or a new revision of it.
+    """
+    import shutil
+
+    target_dir = root / "data" / "sources" / slug
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / source.name
+    if target.exists() and target.resolve() == source.resolve():
+        return target        # already the staged copy, being re-ingested
+
+    staged = target.with_name(target.name + ".part")
+    shutil.copy2(source, staged)
+    staged.replace(target)
+    return target
+
+
 @dataclass
 class Extraction:
     """Everything one source file yielded, including how it was read.
@@ -411,14 +433,17 @@ def main(
 
     book_slug = slug or slugify(meta["title"])
     root = project_root()
+    staged = stage_source(root, book_slug, source)
+
     out_dir = root / "data" / "book" / book_slug
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "chapters.json").write_text(
         json.dumps({
             "meta": meta | {
                 "slug": book_slug,
-                "source_file": str(source),
-                "source_sha256": sha256_bytes(source.read_bytes()),
+                "source_file": str(staged.relative_to(root)),
+                "original_source": str(source),
+                "source_sha256": sha256_bytes(staged.read_bytes()),
                 "encoding": found.encoding,
                 "language_decision": {
                     "method": decision.method,
