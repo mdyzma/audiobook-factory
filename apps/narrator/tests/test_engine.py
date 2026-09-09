@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from narrator.engine import VoiceProfile, pick_device
+from narrator.engine import VoiceProfile, checkpoint_key, pick_device
 
 
 def write_profile(root, name="v", **overrides):
@@ -53,6 +53,36 @@ class TestVoiceProfile:
         p = VoiceProfile.load(tmp_path, "v")
         assert p.mode == "finetuned"
         assert p.model_dir == "training/v"
+
+
+class TestCheckpointKey:
+    """What decides whether two voices may share one loaded model."""
+
+    def test_instant_voices_share_the_stock_checkpoint(self, tmp_path):
+        write_profile(tmp_path, name="a")
+        write_profile(tmp_path, name="b")
+        a = VoiceProfile.load(tmp_path, "a")
+        b = VoiceProfile.load(tmp_path, "b")
+        assert checkpoint_key(a) == checkpoint_key(b)
+
+    def test_finetuned_voice_is_distinct_from_stock(self, tmp_path):
+        write_profile(tmp_path, name="a")
+        write_profile(tmp_path, name="b", mode="finetuned", model_dir=str(tmp_path / "training/b"))
+        assert checkpoint_key(VoiceProfile.load(tmp_path, "a")) != \
+            checkpoint_key(VoiceProfile.load(tmp_path, "b"))
+
+    def test_two_finetuned_voices_are_distinct_from_each_other(self, tmp_path):
+        write_profile(tmp_path, name="a", mode="finetuned", model_dir=str(tmp_path / "training/a"))
+        write_profile(tmp_path, name="b", mode="finetuned", model_dir=str(tmp_path / "training/b"))
+        assert checkpoint_key(VoiceProfile.load(tmp_path, "a")) != \
+            checkpoint_key(VoiceProfile.load(tmp_path, "b"))
+
+    def test_finetuned_without_a_model_dir_falls_back_to_stock(self, tmp_path):
+        # Nothing to load, so it must not claim an identity of its own.
+        write_profile(tmp_path, name="a")
+        write_profile(tmp_path, name="b", mode="finetuned", model_dir=None)
+        assert checkpoint_key(VoiceProfile.load(tmp_path, "a")) == \
+            checkpoint_key(VoiceProfile.load(tmp_path, "b"))
 
 
 class TestPickDevice:

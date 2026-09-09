@@ -21,13 +21,18 @@ import time
 import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import torch
 import typer
 
+if TYPE_CHECKING:  # heavy imports stay out of the runtime path
+    from TTS.tts.models.xtts import Xtts
+
 from narrator.paths import project_root
 from narrator.engine import (
     VoiceProfile,
+    checkpoint_key,
     compute_latents,
     load_latents,
     load_model,
@@ -91,16 +96,19 @@ def load_synth_config(root: Path) -> dict:
 
 
 class VoicePool:
-    """Loads each voice once and keeps its latents.
+    """Loads each checkpoint once and keeps a latent pair per voice.
 
-    XTTS weights are shared across voices; only the speaker latents differ.
-    So one model is loaded, and the pool holds a latent pair per voice.
+    Instant-cloned voices all share the stock XTTS weights and differ only in
+    their speaker latents, so one loaded model serves the whole cast. A
+    fine-tuned voice has its own weights, so models are cached by checkpoint
+    identity rather than globally: caching a single model meant the first
+    voice loaded narrated every other voice in the book.
     """
 
     def __init__(self, root: Path, device: str) -> None:
         self.root = root
         self.device = device
-        self._model = None
+        self._models: "dict[str, Xtts]" = {}
         self._latents: dict[str, tuple] = {}
         self._profiles: dict[str, VoiceProfile] = {}
 
@@ -109,10 +117,12 @@ class VoicePool:
             self._profiles[voice] = VoiceProfile.load(self.root, voice)
         return self._profiles[voice]
 
-    def model(self, voice: str):
-        if self._model is None:
-            self._model = load_model(self.profile(voice), self.device)
-        return self._model
+    def model(self, voice: str) -> "Xtts":
+        profile = self.profile(voice)
+        key = checkpoint_key(profile)
+        if key not in self._models:
+            self._models[key] = load_model(profile, self.device)
+        return self._models[key]
 
     def latents(self, voice: str):
         if voice not in self._latents:

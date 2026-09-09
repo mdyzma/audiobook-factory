@@ -76,6 +76,20 @@ class VoiceProfile:
         )
 
 
+def checkpoint_key(profile: VoiceProfile) -> str:
+    """Identity of the weights this profile loads.
+
+    Every instant-cloned voice shares the stock checkpoint and differs only in
+    its speaker latents, which is what lets one loaded model serve a whole
+    cast. A fine-tuned voice carries its own weights, so it needs its own
+    entry: caching by voice name alone would hand the first voice's checkpoint
+    to every later one and narrate the book in the wrong trained voice.
+    """
+    if profile.mode == "finetuned" and profile.model_dir:
+        return f"finetuned:{Path(profile.model_dir).resolve()}"
+    return f"stock:{DEFAULT_MODEL}"
+
+
 def load_model(profile: VoiceProfile, device: str) -> "Xtts":
     """Load stock XTTS-v2, or the fine-tuned checkpoint if the profile has one.
 

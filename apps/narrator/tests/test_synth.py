@@ -59,3 +59,64 @@ class TestDiscardDryRun:
 
         assert discard_dry_run(audio_dir) == 0
         assert not (audio_dir / DRY_RUN_MARKER).exists()
+
+
+class TestVoicePoolCheckpointIsolation:
+    """A cast must never be narrated by one voice's weights.
+
+    The pool cached a single model, so whichever voice was rendered first
+    loaded its checkpoint and every later voice was served that same one. With
+    a fine-tuned narrator and instant-cloned dialogue voices, the whole book
+    came out in the narrator's trained voice with nothing reported.
+    """
+
+    def _pool(self, tmp_path, monkeypatch, profiles):
+        import narrator.synth as synth
+
+        voices = tmp_path / "data" / "voices"
+        voices.mkdir(parents=True)
+        for name, extra in profiles.items():
+            payload = {"name": name, "language": "pl", "sample_rate": 24000,
+                       "mode": "instant", "model_dir": None, "reference_wavs": []}
+            payload.update(extra)
+            (voices / f"{name}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+        loaded: list[str] = []
+
+        def fake_load_model(profile, device):
+            loaded.append(profile.name)
+            return f"model-for-{profile.name}"
+
+        monkeypatch.setattr(synth, "load_model", fake_load_model)
+        return synth.VoicePool(tmp_path, "cpu"), loaded
+
+    def test_instant_voices_share_one_loaded_model(self, tmp_path, monkeypatch):
+        pool, loaded = self._pool(tmp_path, monkeypatch, {"a": {}, "b": {}})
+        assert pool.model("a") is pool.model("b")
+        assert loaded == ["a"]  # loaded once, which is the point of the pool
+
+    def test_finetuned_voice_does_not_reuse_the_stock_model(self, tmp_path, monkeypatch):
+        pool, loaded = self._pool(tmp_path, monkeypatch, {
+            "narrator": {"mode": "finetuned", "model_dir": "training/narrator"},
+            "dialogue": {},
+        })
+        assert pool.model("narrator") != pool.model("dialogue")
+        assert loaded == ["narrator", "dialogue"]
+
+    def test_stock_voice_rendered_first_does_not_capture_the_finetuned_one(
+            self, tmp_path, monkeypatch):
+        # Order must not decide which weights a voice gets.
+        pool, loaded = self._pool(tmp_path, monkeypatch, {
+            "dialogue": {},
+            "narrator": {"mode": "finetuned", "model_dir": "training/narrator"},
+        })
+        assert pool.model("dialogue") == "model-for-dialogue"
+        assert pool.model("narrator") == "model-for-narrator"
+
+    def test_two_finetuned_voices_each_load_their_own(self, tmp_path, monkeypatch):
+        pool, loaded = self._pool(tmp_path, monkeypatch, {
+            "a": {"mode": "finetuned", "model_dir": "training/a"},
+            "b": {"mode": "finetuned", "model_dir": "training/b"},
+        })
+        assert pool.model("a") != pool.model("b")
+        assert loaded == ["a", "b"]
