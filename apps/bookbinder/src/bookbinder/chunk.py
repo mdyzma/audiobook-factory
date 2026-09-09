@@ -26,8 +26,10 @@ from bookbinder.manifest import (
     Chunk,
     EncodingRecord,
     LanguageRecord,
+    SpokenSubstitution,
     char_limit,
 )
+from bookbinder.speech import load_dictionary, prepare, split_provenance
 from bookbinder.roles import assign_role
 from bookbinder import overrides as role_overrides
 
@@ -118,8 +120,13 @@ def pack(sentences: list[str], limit: int, min_chars: int) -> list[str]:
 
 
 def source_sha256(path: Path) -> str:
-    """Hash the source file so a changed ebook is detectable later."""
-    if not path.exists():
+    """Hash the source file so a changed ebook is detectable later.
+
+    `is_file` rather than `exists`: a manifest with no source recorded resolves
+    to the project root, and opening a directory raises rather than returning
+    nothing useful.
+    """
+    if not path.is_file():
         return ""
     digest = hashlib.sha256()
     with path.open("rb") as fh:
@@ -159,6 +166,10 @@ def main(
     # Hand corrections, keyed by source_ref so they survive this re-chunk.
     corrections = role_overrides.load(book_dir)
 
+    # How this book in particular should be said: names the rules cannot know
+    # and anything the model reads badly. Optional, and edited by hand.
+    dictionary = load_dictionary(book_dir / "pronunciation.yml")
+
     payload = json.loads(chapters_path.read_text(encoding="utf-8"))
     meta, chapters = payload["meta"], payload["chapters"]
     language = meta.get("language") or ""
@@ -179,11 +190,12 @@ def main(
         author=meta.get("author", "Unknown"),
         language=language,
         source_file=meta.get("source_file", ""),
-        # Recorded at ingestion from the bytes actually read. Re-hashing here
+        original_source=meta.get("original_source", ""),
+        # Recorded at ingestion from the staged copy's bytes. Re-hashing here
         # would describe whatever is at that path now, which may be a different
         # file; fall back to hashing only for manifests written before this.
         source_sha256=(meta.get("source_sha256")
-                       or source_sha256(Path(meta.get("source_file", "")))),
+                       or source_sha256(root / meta.get("source_file", ""))),
         voice=voice,
         # Carried through unchanged: ingestion establishes how the text was
         # read and which language it is, and chunking has no new evidence.
@@ -222,14 +234,24 @@ def main(
             is_dialogue = assignment.is_dialogue or bool(
                 corrected and corrected != NARRATOR_ROLE)
 
-            sentences = split_sentences(spoken, language)
+            # Prepared before splitting, so the character budget is measured
+            # against what the model will actually read: expanding "np." to
+            # "na przykład" adds nine characters, and a chunk packed to the
+            # limit beforehand would have been over it by the time it was said.
+            said = prepare(spoken, language, dictionary)
+            sentences = split_sentences(said.text, language)
             packed = pack(sentences, limit, min_chars)
-            for i, text in enumerate(packed):
+            for i, part in enumerate(split_provenance(said, packed)):
                 last_in_paragraph = i == len(packed) - 1
                 manifest.chunks.append(Chunk(
                     id=f"ch{ch_index:03d}_{order:04d}",
                     chapter_index=ch_index, chapter_title=ch_title, order=order,
-                    text=text, kind="paragraph", language=language,
+                    text=part.text, kind="paragraph", language=language,
+                    # Only where they differ: a book with no substitutions
+                    # should not carry a second copy of itself.
+                    source_text=part.source_text if part.changed else "",
+                    substitutions=[SpokenSubstitution(**vars(s))
+                                   for s in part.substitutions],
                     role=role, is_dialogue=is_dialogue,
                     pause_after_ms=paragraph_pause if last_in_paragraph
                     else book_cfg.get("sentence_pause_ms", 120),
