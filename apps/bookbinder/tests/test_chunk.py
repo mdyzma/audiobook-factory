@@ -2,7 +2,9 @@
 
 XTTS truncates past its per-language character limit without warning, so an
 oversize chunk loses text with no error anywhere. These tests pin the two
-properties that matter: nothing exceeds the limit, and no word is lost or split.
+properties that matter: nothing exceeds the limit, and no character is lost.
+Words stay whole except where a single word is longer than the limit and so
+has no break point at all.
 """
 
 from __future__ import annotations
@@ -57,6 +59,16 @@ class TestPack:
     def test_empty_input(self):
         assert pack([], PL, 40) == []
 
+    def test_overlong_token_survives_packing(self):
+        # What the pipeline actually calls. A sentence carrying one unbreakable
+        # token must keep every character and still respect the limit.
+        sentences = ["Przed nim krótkie zdanie.", "b" * 600, "Po nim kolejne zdanie."]
+        out = pack(sentences, PL, 40)
+        joined = " ".join(out).replace(" ", "")
+        assert joined == "".join(sentences).replace(" ", "")
+        for chunk in out:
+            assert len(chunk) <= PL
+
     @pytest.mark.parametrize("language", ["pl", "en", "ja", "zh-cn", "ru"])
     def test_respects_each_language_limit(self, language):
         limit = char_limit(language)
@@ -77,6 +89,26 @@ class TestHardSplit:
         # One 500-char word cannot be split on punctuation or spaces.
         for piece in hard_split("a" * 500, PL):
             assert len(piece) <= PL
+
+    def test_pathological_single_token_keeps_every_character(self):
+        # Regression: the overlong-word branch used to truncate to the limit,
+        # dropping 276 of these 500 characters with no error anywhere.
+        assert "".join(hard_split("a" * 500, PL)) == "a" * 500
+
+    def test_overlong_token_mid_sentence_keeps_every_character(self):
+        # A URL is the realistic case: one token with no internal break point.
+        sentence = "Zobacz https://example.com/" + "x" * 300 + " i wróć."
+        pieces = hard_split(sentence, PL)
+        assert "".join(pieces).replace(" ", "") == sentence.replace(" ", "")
+        for piece in pieces:
+            assert len(piece) <= PL
+
+    def test_overlong_token_flushes_the_pending_chunk_first(self):
+        # The words before the giant token must not be swallowed by it.
+        sentence = "Krótkie słowa najpierw " + "y" * 400
+        pieces = hard_split(sentence, PL)
+        assert pieces[0].startswith("Krótkie słowa najpierw")
+        assert "".join(pieces).replace(" ", "") == sentence.replace(" ", "")
 
     def test_never_splits_mid_word(self):
         sentence = " ".join(["wyrazwielosylabowy"] * 40)

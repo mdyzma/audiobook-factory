@@ -51,7 +51,10 @@ def split_sentences(text: str, language: str) -> list[str]:
 def hard_split(sentence: str, limit: int) -> list[str]:
     """Last resort for a single sentence longer than the model limit.
 
-    Prefer clause punctuation, then whitespace. Never cut mid-word.
+    Prefer clause punctuation, then whitespace, and cut mid-word only when a
+    single word is itself longer than the limit and so has no break point.
+    Text is never dropped to make a piece fit: a seam in the audio can be
+    heard and re-rendered, missing words cannot be recovered.
     """
     if len(sentence) <= limit:
         return [sentence]
@@ -59,13 +62,22 @@ def hard_split(sentence: str, limit: int) -> list[str]:
     pieces, current = [], ""
     for token in sentence.replace(";", ";\x00").replace(",", ",\x00").split("\x00"):
         for word in ([token] if len(token) <= limit else token.split(" ")):
-            candidate = f"{current} {word}".strip() if current else word.strip()
+            word = word.strip()
+            if not word:
+                continue
+            candidate = f"{current} {word}".strip() if current else word
             if len(candidate) <= limit:
                 current = candidate
-            else:
-                if current:
-                    pieces.append(current)
-                current = word.strip()[:limit]
+                continue
+            if current:
+                pieces.append(current)
+                current = ""
+            # No whitespace or punctuation left to break on. Emit whole
+            # limit-sized pieces and carry the remainder into the next chunk.
+            while len(word) > limit:
+                pieces.append(word[:limit])
+                word = word[limit:]
+            current = word
     if current:
         pieces.append(current)
     return pieces
