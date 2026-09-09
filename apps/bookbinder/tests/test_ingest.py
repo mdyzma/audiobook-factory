@@ -15,6 +15,20 @@ from typer.testing import CliRunner
 import bookbinder.ingest as ingest_mod
 from bookbinder.ingest import from_text, normalise, slugify
 
+# Enough Polish that the language is established from the text rather than
+# abstained on. Short files stopping for review is deliberate; see
+# TestIngestEstablishesEncodingAndLanguage below.
+POLISH_PAGE = (
+    "Ocean falował pod stacją, a wiatr wiał nieprzerwanie od trzech dni. "
+    "Zszedłem po drabince do kabiny i zamknąłem właz za sobą, nasłuchując. "
+    "Śnieg padał na łąki pod Łodzią, a mgła osiadła na rzece o świcie. "
+    "Wczesnym rankiem wróciłem na pokład i długo patrzyłem w stronę brzegu. "
+    "Woda była ciemna i gęsta, a nad nią unosiła się para, którą wiatr "
+    "rozwiewał w długie smugi ciągnące się aż po widnokrąg. "
+    "Nikt nie odpowiadał na wezwania, więc usiadłem przy pulpicie i czekałem, "
+    "licząc kolejne minuty ciszy przerywanej tylko trzaskiem aparatury.\n"
+)
+
 
 class TestNormalise:
     def test_em_and_en_dashes_become_spoken_pauses(self):
@@ -68,20 +82,20 @@ class TestFromText:
     def test_splits_on_markdown_headings(self, tmp_path):
         f = tmp_path / "b.txt"
         f.write_text("# Jeden\n\nTreść pierwsza.\n\n# Dwa\n\nTreść druga.\n", encoding="utf-8")
-        _meta, chapters = from_text(f, strip_footnotes=True)
+        chapters = from_text(f, strip_footnotes=True).chapters
         assert [c["title"] for c in chapters] == ["Jeden", "Dwa"]
 
     def test_headingless_file_is_one_chapter(self, tmp_path):
         f = tmp_path / "b.txt"
         f.write_text("Akapit jeden.\n\nAkapit dwa.\n", encoding="utf-8")
-        _meta, chapters = from_text(f, strip_footnotes=True)
+        chapters = from_text(f, strip_footnotes=True).chapters
         assert len(chapters) == 1
         assert len(chapters[0]["paragraphs"]) == 2
 
     def test_blank_paragraphs_dropped(self, tmp_path):
         f = tmp_path / "b.txt"
         f.write_text("Akapit.\n\n\n\n   \n\nDrugi.\n", encoding="utf-8")
-        _meta, chapters = from_text(f, strip_footnotes=True)
+        chapters = from_text(f, strip_footnotes=True).chapters
         assert chapters[0]["paragraphs"] == ["Akapit.", "Drugi."]
 
     def test_text_before_the_first_heading_is_kept(self, tmp_path):
@@ -90,14 +104,14 @@ class TestFromText:
         f = tmp_path / "b.txt"
         f.write_text("Dedykacja dla żony.\n\nMotto rozdziału.\n\n"
                      "# Jeden\n\nTreść pierwsza.\n", encoding="utf-8")
-        _meta, chapters = from_text(f, strip_footnotes=True)
+        chapters = from_text(f, strip_footnotes=True).chapters
         assert [c["title"] for c in chapters] == ["b", "Jeden"]
         assert chapters[0]["paragraphs"] == ["Dedykacja dla żony.", "Motto rozdziału."]
 
     def test_no_preamble_chapter_when_the_file_opens_with_a_heading(self, tmp_path):
         f = tmp_path / "b.txt"
         f.write_text("# Jeden\n\nTreść pierwsza.\n", encoding="utf-8")
-        _meta, chapters = from_text(f, strip_footnotes=True)
+        chapters = from_text(f, strip_footnotes=True).chapters
         assert [c["title"] for c in chapters] == ["Jeden"]
 
     def test_wrapped_hyphenation_rejoined_through_the_real_path(self, tmp_path):
@@ -105,13 +119,13 @@ class TestFromText:
         # newlines first, so the rule could never match on a real file.
         f = tmp_path / "b.txt"
         f.write_text("Treść roz-\ndziału pierwszego trwa dalej.\n", encoding="utf-8")
-        _meta, chapters = from_text(f, strip_footnotes=True)
+        chapters = from_text(f, strip_footnotes=True).chapters
         assert chapters[0]["paragraphs"] == ["Treść rozdziału pierwszego trwa dalej."]
 
     def test_wrapped_line_without_hyphen_becomes_one_space(self, tmp_path):
         f = tmp_path / "b.txt"
         f.write_text("Pierwsza linia\ndruga linia.\n", encoding="utf-8")
-        _meta, chapters = from_text(f, strip_footnotes=True)
+        chapters = from_text(f, strip_footnotes=True).chapters
         assert chapters[0]["paragraphs"] == ["Pierwsza linia druga linia."]
 
 
@@ -142,7 +156,7 @@ class TestFromEpub:
     def test_reads_metadata(self, tmp_path):
         from bookbinder.ingest import from_epub
 
-        meta, _ = from_epub(self._book(tmp_path), True, True)
+        meta = from_epub(self._book(tmp_path), True, True).meta
         assert meta["title"] == "Solaris"
         assert meta["author"] == "Lem"
         assert meta["language"] == "pl"
@@ -150,7 +164,7 @@ class TestFromEpub:
     def test_skips_the_navigation_document(self, tmp_path):
         from bookbinder.ingest import from_epub
 
-        _meta, chapters = from_epub(self._book(tmp_path), True, True)
+        chapters = from_epub(self._book(tmp_path), True, True).chapters
         titles = [c["title"] for c in chapters]
         assert titles == ["Przybysz", "Lustra"]
         assert not any("nav" in c["source_ref"] for c in chapters)
@@ -158,7 +172,7 @@ class TestFromEpub:
     def test_extracts_paragraphs(self, tmp_path):
         from bookbinder.ingest import from_epub
 
-        _meta, chapters = from_epub(self._book(tmp_path), True, True)
+        chapters = from_epub(self._book(tmp_path), True, True).chapters
         assert chapters[0]["paragraphs"] == ["Zszedłem po drabince."]
 
 
@@ -199,26 +213,26 @@ class TestEpubStructureIsPreserved:
     def test_chapters_follow_the_spine_not_the_manifest(self, tmp_path):
         from bookbinder.ingest import from_epub
 
-        _meta, chapters = from_epub(self._awkward_book(tmp_path), True, True)
+        chapters = from_epub(self._awkward_book(tmp_path), True, True).chapters
         assert [c["title"] for c in chapters] == ["Jeden", "Dwa", "Trzy"]
 
     def test_nested_block_is_read_once(self, tmp_path):
         from bookbinder.ingest import from_epub
 
-        _meta, chapters = from_epub(self._awkward_book(tmp_path), True, True)
+        chapters = from_epub(self._awkward_book(tmp_path), True, True).chapters
         assert chapters[0]["paragraphs"] == ["Pierwszy akapit.", "Cytat wewnętrzny."]
 
     def test_chapter_without_block_tags_survives(self, tmp_path):
         from bookbinder.ingest import from_epub
 
-        _meta, chapters = from_epub(self._awkward_book(tmp_path), True, True)
+        chapters = from_epub(self._awkward_book(tmp_path), True, True).chapters
         assert chapters[1]["paragraphs"] == ["Tekst bez akapitu."]
 
     def test_fallback_does_not_repeat_the_chapter_title(self, tmp_path):
         # Chunking narrates the title as its own fragment already.
         from bookbinder.ingest import from_epub
 
-        _meta, chapters = from_epub(self._awkward_book(tmp_path), True, True)
+        chapters = from_epub(self._awkward_book(tmp_path), True, True).chapters
         assert "Dwa" not in chapters[1]["paragraphs"]
 
 
@@ -271,7 +285,9 @@ class TestMetadataOverrides:
 
     def test_without_them_the_filename_still_wins(self, tmp_path, monkeypatch):
         src = tmp_path / "some_scanned_file_682.txt"
-        src.write_text("# Rozdział\n\nZdanie pierwsze.\n", encoding="utf-8")
+        # Long enough for the language to be established from the text; a file
+        # this short would otherwise stop for review, which is its own test.
+        src.write_text("# Rozdział\n\n" + POLISH_PAGE, encoding="utf-8")
         (tmp_path / "justfile").write_text("", encoding="utf-8")
         (tmp_path / "config").mkdir()
         (tmp_path / "config" / "pipeline.toml").write_text("", encoding="utf-8")
@@ -285,3 +301,126 @@ class TestMetadataOverrides:
         )["meta"]
         assert meta["title"] == "some_scanned_file_682"
         assert meta["author"] == "Unknown"
+
+
+class TestIngestEstablishesEncodingAndLanguage:
+    """Ingestion decides two things it used to assume.
+
+    Plain text was read as UTF-8 with `errors="replace"` and declared `pl`.
+    Both are now established from the file, and a file that cannot settle
+    either one stops instead of producing confident nonsense.
+    """
+
+    def _project(self, tmp_path, monkeypatch):
+        (tmp_path / "justfile").write_text("", encoding="utf-8")
+        (tmp_path / "config").mkdir()
+        (tmp_path / "config" / "pipeline.toml").write_text("", encoding="utf-8")
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(tmp_path))
+        return CliRunner()
+
+    def _meta(self, tmp_path, slug="book"):
+        return json.loads((tmp_path / "data" / "book" / slug / "chapters.json")
+                          .read_text(encoding="utf-8"))["meta"]
+
+    def test_a_legacy_polish_file_keeps_its_diacritics(self, tmp_path, monkeypatch):
+        runner = self._project(tmp_path, monkeypatch)
+        src = tmp_path / "solaris.txt"
+        src.write_bytes(POLISH_PAGE.encode("cp1250"))
+
+        assert runner.invoke(ingest_mod.app, [str(src), "--slug", "book"]).exit_code == 0
+        meta = self._meta(tmp_path)
+        assert meta["encoding"]["encoding"] == "cp1250"
+        assert meta["language"] == "pl"
+
+        text = (tmp_path / "data" / "book" / "book" / "chapters.json").read_text(encoding="utf-8")
+        assert "ł" in text and "ą" in text and "�" not in text
+
+    def test_an_english_file_is_not_declared_polish(self, tmp_path, monkeypatch):
+        runner = self._project(tmp_path, monkeypatch)
+        src = tmp_path / "orwell.txt"
+        src.write_text(
+            "It was a bright cold day in April and the clocks were striking "
+            "thirteen. Winston Smith slipped quickly through the glass doors "
+            "of Victory Mansions, though not quickly enough to prevent a swirl "
+            "of gritty dust from entering along with him at the door. "
+            "The hallway smelt of boiled cabbage and old rag mats, and at one "
+            "end of it a coloured poster had been tacked to the wall. "
+            "It depicted simply an enormous face, more than a metre wide, the "
+            "face of a man of about forty-five, with a heavy black moustache "
+            "and ruggedly handsome features that followed you as you moved.\n",
+            encoding="utf-8")
+
+        assert runner.invoke(ingest_mod.app, [str(src), "--slug", "book"]).exit_code == 0
+        assert self._meta(tmp_path)["language"] == "en"
+
+    def test_the_source_hash_is_recorded(self, tmp_path, monkeypatch):
+        import hashlib
+        runner = self._project(tmp_path, monkeypatch)
+        src = tmp_path / "solaris.txt"
+        src.write_text(POLISH_PAGE, encoding="utf-8")
+
+        runner.invoke(ingest_mod.app, [str(src), "--slug", "book"])
+        assert self._meta(tmp_path)["source_sha256"] == \
+            hashlib.sha256(src.read_bytes()).hexdigest()
+
+    def test_the_language_evidence_is_kept(self, tmp_path, monkeypatch):
+        runner = self._project(tmp_path, monkeypatch)
+        src = tmp_path / "solaris.txt"
+        src.write_text(POLISH_PAGE, encoding="utf-8")
+
+        runner.invoke(ingest_mod.app, [str(src), "--slug", "book"])
+        decision = self._meta(tmp_path)["language_decision"]
+        assert decision["method"] == "content"
+        assert decision["detector"] and decision["confidence"] > 0
+        assert decision["samples"]
+
+    def test_a_book_too_short_to_judge_stops_rather_than_guessing(self, tmp_path, monkeypatch):
+        runner = self._project(tmp_path, monkeypatch)
+        src = tmp_path / "short.txt"
+        src.write_text("Zdanie pierwsze.\n", encoding="utf-8")
+
+        result = runner.invoke(ingest_mod.app, [str(src), "--slug", "book"])
+        assert result.exit_code != 0
+        assert "needs review" in result.output
+        assert not (tmp_path / "data" / "book" / "book").exists()
+
+    def test_an_explicit_language_gets_a_short_book_through(self, tmp_path, monkeypatch):
+        runner = self._project(tmp_path, monkeypatch)
+        src = tmp_path / "short.txt"
+        src.write_text("Zdanie pierwsze.\n", encoding="utf-8")
+
+        result = runner.invoke(ingest_mod.app,
+                               [str(src), "--slug", "book", "--language", "pl"])
+        assert result.exit_code == 0, result.output
+        assert self._meta(tmp_path)["language"] == "pl"
+
+    def test_an_encoding_override_is_obeyed_and_recorded(self, tmp_path, monkeypatch):
+        runner = self._project(tmp_path, monkeypatch)
+        src = tmp_path / "solaris.txt"
+        src.write_bytes(POLISH_PAGE.encode("iso-8859-2"))
+
+        result = runner.invoke(ingest_mod.app, [
+            str(src), "--slug", "book", "--encoding", "iso-8859-2"])
+        assert result.exit_code == 0, result.output
+        enc = self._meta(tmp_path)["encoding"]
+        assert (enc["encoding"], enc["method"]) == ("iso-8859-2", "override")
+
+    def test_review_reports_without_writing_anything(self, tmp_path, monkeypatch):
+        runner = self._project(tmp_path, monkeypatch)
+        src = tmp_path / "solaris.txt"
+        src.write_bytes(POLISH_PAGE.encode("cp1250"))
+
+        result = runner.invoke(ingest_mod.app, [str(src), "--slug", "book", "--review"])
+        assert result.exit_code == 0, result.output
+        assert "encoding" in result.output and "cp1250" in result.output
+        assert "language" in result.output
+        assert not (tmp_path / "data" / "book" / "book").exists()
+
+    def test_an_unreadable_file_fails_without_writing(self, tmp_path, monkeypatch):
+        runner = self._project(tmp_path, monkeypatch)
+        src = tmp_path / "broken.txt"
+        src.write_bytes(bytes([0x81, 0x8D, 0x8F, 0x90, 0x9D]) * 60)
+
+        result = runner.invoke(ingest_mod.app, [str(src), "--slug", "book"])
+        assert result.exit_code != 0
+        assert not (tmp_path / "data" / "book" / "book").exists()

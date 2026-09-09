@@ -12,11 +12,35 @@ from bookbinder.paths import project_root
 import json
 import re
 import unicodedata
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import typer
 
+from bookbinder.decode import (
+    DECODER_VERSION,
+    decode_file,
+    sha256_bytes,
+    text_quality,
+)
+
 app = typer.Typer(add_completion=False)
+
+
+@dataclass
+class Extraction:
+    """Everything one source file yielded, including how it was read.
+
+    The encoding and review fields travel with the text because a book that
+    could not be decoded confidently has to be visible as such downstream,
+    rather than arriving as ordinary-looking chapters.
+    """
+
+    meta: dict
+    chapters: list[dict]
+    encoding: dict = field(default_factory=dict)
+    needs_review: bool = False
+    review_reasons: list[str] = field(default_factory=list)
 
 # Headings that mark front/back matter we do not want narrated.
 SKIP_TITLES = re.compile(
@@ -143,7 +167,26 @@ def epub_paragraphs(soup, strip_footnotes: bool) -> list[str]:
     return _paragraphs(body.get_text("\n"), strip_footnotes)
 
 
-def from_epub(path: Path, strip_front_matter: bool, strip_footnotes: bool) -> tuple[dict, list[dict]]:
+# Below this, a document's decoded text looks like it was read through the
+# wrong table: replacement characters, C1 controls, or letters from a script
+# the book has no business containing. Calibrated against the same fixtures as
+# `decode.text_quality`, where correct readings score close to 1.
+SUSPICIOUS_QUALITY = 0.5
+
+
+def from_epub(
+    path: Path,
+    strip_front_matter: bool,
+    strip_footnotes: bool,
+    encoding: str = "",
+) -> Extraction:
+    """Read an EPUB as the structured container it is.
+
+    Each content document declares its own encoding, so they are decoded
+    individually by the XHTML parser rather than by running one text decoder
+    over the ZIP. An `--encoding` override is therefore not applicable here and
+    is reported rather than silently ignored.
+    """
     import ebooklib
     from bs4 import BeautifulSoup
     from ebooklib import epub
@@ -152,14 +195,27 @@ def from_epub(path: Path, strip_front_matter: bool, strip_footnotes: bool) -> tu
     meta = {
         "title": (book.get_metadata("DC", "title") or [("Unknown",)])[0][0],
         "author": (book.get_metadata("DC", "creator") or [("Unknown",)])[0][0],
-        "language": (book.get_metadata("DC", "language") or [("pl",)])[0][0],
+        "language": (book.get_metadata("DC", "language") or [("",)])[0][0],
     }
 
+    warnings: list[str] = []
+    if encoding:
+        warnings.append(
+            f"--encoding {encoding} was ignored: an EPUB declares an encoding "
+            f"per document and those declarations were used instead"
+        )
+
+    seen_encodings: list[str] = []
+    suspicious: list[str] = []
     chapters: list[dict] = []
     for item in spine_documents(book, ebooklib):
         if is_navigation(item):
             continue
         soup = BeautifulSoup(item.get_content(), "lxml")
+        declared = (getattr(soup, "original_encoding", None) or "").lower()
+        if declared and declared not in seen_encodings:
+            seen_encodings.append(declared)
+
         for tag in soup(["script", "style", "sup", "table", "figure"]):
             tag.decompose()
 
@@ -175,16 +231,41 @@ def from_epub(path: Path, strip_front_matter: bool, strip_footnotes: bool) -> tu
         paragraphs = epub_paragraphs(soup, strip_footnotes)
         if not paragraphs:
             continue
+
+        # A wrong or missing declaration inside an otherwise valid EPUB shows
+        # up here and nowhere else: the ZIP is intact and the XML parses.
+        body = " ".join(paragraphs)
+        if len(body) > 200 and text_quality(body) < SUSPICIOUS_QUALITY:
+            suspicious.append(item.get_name())
+
         chapters.append({
             "index": len(chapters) + 1,
             "title": title or f"Rozdzial {len(chapters) + 1}",
             "source_ref": item.get_name(),
             "paragraphs": paragraphs,
         })
-    return meta, chapters
+
+    review_reasons: list[str] = []
+    if suspicious:
+        review_reasons.append(
+            f"{len(suspicious)} document(s) decoded to text that does not read as "
+            f"Polish or English, so their declared encoding may be wrong: "
+            f"{', '.join(suspicious[:5])}"
+        )
+
+    return Extraction(
+        meta=meta, chapters=chapters,
+        encoding={
+            "encoding": ", ".join(seen_encodings) or "declared-per-document",
+            "method": "epub", "score": 0.0, "equivalent": [],
+            "decoder_version": DECODER_VERSION, "warnings": warnings,
+        },
+        needs_review=bool(suspicious),
+        review_reasons=review_reasons,
+    )
 
 
-def from_pdf(path: Path, strip_footnotes: bool) -> tuple[dict, list[dict]]:
+def from_pdf(path: Path, strip_footnotes: bool) -> Extraction:
     from pypdf import PdfReader
 
     reader = PdfReader(str(path))
@@ -192,7 +273,7 @@ def from_pdf(path: Path, strip_footnotes: bool) -> tuple[dict, list[dict]]:
     meta = {
         "title": (info.get("/Title") or path.stem),
         "author": (info.get("/Author") or "Unknown"),
-        "language": "pl",
+        "language": "",
     }
     # PDFs carry no reliable chapter structure. One chapter per outline entry
     # if there is an outline, otherwise the whole document as one chapter.
@@ -201,12 +282,24 @@ def from_pdf(path: Path, strip_footnotes: bool) -> tuple[dict, list[dict]]:
         paragraphs.extend(_paragraphs(page.extract_text() or "", strip_footnotes))
     chapters = [{"index": 1, "title": meta["title"], "source_ref": path.name,
                  "paragraphs": paragraphs}] if paragraphs else []
-    return meta, chapters
+    return Extraction(
+        meta=meta, chapters=chapters,
+        encoding={"encoding": "pdf-extracted", "method": "pdf", "score": 0.0,
+                  "equivalent": [], "decoder_version": DECODER_VERSION,
+                  "warnings": []},
+    )
 
 
-def from_text(path: Path, strip_footnotes: bool) -> tuple[dict, list[dict]]:
-    raw = path.read_text(encoding="utf-8", errors="replace")
-    meta = {"title": path.stem, "author": "Unknown", "language": "pl"}
+def from_text(path: Path, strip_footnotes: bool, encoding: str = "") -> Extraction:
+    """Read a plain-text book, establishing its encoding rather than assuming.
+
+    The previous `errors="replace"` turned every byte it could not read into
+    U+FFFD, so a Windows-1250 Polish novel lost its diacritics before anything
+    downstream could object.
+    """
+    decoded = decode_file(path, encoding)
+    raw = decoded.text
+    meta = {"title": path.stem, "author": "Unknown", "language": ""}
     # Split on markdown-ish headings if present.
     parts = re.split(r"^\s{0,3}#{1,3}\s+(.+)$", raw, flags=re.MULTILINE)
     chapters: list[dict] = []
@@ -231,31 +324,55 @@ def from_text(path: Path, strip_footnotes: bool) -> tuple[dict, list[dict]]:
         paragraphs = _paragraphs(raw, strip_footnotes)
         chapters = [{"index": 1, "title": meta["title"], "source_ref": path.name,
                      "paragraphs": paragraphs}] if paragraphs else []
-    return meta, chapters
+    return Extraction(
+        meta=meta, chapters=chapters,
+        encoding={
+            "encoding": decoded.encoding, "method": decoded.method,
+            "score": decoded.score, "equivalent": decoded.equivalent,
+            "decoder_version": DECODER_VERSION, "warnings": decoded.warnings,
+        },
+        needs_review=decoded.needs_review,
+        review_reasons=list(decoded.review_reasons),
+    )
 
 
 @app.command()
 def main(
     source: Path = typer.Argument(..., help="Path to .epub, .pdf or .txt"),
     slug: str = typer.Option("", help="Output name; defaults to a slug of the title"),
-    language: str = typer.Option("", help="Override the language detected in metadata"),
+    language: str = typer.Option(
+        "", help="Set the book language instead of detecting it, e.g. pl or en"),
+    encoding: str = typer.Option(
+        "", help="Read plain text as this encoding instead of establishing it, "
+                 "e.g. cp1250. An EPUB declares its own and ignores this."),
     title: str = typer.Option("", help="Override the title. Plain text carries no "
                                        "metadata, so it otherwise comes from the filename"),
     author: str = typer.Option("", help="Override the author; otherwise 'Unknown'"),
     strip_front_matter: bool = typer.Option(True),
     strip_footnotes: bool = typer.Option(True),
+    review: bool = typer.Option(
+        False, "--review", help="Report the decoding and language evidence and stop, "
+                                "without writing anything"),
 ) -> None:
+    from bookbinder.decode import UndecodableSource
+    from bookbinder import language as lang
+
     if not source.exists():
         raise typer.BadParameter(f"missing {source}")
 
     suffix = source.suffix.lower()
-    if suffix == ".epub":
-        meta, chapters = from_epub(source, strip_front_matter, strip_footnotes)
-    elif suffix == ".pdf":
-        meta, chapters = from_pdf(source, strip_footnotes)
-    else:
-        meta, chapters = from_text(source, strip_footnotes)
+    try:
+        if suffix == ".epub":
+            found = from_epub(source, strip_front_matter, strip_footnotes, encoding)
+        elif suffix == ".pdf":
+            found = from_pdf(source, strip_footnotes)
+        else:
+            found = from_text(source, strip_footnotes, encoding)
+    except UndecodableSource as exc:
+        typer.echo(f"cannot read {source.name}: {exc}", err=True)
+        raise typer.Exit(code=1)
 
+    meta, chapters = found.meta, found.chapters
     if not chapters:
         typer.echo("no readable text found", err=True)
         raise typer.Exit(code=1)
@@ -267,25 +384,93 @@ def main(
         meta["title"] = title
     if author:
         meta["author"] = author
-    if language:
-        meta["language"] = language
-    meta["language"] = meta["language"].split("-")[0] if meta["language"] != "zh-cn" else "zh-cn"
-    book_slug = slug or slugify(meta["title"])
 
+    # The language comes from the book's own words, cross-checked against
+    # whatever the container claimed. Plain text used to default to `pl` and an
+    # EPUB used to believe its metadata; neither survives a mixed folder.
+    decision = lang.decide(chapters, metadata_language=meta.get("language", ""),
+                           override=language)
+    meta["language"] = decision.language or meta.get("language") or ""
+
+    review_reasons = list(found.review_reasons)
+    review_reasons += decision.review_reasons
+    needs_review = found.needs_review or decision.needs_review
+
+    for warning in found.encoding.get("warnings", []) + decision.warnings:
+        typer.echo(f"warning: {warning}", err=True)
+
+    if review or needs_review:
+        typer.echo(_review_report(source, found, decision, chapters))
+    if needs_review and not review:
+        typer.echo(
+            "not written: resolve the above with --encoding or --language, "
+            "or re-run with --review to inspect it.", err=True)
+        raise typer.Exit(code=2)
+    if review:
+        return
+
+    book_slug = slug or slugify(meta["title"])
     root = project_root()
     out_dir = root / "data" / "book" / book_slug
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "chapters.json").write_text(
-        json.dumps({"meta": meta | {"slug": book_slug, "source_file": str(source)},
-                    "chapters": chapters}, ensure_ascii=False, indent=2),
+        json.dumps({
+            "meta": meta | {
+                "slug": book_slug,
+                "source_file": str(source),
+                "source_sha256": sha256_bytes(source.read_bytes()),
+                "encoding": found.encoding,
+                "language_decision": {
+                    "method": decision.method,
+                    "confidence": decision.confidence,
+                    "detector": decision.detector,
+                    "metadata_language": decision.metadata_language,
+                    "coverage_chars": decision.coverage_chars,
+                    "samples": [vars(s) for s in decision.samples],
+                    "warnings": decision.warnings,
+                },
+                "needs_review": needs_review,
+                "review_reasons": review_reasons,
+            },
+            "chapters": chapters,
+        }, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
     words = sum(len(p.split()) for ch in chapters for p in ch["paragraphs"])
     typer.echo(
         f"{meta['title']} - {meta['author']}\n"
-        f"{len(chapters)} chapters, {words} words -> data/book/{book_slug}/chapters.json"
+        f"{len(chapters)} chapters, {words} words, {meta['language']} "
+        f"({decision.method}), read as {found.encoding['encoding']}\n"
+        f"-> data/book/{book_slug}/chapters.json"
     )
+
+
+def _review_report(source: Path, found: Extraction, decision, chapters: list[dict]) -> str:
+    """What was decided and on what evidence, for a person to agree or not."""
+    lines = [f"{source.name}", ""]
+    enc = found.encoding
+    lines.append(f"  encoding   {enc.get('encoding')} via {enc.get('method')}"
+                 + (f", score {enc.get('score')}" if enc.get("score") else ""))
+    if enc.get("equivalent"):
+        lines.append(f"             identical under {', '.join(enc['equivalent'])}")
+    lines.append(f"  language   {decision.language or 'undecided'} via {decision.method}"
+                 f", confidence {decision.confidence}")
+    for sample in decision.samples:
+        lines.append(f"             {sample.where}: {sample.language} "
+                     f"{sample.confidence} ({sample.chars} chars)")
+    if decision.metadata_language:
+        lines.append(f"  metadata   claims {decision.metadata_language}")
+    lines.append(f"  text       {len(chapters)} chapters, "
+                 f"{sum(len(p) for c in chapters for p in c['paragraphs'])} characters")
+
+    first = next((p for c in chapters for p in c["paragraphs"]), "")
+    if first:
+        lines += ["", f"  first paragraph: {first[:200]}"]
+    reasons = list(found.review_reasons) + list(decision.review_reasons)
+    if reasons:
+        lines += ["", "  needs review:"] + [f"    - {r}" for r in reasons]
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":

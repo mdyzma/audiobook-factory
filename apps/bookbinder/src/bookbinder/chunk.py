@@ -24,6 +24,8 @@ from bookbinder.manifest import (
     BookManifest,
     ChapterRef,
     Chunk,
+    EncodingRecord,
+    LanguageRecord,
     char_limit,
 )
 from bookbinder.roles import assign_role
@@ -159,7 +161,12 @@ def main(
 
     payload = json.loads(chapters_path.read_text(encoding="utf-8"))
     meta, chapters = payload["meta"], payload["chapters"]
-    language = meta.get("language", "pl")
+    language = meta.get("language") or ""
+    if not language:
+        raise typer.BadParameter(
+            f"{chapters_path} has no language. Re-run `just ingest` with "
+            f"--language, so chunking, synthesis and QA agree on one."
+        )
 
     limit = max_chars or chunk_cfg.get("max_chars") or char_limit(language)
     min_chars = chunk_cfg.get("min_chars", 40)
@@ -172,8 +179,18 @@ def main(
         author=meta.get("author", "Unknown"),
         language=language,
         source_file=meta.get("source_file", ""),
-        source_sha256=source_sha256(Path(meta.get("source_file", ""))),
+        # Recorded at ingestion from the bytes actually read. Re-hashing here
+        # would describe whatever is at that path now, which may be a different
+        # file; fall back to hashing only for manifests written before this.
+        source_sha256=(meta.get("source_sha256")
+                       or source_sha256(Path(meta.get("source_file", "")))),
         voice=voice,
+        # Carried through unchanged: ingestion establishes how the text was
+        # read and which language it is, and chunking has no new evidence.
+        encoding=EncodingRecord(**meta.get("encoding", {})),
+        language_decision=LanguageRecord(**meta.get("language_decision", {})),
+        needs_review=bool(meta.get("needs_review", False)),
+        review_reasons=list(meta.get("review_reasons", [])),
     )
 
     order = 0
