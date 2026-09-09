@@ -20,10 +20,11 @@ from typing import Iterator, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
-# 2 added the decoding and language provenance below to book.json. The other
-# four shapes are unchanged; the set is versioned as a unit so a reader only
-# has to check one number. narrator and transcriber mirror this constant.
-SCHEMA_VERSION = 2
+# 2 added the decoding and language provenance to book.json. 3 added the
+# extracted spelling and the substitutions behind each chunk's spoken text.
+# The set is versioned as a unit so a reader only has to check one number.
+# narrator and transcriber mirror this constant.
+SCHEMA_VERSION = 3
 
 # XTTS-v2 silently truncates text past these per-language limits.
 # Source: Coqui TTS xtts.py char_limits.
@@ -109,6 +110,23 @@ class ReportModel(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True)
 
 
+class SpokenSubstitution(StrictModel):
+    """One place where the spoken text differs from the printed text.
+
+    Both spans are kept so a fragment can be read in either direction: quality
+    checking hears "doktor" and has to know it came from "dr." rather than
+    report a mismatch.
+    """
+
+    kind: str = Field(default="", description="abbreviation | symbol | dictionary")
+    source: str = ""
+    spoken: str = ""
+    start: int = Field(default=0, ge=0, description="Offset into `source_text`")
+    end: int = Field(default=0, ge=0)
+    spoken_start: int = Field(default=0, ge=0, description="Offset into `text`")
+    spoken_end: int = Field(default=0, ge=0)
+
+
 class Chunk(StrictModel):
     """One synthesis unit: the smallest piece handed to the TTS model."""
 
@@ -117,6 +135,11 @@ class Chunk(StrictModel):
     chapter_title: str = ""
     order: int = Field(ge=0, description="Position within the whole book")
     text: str = Field(min_length=1, description="Normalised, ready for the model")
+    source_text: str = Field(
+        default="",
+        description="The printed spelling, stored only where it differs from `text`",
+    )
+    substitutions: list[SpokenSubstitution] = Field(default_factory=list)
     kind: ChunkKind = "paragraph"
     language: str = Field(default="pl", min_length=2)
     role: str = Field(
@@ -209,7 +232,12 @@ class BookMeta(StrictModel):
     title: str = Field(min_length=1)
     author: str = "Unknown"
     language: str = Field(default="pl", min_length=2)
-    source_file: str = ""
+    source_file: str = Field(
+        default="", description="The staged copy under data/sources/, relative to the root"
+    )
+    original_source: str = Field(
+        default="", description="Where it was imported from, for reference only"
+    )
     source_sha256: str = ""
     voice: str = ""
     cast: dict[str, str] = Field(
@@ -237,6 +265,7 @@ class BookManifest(StrictModel):
     author: str = "Unknown"
     language: str = Field(default="pl", min_length=2)
     source_file: str = ""
+    original_source: str = ""
     source_sha256: str = ""
     voice: str = ""
     cast: dict[str, str] = Field(default_factory=dict)
@@ -260,6 +289,7 @@ class BookManifest(StrictModel):
         return BookMeta(
             slug=self.slug, title=self.title, author=self.author,
             language=self.language, source_file=self.source_file,
+            original_source=self.original_source,
             source_sha256=self.source_sha256, voice=self.voice, cast=self.cast,
             chapters=self.chapters, chunk_count=len(self.chunks),
             est_hours=self.est_hours, encoding=self.encoding,

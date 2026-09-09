@@ -213,6 +213,12 @@
       "title": "Needs Review",
       "type": "boolean"
     },
+    "original_source": {
+      "default": "",
+      "description": "Where it was imported from, for reference only",
+      "title": "Original Source",
+      "type": "string"
+    },
     "review_reasons": {
       "items": {
         "type": "string"
@@ -221,7 +227,7 @@
       "type": "array"
     },
     "schema_version": {
-      "default": 2,
+      "default": 3,
       "title": "Schema Version",
       "type": "integer"
     },
@@ -232,6 +238,7 @@
     },
     "source_file": {
       "default": "",
+      "description": "The staged copy under data/sources/, relative to the root",
       "title": "Source File",
       "type": "string"
     },

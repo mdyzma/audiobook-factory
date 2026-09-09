@@ -1,4 +1,56 @@
 {
+  "$defs": {
+    "SpokenSubstitution": {
+      "additionalProperties": false,
+      "description": "One place where the spoken text differs from the printed text.\n\nBoth spans are kept so a fragment can be read in either direction: quality\nchecking hears \"doktor\" and has to know it came from \"dr.\" rather than\nreport a mismatch.",
+      "properties": {
+        "end": {
+          "default": 0,
+          "minimum": 0,
+          "title": "End",
+          "type": "integer"
+        },
+        "kind": {
+          "default": "",
+          "description": "abbreviation | symbol | dictionary",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "default": "",
+          "title": "Source",
+          "type": "string"
+        },
+        "spoken": {
+          "default": "",
+          "title": "Spoken",
+          "type": "string"
+        },
+        "spoken_end": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Spoken End",
+          "type": "integer"
+        },
+        "spoken_start": {
+          "default": 0,
+          "description": "Offset into `text`",
+          "minimum": 0,
+          "title": "Spoken Start",
+          "type": "integer"
+        },
+        "start": {
+          "default": 0,
+          "description": "Offset into `source_text`",
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        }
+      },
+      "title": "SpokenSubstitution",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "description": "One synthesis unit: the smallest piece handed to the TTS model.",
   "properties": {
@@ -99,6 +151,19 @@
       "default": "",
       "title": "Source Ref",
       "type": "string"
+    },
+    "source_text": {
+      "default": "",
+      "description": "The printed spelling, stored only where it differs from `text`",
+      "title": "Source Text",
+      "type": "string"
+    },
+    "substitutions": {
+      "items": {
+        "$ref": "#/$defs/SpokenSubstitution"
+      },
+      "title": "Substitutions",
+      "type": "array"
     },
     "text": {
       "description": "Normalised, ready for the model",
