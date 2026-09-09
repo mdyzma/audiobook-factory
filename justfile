@@ -119,29 +119,29 @@ check-narrator:
 
 # 1a. Denoise and normalise a raw recording to 24 kHz mono.
 clean input voice:
-    ./scripts/preprocess.sh "{{input}}" "{{voice}}"
+    ./scripts/preprocess.sh {{quote(input)}} {{quote(voice)}}
 
 # 1b. Cut the cleaned sample on WhisperX boundaries and label it.
 label voice device="auto" language="pl":
-    cd apps/transcriber && uv run python -m transcriber.auto_label "{{voice}}" \
-      --device {{device}} --language {{language}}
+    cd apps/transcriber && uv run python -m transcriber.auto_label {{quote(voice)}} \
+      --device {{quote(device)}} --language {{quote(language)}}
 
 # 1c. Derive speaker latents and render an audition clip.
 clone voice device="auto":
-    cd apps/narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.clone "{{voice}}" \
-      --device {{device}}
+    cd apps/narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.clone {{quote(voice)}} \
+      --device {{quote(device)}}
 
 # Optional full fine-tune, CUDA only. batch x accum is the effective batch size.
 train voice language="pl" epochs="10" batch="3" accum="84":
-    cd apps/narrator && uv run python -m narrator.train "{{voice}}" \
-      --language {{language}} --epochs {{epochs}} \
-      --batch-size {{batch}} --grad-accum {{accum}}
+    cd apps/narrator && uv run python -m narrator.train {{quote(voice)}} \
+      --language {{quote(language)}} --epochs {{quote(epochs)}} \
+      --batch-size {{quote(batch)}} --grad-accum {{quote(accum)}}
 
 # Stage 1 end to end.
 voice input name language="pl":
-    just clean "{{input}}" "{{name}}"
-    just label "{{name}}" auto "{{language}}"
-    just clone "{{name}}"
+    just clean {{quote(input)}} {{quote(name)}}
+    just label {{quote(name)}} auto {{quote(language)}}
+    just clone {{quote(name)}}
 
 # ----------------------------------------- stages 2-3: text preparation ----
 
@@ -149,116 +149,114 @@ voice input name language="pl":
 ingest source slug="" language="" title="" author="":
     # absolute_path so this works from anywhere and with absolute inputs; the
     # recipe cds into bookbinder, which would otherwise break a relative path.
-    cd apps/bookbinder && uv run python -m bookbinder.ingest "{{absolute_path(source)}}" \
-      {{ if slug != "" { "--slug " + slug } else { "" } }} \
-      {{ if language != "" { "--language " + language } else { "" } }} \
-      {{ if title != "" { "--title '" + title + "'" } else { "" } }} \
-      {{ if author != "" { "--author '" + author + "'" } else { "" } }}
+    cd apps/bookbinder && uv run python -m bookbinder.ingest {{quote(absolute_path(source))}} \
+      --slug {{quote(slug)}} --language {{quote(language)}} \
+      --title {{quote(title)}} --author {{quote(author)}}
 
 # 3. Split chapters into fragments, assigning a cast role to each.
 chunk slug voice="":
-    cd apps/bookbinder && uv run python -m bookbinder.chunk "{{slug}}" \
-      {{ if voice != "" { "--voice " + voice } else { "" } }}
+    cd apps/bookbinder && uv run python -m bookbinder.chunk {{quote(slug)}} \
+      --voice {{quote(voice)}}
 
 # As above but narrate everything in one voice, ignoring config/cast.yml.
 chunk-single slug voice:
-    cd apps/bookbinder && uv run python -m bookbinder.chunk "{{slug}}" \
-      --voice "{{voice}}" --single-voice
+    cd apps/bookbinder && uv run python -m bookbinder.chunk {{quote(slug)}} \
+      --voice {{quote(voice)}} --single-voice
 
 # ------------------------------------------------ stages 4-5: the audio ----
 
 # 4. Render every fragment. Resumable: re-run to continue after a crash.
 synth slug voice device="auto":
-    cd apps/narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.synth "{{slug}}" \
-      --voice "{{voice}}" --device {{device}}
+    cd apps/narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.synth {{quote(slug)}} \
+      --voice {{quote(voice)}} --device {{quote(device)}}
 
 # Re-render named fragments, e.g. after a quality check flagged them.
 resynth slug chunks:
-    cd apps/narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.synth "{{slug}}" \
-      --voice "" --only "{{chunks}}"
+    cd apps/narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.synth {{quote(slug)}} \
+      --voice "" --only {{quote(chunks)}}
 
 # Render the first 20 fragments only, to sanity-check the voice.
 preview slug voice:
-    cd apps/narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.synth "{{slug}}" \
-      --voice "{{voice}}" --limit 20
+    cd apps/narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.synth {{quote(slug)}} \
+      --voice {{quote(voice)}} --limit 20
 
 # Render to silence at the right durations: structure without models.
 dryrun slug strict="":
-    cd apps/bookbinder && uv run python -m bookbinder.dryrun "{{slug}}" \
+    cd apps/bookbinder && uv run python -m bookbinder.dryrun {{quote(slug)}} \
       {{ if strict != "" { "--strict" } else { "" } }}
 
 # 5. Mux fragments, pauses and chapter marks into the finished audiobook.
 assemble slug format="":
-    cd apps/bookbinder && uv run python -m bookbinder.assemble "{{slug}}" \
-      {{ if format != "" { "--fmt " + format } else { "" } }}
+    cd apps/bookbinder && uv run python -m bookbinder.assemble {{quote(slug)}} \
+      --fmt {{quote(format)}}
 
 # 6. Optional: re-transcribe the rendered audio and compare it to the source.
 verify slug sample="0":
-    cd apps/transcriber && uv run python -m transcriber.verify "{{slug}}" \
-      {{ if sample != "0" { "--sample " + sample } else { "" } }}
+    cd apps/transcriber && uv run python -m transcriber.verify {{quote(slug)}} \
+      {{ if sample != "0" { "--sample " + quote(sample) } else { "" } }}
 
 # Live progress of a running render. Safe to run from another terminal.
 progress slug:
-    cd apps/bookbinder && uv run python -m bookbinder.progress "{{slug}}"
+    cd apps/bookbinder && uv run python -m bookbinder.progress {{quote(slug)}}
 
 # Follow a render until it finishes.
 watch slug interval="5":
     #!/usr/bin/env bash
     while true; do
         clear
-        just progress "{{slug}}" || break
-        grep -q '"running": false' "data/audio/{{slug}}/progress.json" && break
-        sleep {{interval}}
+        just progress {{quote(slug)}} || break
+        grep -q '"running": false' {{quote("data/audio/" + slug + "/progress.json")}} && break
+        sleep {{quote(interval)}}
     done
 
 # Show the report from the last finished render.
 report slug:
-    @cat "data/audio/{{slug}}/report.json"
+    @cat {{quote("data/audio/" + slug + "/report.json")}}
 
 # ----------------------------------------------------------- full runs ----
 
 # Stages 2-5 for an already-cloned voice. format: m4b (default) | mp3 | wav.
 book source voice slug="" language="" format="":
-    just ingest "{{source}}" "{{slug}}" "{{language}}"
-    just chunk "{{slug}}" "{{voice}}"
-    just synth "{{slug}}" "{{voice}}"
-    just assemble "{{slug}}" "{{format}}"
+    just ingest {{quote(source)}} {{quote(slug)}} {{quote(language)}}
+    just chunk {{quote(slug)}} {{quote(voice)}}
+    just synth {{quote(slug)}} {{quote(voice)}}
+    just assemble {{quote(slug)}} {{quote(format)}}
 
 # Ingest, chunk, silence, assemble: the whole structure with no model loaded.
 book-dry source slug="" language="":
-    just ingest "{{source}}" "{{slug}}" "{{language}}"
-    just chunk "{{slug}}"
-    just dryrun "{{slug}}"
-    just assemble "{{slug}}"
+    just ingest {{quote(source)}} {{quote(slug)}} {{quote(language)}}
+    just chunk {{quote(slug)}}
+    just dryrun {{quote(slug)}}
+    just assemble {{quote(slug)}}
 
 # Everything: clone a voice from a sample, then produce the audiobook.
 # The sample may be mp3, wav, m4a or anything ffmpeg reads.
 # format: m4b (default) | mp3 | wav.
 factory sample voice source slug language="pl" format="":
-    just voice "{{sample}}" "{{voice}}" "{{language}}"
-    just book "{{source}}" "{{voice}}" "{{slug}}" "{{language}}" "{{format}}"
+    just voice {{quote(sample)}} {{quote(voice)}} {{quote(language)}}
+    just book {{quote(source)}} {{quote(voice)}} {{quote(slug)}} {{quote(language)}} {{quote(format)}}
 
 # ------------------------------------------------------------- cleanup ----
 
 # Remove finished job records and their logs. Running jobs are left alone.
 clean-jobs keep="20":
-    cd apps/studio && uv run python -m studio.prune --keep {{keep}}
+    cd apps/studio && uv run python -m studio.prune --keep {{quote(keep)}}
 
 # Remove every finished job record.
 clean-jobs-all:
     cd apps/studio && uv run python -m studio.prune --all
 
 clean-audio slug:
-    rm -rf "data/audio/{{slug}}"
+    rm -rf {{quote("data/audio/" + slug)}}
 
 clean-book slug:
-    rm -rf "data/book/{{slug}}" "data/audio/{{slug}}"
+    rm -rf {{quote("data/book/" + slug)}} {{quote("data/audio/" + slug)}}
 
 # --------------------------------------------------------------- studio ----
 
 # Open the local dashboard. Read-only: it shows books, voices and renders.
 ui port="8765":
-    cd apps/studio && uv run python -m studio --port {{port}}
+    cd apps/studio && uv run python -m studio --port {{quote(port)}}
 
 setup-studio:
     cd apps/studio && uv sync
@@ -286,11 +284,13 @@ docker-smoke slug="dockersmoke" source="data/raw/books/test-book.txt":
     #!/usr/bin/env bash
     set -euo pipefail
     run() { docker compose --profile cpu run --rm bookbinder "$@"; }
-    run python -m bookbinder.ingest "/app/{{source}}" --slug "{{slug}}" --language pl
-    run python -m bookbinder.chunk "{{slug}}"
-    run python -m bookbinder.dryrun "{{slug}}"
-    run python -m bookbinder.assemble "{{slug}}"
-    echo "-> data/out/{{slug}}.m4b"
+    slug={{quote(slug)}}
+    source={{quote("/app/" + source)}}
+    run python -m bookbinder.ingest "$source" --slug "$slug" --language pl
+    run python -m bookbinder.chunk "$slug"
+    run python -m bookbinder.dryrun "$slug"
+    run python -m bookbinder.assemble "$slug"
+    echo "-> data/out/$slug.m4b"
 
 # The dashboard in a container, on http://127.0.0.1:8765
 docker-ui:
