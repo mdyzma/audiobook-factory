@@ -11,9 +11,11 @@ Reads data/audio/<slug>/rendered.jsonl, writes data/out/<slug>.<format>.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tempfile
 import tomllib
+from collections import Counter
 from pathlib import Path
 
 import typer
@@ -81,6 +83,91 @@ def all_silent(paths: list[Path]) -> bool:
     return bool(heard) and all(p <= SILENCE_DBFS for p in heard)
 
 
+# Enough ids to recognise the gap, few enough that a broken book does not
+# print ten thousand lines.
+LISTED_IDS = 5
+
+
+def _listed(ids: list[str]) -> str:
+    shown = ", ".join(ids[:LISTED_IDS])
+    return f"{shown}, ..." if len(ids) > LISTED_IDS else shown
+
+
+def planned_chunk_ids(book_dir: Path) -> list[str]:
+    """Fragment ids the chunker planned, in order. Empty when unknown."""
+    path = book_dir / "chunks.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line)["id"]
+            for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def completeness_problems(root: Path, chunks: list[dict], planned: list[str]) -> list[str]:
+    """Every reason this book is not ready to assemble.
+
+    A render that fails partway writes only the fragments it managed, and a
+    deleted wav leaves the manifest pointing at nothing. Both used to assemble
+    into a shorter book whose chapter marks are quietly wrong, with the loss
+    reported only as a line on stderr. Checked before any ffmpeg work runs.
+    """
+    seen = [c["id"] for c in chunks]
+    counts = Counter(seen)
+    known = set(seen)
+    problems: list[str] = []
+
+    duplicates = sorted(i for i, n in counts.items() if n > 1)
+    if duplicates:
+        problems.append(
+            f"{len(duplicates)} fragment(s) appear more than once: {_listed(duplicates)}")
+
+    if planned:
+        absent = [i for i in planned if i not in known]
+        if absent:
+            problems.append(
+                f"{len(absent)} of {len(planned)} planned fragment(s) were never "
+                f"rendered: {_listed(absent)}")
+        expected = set(planned)
+        unknown = [i for i in dict.fromkeys(seen) if i not in expected]
+        if unknown:
+            problems.append(
+                f"{len(unknown)} rendered fragment(s) are not in the chunk plan, so "
+                f"the text has changed since the render: {_listed(unknown)}")
+
+    unreadable = [c["id"] for c in chunks
+                  if not c.get("audio_path") or not (root / c["audio_path"]).exists()]
+    if unreadable:
+        problems.append(
+            f"{len(unreadable)} fragment(s) have no audio file on disk: {_listed(unreadable)}")
+
+    return problems
+
+
+def concat_line(path: Path) -> str:
+    """One entry for an ffmpeg concat list.
+
+    The demuxer parses `'` as a quote, so a path containing an apostrophe ends
+    the filename early and the render fails on a file that does not exist. The
+    POSIX trick applies: close the quote, emit an escaped apostrophe, reopen.
+    """
+    return "file '{}'".format(path.as_posix().replace("'", r"'\''"))
+
+
+# ffmetadata syntax. A newline ends an entry, so a title carrying one can add
+# tags of its own; `=`, `;` and `#` are separators and `\` is the escape.
+FFMETADATA_SPECIAL = re.compile(r"([=;#\\])")
+
+
+def metadata_value(value: str) -> str:
+    """Escape a tag value for an ffmetadata file.
+
+    Titles and chapter names come from the ebook, which is not ours. Without
+    this, an EPUB whose title contains a newline writes whatever follows it
+    into the finished audiobook as further tags.
+    """
+    escaped = FFMETADATA_SPECIAL.sub(r"\\\1", value.replace("\r\n", "\n").replace("\r", "\n"))
+    return escaped.replace("\n", "\\\n")
+
+
 def format_timestamp(seconds: float) -> str:
     h, rem = divmod(int(seconds), 3600)
     m, s = divmod(rem, 60)
@@ -118,9 +205,19 @@ def main(
     sample_rate = cfg.get("sample_rate", 24000)
     channels = cfg.get("channels", 1)
 
-    book = read_book(root / "data" / "book" / slug / "book.json")
+    book_dir = root / "data" / "book" / slug
+    book = read_book(book_dir / "book.json")
     chunks = [json.loads(l) for l in rendered_path.read_text(encoding="utf-8").splitlines() if l.strip()]
     chunks.sort(key=lambda c: c["order"])
+
+    problems = completeness_problems(root, chunks, planned_chunk_ids(book_dir))
+    if problems:
+        raise typer.BadParameter(
+            f"'{slug}' is not ready to assemble:\n"
+            + "".join(f"  - {p}\n" for p in problems)
+            + f"Finish the render with `just synth {slug}`, or repair named "
+            f"fragments with `just resynth {slug} <ids>`."
+        )
 
     # Second line of defence, and the one that does not depend on knowing why.
     # Skipped when the marker already said so, to avoid warning twice.
@@ -149,11 +246,9 @@ def main(
                 current_chapter = chunk["chapter_index"]
                 chapter_marks.append((current_chapter, chunk["chapter_title"], clock))
 
+            # Guaranteed present: completeness_problems refused the run otherwise.
             wav = root / chunk["audio_path"]
-            if not wav.exists():
-                typer.echo(f"missing audio for {chunk['id']}, skipping", err=True)
-                continue
-            concat_lines.append(f"file '{wav.as_posix()}'")
+            concat_lines.append(concat_line(wav))
             clock += chunk.get("duration_sec") or 0.0
 
             pause = int(chunk.get("pause_after_ms") or 0)
@@ -162,7 +257,7 @@ def main(
                     silence_path = tmp_dir / f"sil_{pause}.wav"
                     make_silence(silence_path, pause, sample_rate, channels)
                     silence_cache[pause] = silence_path
-                concat_lines.append(f"file '{silence_cache[pause].as_posix()}'")
+                concat_lines.append(concat_line(silence_cache[pause]))
                 clock += pause / 1000
 
         list_path = tmp_dir / "concat.txt"
@@ -171,18 +266,18 @@ def main(
         # ffmetadata carries chapter marks and tags into the container.
         meta_lines = [
             ";FFMETADATA1",
-            f"title={book.title}",
-            f"artist={book.author}",
-            f"album={book.title}",
+            f"title={metadata_value(book.title)}",
+            f"artist={metadata_value(book.author)}",
+            f"album={metadata_value(book.title)}",
             f"genre=Audiobook",
-            f"language={book.language}",
+            f"language={metadata_value(book.language)}",
         ]
         for i, (_, title, start) in enumerate(chapter_marks):
             end = chapter_marks[i + 1][2] if i + 1 < len(chapter_marks) else clock
             meta_lines += [
                 "[CHAPTER]", "TIMEBASE=1/1000",
                 f"START={int(start * 1000)}", f"END={int(end * 1000)}",
-                f"title={title}",
+                f"title={metadata_value(title)}",
             ]
         meta_path = tmp_dir / "chapters.txt"
         meta_path.write_text("\n".join(meta_lines) + "\n", encoding="utf-8")
