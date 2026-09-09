@@ -15,7 +15,16 @@
       {{ b.chapter_count }} chapters · {{ b.chunk_count }} fragments
       {% if b.est_hours %}· ~{{ b.est_hours }} h{% endif %}
       {% if b.cast %}· {{ b.cast.values() | unique | list | length }} voice(s){% endif %}
+      {% if b.language %}· {{ b.language }}{% if b.language_method %} ({{ b.language_method }}){% endif %}{% endif %}
+      {% if b.encoding %}· read as {{ b.encoding }}{% endif %}
     </div>
+    {% if b.needs_review %}
+      {# The book was imported but its encoding or language is unresolved, so
+         narrating it now would commit to a guess nobody made. #}
+      <div class="meta review">needs review
+        {% for reason in b.review_reasons %}<br>· {{ reason }}{% endfor %}
+      </div>
+    {% endif %}
     {% if b.state in ("rendering", "stale") %}
       <div class="bar"><span style="width: {{ b.percent }}%"></span></div>
       <div class="meta">{{ b.percent }}%

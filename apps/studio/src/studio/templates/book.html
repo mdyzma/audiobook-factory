@@ -26,6 +26,47 @@
   {% endif %}
 </div>
 
+{# How the two things ingestion decides were decided. Both are judgements, so
+   the evidence is shown rather than just the answer. #}
+{% if book.meta and (book.encoding or book.language_method) %}
+<h2>Source</h2>
+<div class="card">
+  {% if book.encoding %}
+    <div class="meta">read as {{ book.encoding }}
+      {% if book.meta.encoding.method %}· chosen by {{ book.meta.encoding.method }}{% endif %}
+      {% if book.meta.encoding.equivalent | length > 1 %}
+        · identical under {{ book.meta.encoding.equivalent | join(", ") }}
+      {% endif %}
+    </div>
+  {% endif %}
+  <div class="meta">language {{ book.language }}
+    {% if book.language_method %}· by {{ book.language_method }}{% endif %}
+    {% if book.meta.language_decision.confidence %}
+      · confidence {{ book.meta.language_decision.confidence }}
+    {% endif %}
+    {% if book.meta.language_decision.metadata_language
+          and book.meta.language_decision.metadata_language != book.language %}
+      · the file claimed {{ book.meta.language_decision.metadata_language }}
+    {% endif %}
+  </div>
+  {% for sample in book.meta.language_decision.samples %}
+    <div class="meta">{{ sample.where }}: {{ sample.language }} at {{ sample.confidence }}
+      ({{ sample.chars }} characters)</div>
+  {% endfor %}
+  {% for warning in book.meta.encoding.warnings + book.meta.language_decision.warnings %}
+    <div class="meta review">{{ warning }}</div>
+  {% endfor %}
+  {% if book.needs_review %}
+    <div class="meta review">needs review
+      {% for reason in book.review_reasons %}<br>· {{ reason }}{% endfor %}
+    </div>
+  {% endif %}
+  {% if book.meta.original_source %}
+    <div class="meta">imported from {{ book.meta.original_source }}</div>
+  {% endif %}
+</div>
+{% endif %}
+
 <h2>Run</h2>
 <div class="card">
   {% if active %}

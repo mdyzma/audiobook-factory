@@ -121,6 +121,24 @@ class BookView:
     dry_run_audio: bool = False
 
     @property
+    def encoding(self) -> str:
+        """How the source was read. Blank for books imported before this existed."""
+        return self.meta.encoding.encoding if self.meta else ""
+
+    @property
+    def language_method(self) -> str:
+        """Whether the language was detected, taken from metadata, or given."""
+        return self.meta.language_decision.method if self.meta else ""
+
+    @property
+    def needs_review(self) -> bool:
+        return bool(self.meta and self.meta.needs_review)
+
+    @property
+    def review_reasons(self) -> list[str]:
+        return list(self.meta.review_reasons) if self.meta else []
+
+    @property
     def state(self) -> str:
         """One word for the dashboard: what is happening to this book."""
         if self.progress and self.progress.running:

@@ -63,3 +63,4 @@ class TestRenderable:
         env.filters["duration"] = str
         for page in TEMPLATES.glob("*.html"):
             env.get_template(page.name)
+

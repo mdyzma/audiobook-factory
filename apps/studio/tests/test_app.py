@@ -271,3 +271,59 @@ class TestVoiceCreationRoute:
                                            "args": {"sample": "../etc/passwd.wav",
                                                     "name": "x", "language": "pl"}})
         assert r.status_code == 409
+class TestSourceEvidenceIsShown:
+    """Ingestion decides the encoding and the language, and both are judgements.
+
+    Showing only the answer would hide a book that was guessed at, which is the
+    case a reader most needs to see.
+    """
+
+    def _with_provenance(self, project, **overrides):
+        import json
+        path = project / "data" / "book" / "solaris" / "book.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["encoding"] = {
+            "encoding": "cp1250", "method": "quality", "score": 1.0,
+            "equivalent": ["cp1250"], "decoder_version": 1, "warnings": [],
+        }
+        payload["language_decision"] = {
+            "method": "content", "confidence": 0.99, "detector": "lingua",
+            "metadata_language": "en", "coverage_chars": 900,
+            "samples": [{"where": "c1.xhtml", "chars": 900, "language": "pl",
+                         "confidence": 0.99}],
+            "warnings": ["metadata claims 'en' but the text reads as 'pl'"],
+        }
+        payload.update(overrides)
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    def test_the_dashboard_shows_the_encoding_and_language(self, client, project):
+        self._with_provenance(project)
+        body = client.get("/").text
+        assert "cp1250" in body
+        assert "pl" in body
+
+    def test_the_book_page_shows_the_evidence(self, client, project):
+        self._with_provenance(project)
+        body = client.get("/book/solaris").text
+        assert "read as cp1250" in body
+        assert "chosen by quality" in body
+        assert "c1.xhtml" in body
+        assert "the file claimed en" in body
+
+    def test_a_warning_is_surfaced(self, client, project):
+        self._with_provenance(project)
+        assert "metadata claims" in client.get("/book/solaris").text
+
+    def test_a_book_needing_review_says_so_on_both_pages(self, client, project):
+        self._with_provenance(
+            project, needs_review=True,
+            review_reasons=["cp1250 and iso-8859-2 are equally plausible"])
+        assert "needs review" in client.get("/").text
+        page = client.get("/book/solaris").text
+        assert "needs review" in page
+        assert "equally plausible" in page
+
+    def test_a_book_without_provenance_still_renders(self, client):
+        # Books imported before any of this existed have empty records.
+        assert client.get("/book/solaris").status_code == 200
+        assert client.get("/").status_code == 200
