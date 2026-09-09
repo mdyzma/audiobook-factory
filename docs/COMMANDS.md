@@ -50,7 +50,7 @@ pass `""` for the ones between.
 
 | Command | What it does |
 |---|---|
-| `just ingest <source> <slug=""> <language=""> <title=""> <author="">` | Parses an EPUB, PDF or text file into normalised chapters. Plain text carries no metadata, so pass `title` and `author` or they come from the filename. Setting them later by editing `book.json` does not last: chunking rebuilds it. |
+| `just ingest <source> <slug=""> <language=""> <title=""> <author=""> <encoding="">` | Parses an EPUB, PDF or text file into normalised chapters, establishing the file's encoding and the book's language rather than assuming them. Plain text carries no metadata, so pass `title` and `author` or they come from the filename. Setting them later by editing `book.json` does not last: chunking rebuilds it. Pass `language` (`pl` or `en`) or `encoding` (`cp1250`, `iso-8859-2`) to decide either yourself; a book that cannot settle both stops for review. |
 | `just chunk <slug> <voice="">` | Splits chapters into fragments under the per-language XTTS limit, assigning a cast role to each. |
 | `just chunk-single <slug> <voice>` | As above but narrates everything in one voice, ignoring `config/cast.yml`. |
 
@@ -61,6 +61,7 @@ pass `""` for the ones between.
 | `just dryrun <slug> [strict]` | Renders silence at the right durations. No models, no GPU. Pass any value for `strict` to fail on a role whose voice is not cloned. Marks its own output, and `just synth` discards it. |
 | `just preview <slug> <voice>` | Renders the first 20 fragments only, to check the voice before committing hours. |
 | `just synth <slug> <voice> <device="auto">` | Renders every fragment. Resumable: re-run to continue after an interruption. |
+| `just inspect <source> <encoding="">` | Reports the encoding and language ingestion would choose, and the evidence for each, without writing anything. Use it when a book stops for review. |
 | `just assemble <slug> <format="">` | Muxes fragments, pauses and chapter marks into the finished audiobook. Refuses if the rendered fragments do not match the chunk plan exactly, so an unfinished render cannot become a short audiobook. |
 
 ## Dashboard

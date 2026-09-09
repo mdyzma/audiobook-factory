@@ -91,27 +91,40 @@ additionally confirmed by running the new tests against the committed version.
 Assembly refuses a book with a deleted fragment, an unrendered fragment, a
 duplicate, or ids outside the chunk plan.
 
-## Slice A — Text and language (TEXT-01, LANG-01)
+## Slice A — Text and language (TEXT-01, LANG-01) — in progress
 
 The assessment's workstreams 1 and 2. Nothing downstream can recover characters
 or passages lost here.
 
-| ID | Work | Size |
-|---|---|---|
-| A-1 | Immutable source import. Copy each input under `data/sources/<book_id>/` with its SHA-256. Later edits to the input folder cannot change a queued book. | M |
-| A-2 | New `bookbinder/decode.py`. Explicit override, then BOM, then strict UTF-8, then the candidate set: UTF-8 with and without BOM, UTF-16 with BOM, Windows-1250, ISO-8859-2, Windows-1252. Rank ambiguity with `charset-normalizer` plus text-quality checks. No `replace`, no `ignore`. Store accepted text as NFC UTF-8. | L |
-| A-3 | EPUB decodes through its parser, honouring declared XHTML encodings per document. No whole-file decoder over ZIP bytes. Flag malformed declarations. | M |
-| A-4 | Keep three representations with anchors between them: source bytes, extracted text, spoken text. Record every transformation. Display names keep Polish diacritics; slugification stays separate. | M |
-| A-5 | New `bookbinder/language.py`. Sample beginning, middle, end, and chapter bodies, excluding navigation and boilerplate. Cross-check EPUB metadata against content. Abstain to `needs_review` rather than defaulting to `pl`. | L |
-| A-6 | Manifest v2: `source_sha256`, `encoding`, `encoding_method`, `encoding_scores`, `decoder_version`, `language_source`, `language_scores`, `metadata_language`, `needs_review`, `review_reasons`. Bump schema, regenerate, update consumers. | M |
-| A-7 | Language-aware spoken-text preparation: numbers, dates, units, currency, abbreviations, and a per-book pronunciation dictionary. Conservative and previewable. Applied before token-budget validation. (FEAT-01 basic) | L |
-| A-8 | Fixture corpus (TEST-08, TEST-03). The same Polish text in four encodings; `dr.`, `prof.`, `np.`, `itd.`; English possessives and contractions; curly quotes, non-breaking spaces, soft hyphens; mixed line endings; out-of-order EPUB spine; English front matter inside a Polish book; wrong EPUB metadata language; a short ambiguous file; German text outside product scope. | M |
-| A-9 | Surface it. `just ingest` gains `--encoding`, `--language`, and a review flag. Studio shows the encoding preview, candidate text, and detected language with an override. (DX-02, DX-01 subset) | M |
+| ID | Work | Size | State |
+|---|---|---|---|
+| A-1 | Immutable source import. Copy each input under `data/sources/<book_id>/` with its SHA-256. Later edits to the input folder cannot change a queued book. | M | part: the hash is recorded at ingestion from the bytes actually read; the staged copy is still to do and pairs with D-12 |
+| A-2 | New `bookbinder/decode.py`. Explicit override, then BOM, then strict UTF-8, then the candidate set: UTF-8 with and without BOM, UTF-16 with BOM, Windows-1250, ISO-8859-2, Windows-1252. Rank ambiguity with `charset-normalizer` plus text-quality checks. No `replace`, no `ignore`. Store accepted text as NFC UTF-8. | L | done |
+| A-3 | EPUB decodes through its parser, honouring declared XHTML encodings per document. No whole-file decoder over ZIP bytes. Flag malformed declarations. | M | done |
+| A-4 | Keep three representations with anchors between them: source bytes, extracted text, spoken text. Record every transformation. Display names keep Polish diacritics; slugification stays separate. | M | to do |
+| A-5 | New `bookbinder/language.py`. Sample beginning, middle, end, and chapter bodies, excluding navigation and boilerplate. Cross-check EPUB metadata against content. Abstain to `needs_review` rather than defaulting to `pl`. | L | done |
+| A-6 | Manifest v2: `source_sha256`, `encoding`, `encoding_method`, `encoding_scores`, `decoder_version`, `language_source`, `language_scores`, `metadata_language`, `needs_review`, `review_reasons`. Bump schema, regenerate, update consumers. | M | done |
+| A-7 | Language-aware spoken-text preparation: numbers, dates, units, currency, abbreviations, and a per-book pronunciation dictionary. Conservative and previewable. Applied before token-budget validation. (FEAT-01 basic) | L | to do |
+| A-8 | Fixture corpus (TEST-08, TEST-03). The same Polish text in four encodings; `dr.`, `prof.`, `np.`, `itd.`; English possessives and contractions; curly quotes, non-breaking spaces, soft hyphens; mixed line endings; out-of-order EPUB spine; English front matter inside a Polish book; wrong EPUB metadata language; a short ambiguous file; German text outside product scope. | M | part: encoding and language fixtures done; the abbreviation and punctuation set belongs with A-7 |
+| A-9 | Surface it. `just ingest` gains `--encoding`, `--language`, and a review flag. Studio shows the encoding preview, candidate text, and detected language with an override. (DX-02, DX-01 subset) | M | part: the CLI half is done, including a `just inspect` recipe; Studio is still to do |
 
-**Open decision.** `fastText lid.176` is the assessment's concrete candidate and
-covers both languages plus abstention, but its binding must be checked against
-Python 3.11.9 in environment B before it is adopted. `lingua-py` is the fallback
-if the wheel does not hold. Resolve in A-5.
+**Decision, settled 2026-09-09: `lingua-language-detector`.** All four
+candidates install on Python 3.11.9, so the binding was not the discriminator.
+Two things were: its confidence is calibrated, scoring real prose 0.93 to 1.00
+and four-word fragments 0.06 to 0.12, which is what the abstention rule needs
+and what `langdetect` fails at, being 0.86 confident and wrong on "Tak."; and
+its models ship inside the wheel, so unlike `fastText lid.176` there is no
+126 MB file to download and pin separately, which suits an offline tool better.
+It costs 97 MB installed, 82 MB resident and 0.24 s for the first call.
+
+**Finding: a charset detector cannot be trusted with this decision.** On real
+ISO-8859-2 Polish, `charset-normalizer` returns `iso8859_10`, which decodes
+without error and silently changes the diacritics. Every candidate is therefore
+decoded strictly and its text scored, with the detector used only to order
+otherwise-equal readings. The scoring has to look at more than letters:
+Windows-1250 and ISO-8859-2 differ for Polish mainly in characters that
+mis-decode into punctuation, `ą` into `±` and `ś` into `¶`, so a letters-only
+measure scored both readings perfect and picked whichever came first.
 
 **Exit evidence.** The same Polish text in UTF-8, UTF-16, Windows-1250, and
 ISO-8859-2 yields identical accepted Unicode. Ambiguous and corrupt inputs pause
@@ -232,8 +245,8 @@ reference curation first.
    far off, slice B stops after B-7 and slice C proceeds on XTTS alone.
 3. **Dashboard reach.** If the dashboard will ever be opened beyond localhost,
    AUTH-01 and NET-01 move into slice 0.
-4. **Language detector.** Settled inside A-5 by testing the `fastText` binding on
-   Python 3.11.9, unless there is a prior preference.
+4. ~~**Language detector.**~~ Settled in slice A: `lingua-language-detector`,
+   for the reasons recorded there.
 
 ## Definition of completion
 

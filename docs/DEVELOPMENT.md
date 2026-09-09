@@ -272,6 +272,20 @@ correct, and it is the point: a render that fails leaves the previous export in
 place, so the presence of a file says nothing about the current state. The
 render report decides, and `failed` outranks `done`.
 
+**A book that stops with `needs review` at ingestion.** Two things are now
+established from the file rather than assumed: the encoding of plain text, and
+the language of the book. Either can be genuinely undecidable, and guessing is
+worse than asking. `just inspect <file>` prints the evidence. Resolve it with
+`just ingest <file> "" <language>` or the `encoding` argument.
+
+The usual causes are a file too short to classify, a passage in a third
+language, and two single-byte encodings that both read the file but disagree
+about the text. Windows-1250 and ISO-8859-2 are the pair that matters for
+Polish: both decode any byte without error, so only the resulting text tells
+them apart, and `charset-normalizer` alone gets it wrong. The decision comes
+from scoring each candidate's text, with the detector used only to order
+otherwise-equal readings.
+
 **A `busy` refusal from the dashboard.** No two jobs run on one book at a time,
 whether or not they take the render lock. Chunking during a render rewrites the
 manifest underneath it, assembling reads a fragment list still being appended
