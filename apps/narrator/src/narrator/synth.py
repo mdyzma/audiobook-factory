@@ -29,13 +29,14 @@ from narrator.paths import project_root
 from narrator.backends import UnsupportedEngine, backend_for
 from narrator.choice import ModelChoice
 from narrator.engine import pick_device
+from narrator.fingerprint import fragment_fingerprint, voice_revision
 
 app = typer.Typer(add_completion=False)
 
 # narrator cannot import bookbinder (different environments, incompatible
 # numpy), so the report shape is mirrored here. It is validated on the
-# bookbinder side; docs/schemas/render_report_v4.json is the contract.
-SCHEMA_VERSION = 4
+# bookbinder side; docs/schemas/render_report_v5.json is the contract.
+SCHEMA_VERSION = 5
 
 # Mirrors bookbinder.manifest.DRY_RUN_MARKER. A dry run leaves silence at
 # exactly the paths a real render writes, and resume skips any fragment that
@@ -48,6 +49,12 @@ DRY_RUN_MARKER = ".dry-run.json"
 # so per-fragment writes are free; skipped fragments are near-instant on a
 # resumed run, hence the throttle.
 PROGRESS_INTERVAL_SEC = 0.5
+
+
+# What each wav in this directory was rendered from. One JSON line per
+# fragment, appended as it lands rather than written at the end, so a render
+# killed at hour six leaves the first six hours reusable.
+FINGERPRINTS = "fingerprints.jsonl"
 
 
 def discard_dry_run(out_dir: Path) -> int:
@@ -67,8 +74,39 @@ def discard_dry_run(out_dir: Path) -> int:
         wav.unlink()
         removed += 1
     (out_dir / "rendered.jsonl").unlink(missing_ok=True)
+    (out_dir / FINGERPRINTS).unlink(missing_ok=True)
     marker.unlink()
     return removed
+
+
+def read_fingerprints(out_dir: Path) -> dict[str, str]:
+    """Fingerprints for the audio already in this directory.
+
+    A later line wins: re-rendering one fragment appends rather than rewriting,
+    which is what keeps the file append-only and crash-safe.
+    """
+    path = out_dir / FINGERPRINTS
+    if not path.exists():
+        return {}
+    found: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+            found[entry["id"]] = entry["fingerprint"]
+        except (ValueError, KeyError):
+            # A line torn in half by a kill. Everything before it still counts.
+            continue
+    return found
+
+
+def append_fingerprint(out_dir: Path, chunk_id: str, fingerprint: str) -> None:
+    with (out_dir / FINGERPRINTS).open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"id": chunk_id, "fingerprint": fingerprint}) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
 
 
 def write_progress(path: Path, payload: dict) -> None:
@@ -167,12 +205,30 @@ def main(
             f"note: {choice.id or 'this backend'} ignores "
             f"{', '.join(choice.unsupported)}", err=True)
 
+    # What each existing wav was rendered from. Resume compares against this
+    # rather than trusting a filename: the wav for ch001_0004 exists whether it
+    # was made by this model from this text or by a different one from text
+    # that has since been re-chunked.
+    previous = read_fingerprints(out_dir)
+    revisions = {v: voice_revision(root, v) for v in voices}
+
+    def expected_fingerprint(chunk: dict, chunk_voice: str) -> str:
+        return fragment_fingerprint(
+            text=chunk["text"],
+            language=chunk.get("language", ""),
+            model=choice.identity,
+            voice=chunk_voice,
+            voice_revision=revisions.get(chunk_voice, ""),
+            settings=settings,
+        )
+
     typer.echo(
         f"synthesising {len(chunks)} chunks on {dev}"
         + (f" with {choice.identity}" if choice.id else "")
         + f"\nvoices: {', '.join(voices)}"
     )
     started = time.time()
+    stale = 0
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     rendered: list[dict] = []
     failures: list[dict] = []
@@ -182,7 +238,7 @@ def main(
 
     # A book is hours of work and report.json only lands at the end, so this is
     # the only view into a running render. Shape mirrors bookbinder's
-    # RenderProgress; docs/schemas/render_progress_v4.json is the contract.
+    # RenderProgress; docs/schemas/render_progress_v5.json is the contract.
     progress_path = out_dir / "progress.json"
     last_progress = 0.0
 
@@ -221,17 +277,32 @@ def main(
         wav_path = out_dir / f"{chunk['id']}.wav"
         chunk_voice = voice_for(chunk)
 
+        wanted_fingerprint = expected_fingerprint(chunk, chunk_voice)
+
         if wav_path.exists() and not force:
-            info = sf.info(wav_path)
-            chunk["audio_path"] = str(wav_path.relative_to(root))
-            chunk["duration_sec"] = round(info.duration, 3)
-            audio_seconds += info.duration
-            skipped += 1
-            rendered.append(chunk)
-            if time.time() - last_progress > PROGRESS_INTERVAL_SEC:
-                progress(chunk["id"], chunk_voice)
-                last_progress = time.time()
-            continue
+            reusable = previous.get(chunk["id"]) == wanted_fingerprint
+            info = None
+            if reusable:
+                # A wav that cannot be read back is not audio, whatever its
+                # fingerprint says. A run killed mid-write leaves exactly that.
+                try:
+                    info = sf.info(wav_path)
+                except Exception:
+                    reusable = False
+
+            if reusable and info is not None:
+                chunk["audio_path"] = str(wav_path.relative_to(root))
+                chunk["duration_sec"] = round(info.duration, 3)
+                chunk["voice"] = chunk_voice
+                chunk["fingerprint"] = wanted_fingerprint
+                audio_seconds += info.duration
+                skipped += 1
+                rendered.append(chunk)
+                if time.time() - last_progress > PROGRESS_INTERVAL_SEC:
+                    progress(chunk["id"], chunk_voice)
+                    last_progress = time.time()
+                continue
+            stale += 1
 
         try:
             wav = pool.speak(chunk["text"], chunk.get("language", ""),
@@ -251,6 +322,12 @@ def main(
         rendered_rate = rate
         chunk["audio_path"] = str(wav_path.relative_to(root))
         chunk["duration_sec"] = round(duration, 3)
+        chunk["voice"] = chunk_voice
+        chunk["fingerprint"] = wanted_fingerprint
+        # Appended as each fragment lands, so a run killed at hour six leaves
+        # everything before it reusable. Written after the wav, so a
+        # fingerprint never claims audio that is not on disk.
+        append_fingerprint(out_dir, chunk["id"], wanted_fingerprint)
         audio_seconds += duration
         rendered.append(chunk)
         progress(chunk["id"], chunk_voice)
@@ -310,7 +387,8 @@ def main(
 
     typer.echo(
         f"rendered {len(rendered)}/{len(chunks)} chunks "
-        f"({skipped} already present), {audio_seconds / 3600:.2f} h of audio "
+        f"({skipped} already present"
+        + (f", {stale} re-rendered as stale" if stale else "") + "), {audio_seconds / 3600:.2f} h of audio "
         f"in {elapsed / 60:.1f} min ({audio_seconds / elapsed:.1f}x realtime)\n"
         f"-> {manifest_path}\n-> {report_path}"
     )

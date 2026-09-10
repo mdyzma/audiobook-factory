@@ -120,3 +120,53 @@ class TestVoicePoolCheckpointIsolation:
         })
         assert pool.model("a") != pool.model("b")
         assert loaded == ["a", "b"]
+
+
+class TestFingerprintLedger:
+    """What lets a resumed render tell current audio from stale audio.
+
+    Appended per fragment rather than written at the end, because a render
+    killed at hour six has to leave the first six hours reusable.
+    """
+
+    def test_nothing_recorded_yet_reads_as_empty(self, tmp_path):
+        from narrator.synth import read_fingerprints
+
+        assert read_fingerprints(tmp_path) == {}
+
+    def test_what_was_appended_reads_back(self, tmp_path):
+        from narrator.synth import append_fingerprint, read_fingerprints
+
+        append_fingerprint(tmp_path, "ch001_0000", "aaa")
+        append_fingerprint(tmp_path, "ch001_0001", "bbb")
+        assert read_fingerprints(tmp_path) == {"ch001_0000": "aaa", "ch001_0001": "bbb"}
+
+    def test_re_rendering_one_fragment_supersedes_its_entry(self, tmp_path):
+        from narrator.synth import append_fingerprint, read_fingerprints
+
+        append_fingerprint(tmp_path, "ch001_0000", "old")
+        append_fingerprint(tmp_path, "ch001_0000", "new")
+        assert read_fingerprints(tmp_path) == {"ch001_0000": "new"}
+
+    def test_a_line_torn_in_half_does_not_lose_the_rest(self, tmp_path):
+        # What a kill mid-write leaves behind.
+        from narrator.synth import FINGERPRINTS, append_fingerprint, read_fingerprints
+
+        append_fingerprint(tmp_path, "ch001_0000", "aaa")
+        with (tmp_path / FINGERPRINTS).open("a", encoding="utf-8") as fh:
+            fh.write('{"id": "ch001_0001", "fingerpr')
+        assert read_fingerprints(tmp_path) == {"ch001_0000": "aaa"}
+
+    def test_a_dry_run_takes_its_ledger_with_it(self, tmp_path):
+        from narrator.synth import (
+            DRY_RUN_MARKER, FINGERPRINTS, append_fingerprint, discard_dry_run,
+        )
+
+        audio = tmp_path / "audio"
+        audio.mkdir()
+        (audio / "ch001_0000.wav").write_bytes(b"RIFF")
+        append_fingerprint(audio, "ch001_0000", "silence")
+        (audio / DRY_RUN_MARKER).write_text("{}", encoding="utf-8")
+
+        discard_dry_run(audio)
+        assert not (audio / FINGERPRINTS).exists()
