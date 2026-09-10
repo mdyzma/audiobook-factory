@@ -104,6 +104,16 @@ class JobError(RuntimeError):
     """A job that will not be started, with a reason worth showing a user."""
 
 
+class ResourceBusy(JobError):
+    """Refused because something else holds the book, the voice or the device.
+
+    Separate from a plain refusal because the answer is different: a queue
+    worker puts the item back and tries again shortly, where a bad argument or
+    a full disk needs a person. Both still read as one sentence to whoever
+    pressed the button.
+    """
+
+
 def studio_dir(root: Path) -> Path:
     return root / "data" / ".studio"
 
@@ -346,7 +356,7 @@ class JobStore:
                 # clears the second case, so one retry is enough.
                 held = self.holder(name)
                 if held:
-                    raise JobError(template.format(job=held, name=name))
+                    raise ResourceBusy(template.format(job=held, name=name))
                 continue
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(job_id)
@@ -500,7 +510,7 @@ class JobRunner:
         # audio mid-write. None of those failed loudly.
         busy = self.store.conflicting_job(job.conflict_key)
         if busy is not None:
-            raise JobError(
+            raise ResourceBusy(
                 f"'{busy.lock_target}' is busy: job {busy.id} is running "
                 f"'{busy.action}'. Wait for it, or cancel it first."
             )

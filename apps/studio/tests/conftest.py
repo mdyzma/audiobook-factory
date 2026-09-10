@@ -46,4 +46,6 @@ def project(tmp_path, monkeypatch):
     # The same environment variable the containers use, so the tests exercise
     # real root discovery rather than a stand-in for it.
     monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(tmp_path))
+    # No test wants the dashboard quietly starting renders behind it.
+    monkeypatch.setenv("AF_NO_DRAIN", "1")
     return tmp_path

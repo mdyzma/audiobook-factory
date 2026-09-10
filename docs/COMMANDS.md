@@ -72,7 +72,7 @@ pass `""` for the ones between.
 
 | Command | What it does |
 |---|---|
-| `just ui <port="8765">` | Opens the local dashboard at `http://127.0.0.1:8765`. Shows books, voices, renders and quality checks, plays the audio, and runs pipeline stages. |
+| `just ui <port="8765">` | Opens the local dashboard at `http://127.0.0.1:8765`. Shows books, voices, renders and quality checks, plays the audio, and runs pipeline stages. While it is open it also runs the queue; set `AF_NO_DRAIN=1` to open it as a viewer instead. |
 
 ## Queue
 
@@ -87,6 +87,8 @@ everything behind it.
 | `just queue-retry <step>` | Offers a failed or cancelled step again, at its place in the book. The step number comes from `just queue`. |
 | `just queue-cancel <slug>` | Drops a book's remaining steps. Anything already running keeps going; cancel its job from the dashboard to stop that. |
 | `just queue-resume <slug>` | Puts a paused book back in line. |
+| `just drain` | Runs the queue until nothing is left that can move. The dashboard does this on its own while it is open, so this is for running a batch without one. |
+| `just drain-once` | A single tick: settle what finished, start at most one thing. |
 | `just preflight <slug> <stage="synth"> <format="">` | Is there room on the disk for this? Runs on its own, and ahead of `just synth` and `just assemble`. |
 
 ## Stage 6: quality

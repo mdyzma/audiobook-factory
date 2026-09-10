@@ -9,6 +9,9 @@ so anything that can reach this server can run a render.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import os
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
@@ -23,7 +26,59 @@ from studio.jobs import ACTIONS, FORMATS, LANGUAGES, JobError, JobRunner
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
-app = FastAPI(title="audiobook-factory studio", docs_url="/api/docs")
+NO_DRAIN = "AF_NO_DRAIN"
+
+
+def draining() -> bool:
+    """Whether this server should run the queue as well as show it.
+
+    On by default: a queue nothing drains is a list. Set `AF_NO_DRAIN=1` to run
+    the dashboard as a viewer beside a `just drain` somewhere else, or wherever
+    a background loop starting real jobs would be a surprise.
+
+    Read when the server starts rather than when this module is imported, so a
+    caller that sets it can still be heard.
+    """
+    return os.environ.get(NO_DRAIN, "").strip().lower() not in ("1", "true", "yes")
+
+
+@contextlib.asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Run the queue while the dashboard is open.
+
+    A queue nothing drains is a list, so this is what makes queueing a batch
+    mean anything without a second terminal. It is one worker taking one step
+    per tick, in a thread, because every tick touches the disk and the point is
+    not to hold the event loop while it does.
+    """
+    task = asyncio.create_task(_drain()) if draining() else None
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+
+async def _drain() -> None:
+    from studio.worker import IDLE_SECONDS, Worker
+
+    worker = Worker(root(), name="studio-dashboard")
+    while True:
+        try:
+            await asyncio.to_thread(worker.tick)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A tick that raises must not end the loop: the queue would then
+            # stop silently and a batch would sit there looking merely slow.
+            pass
+        await asyncio.sleep(IDLE_SECONDS)
+
+
+app = FastAPI(title="audiobook-factory studio", docs_url="/api/docs",
+              lifespan=lifespan)
 
 
 def root() -> Path:

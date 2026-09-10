@@ -297,6 +297,15 @@ clean-book slug:
 
 # ---------------------------------------------------------------- queue ----
 
+# Run the queue from a terminal. The dashboard does this on its own while it
+# is open; this is for running a batch without one.
+drain:
+    cd apps/studio && uv run python -m studio.worker
+
+# One tick of the queue: settle what finished, start at most one thing.
+drain-once:
+    cd apps/studio && uv run python -m studio.worker --once
+
 # Show the work waiting to happen, grouped by book.
 queue book="":
     cd apps/studio && uv run python -m studio.queue --book {{quote(book)}}
