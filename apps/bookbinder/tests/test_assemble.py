@@ -369,3 +369,145 @@ class TestRefusesStaleAudio:
         TestAssembleEndToEnd._rewrite(path, rows)
 
         assert runner.invoke(assemble.app, ["b"]).exit_code == 0
+
+
+class TestExportIsPublishedAtomically:
+    """A killed assembly used to leave a truncated file in data/out/.
+
+    It plays, has a plausible length, and reads to the dashboard as a finished
+    book, which is the one state a reader trusts without listening.
+    """
+
+    @pytest.mark.parametrize("fmt", ["m4b", "mp3", "wav"])
+    def test_every_format_still_assembles(self, tmp_path, monkeypatch, fmt):
+        # The staged file ends in `.part`, so ffmpeg can no longer guess the
+        # container from the extension and each one has to be named.
+        from typer.testing import CliRunner
+        root, assemble = TestAssembleEndToEnd()._build(tmp_path, monkeypatch)
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(root))
+
+        result = CliRunner().invoke(assemble.app, ["b", "--fmt", fmt])
+        assert result.exit_code == 0, result.output
+        out = root / "data" / "out" / f"b.{fmt}"
+        assert out.exists() and out.stat().st_size > 0
+        assert probe_duration(out) == pytest.approx(5.0, abs=0.3)
+
+    def test_no_staged_file_is_left_behind(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        root, assemble = TestAssembleEndToEnd()._build(tmp_path, monkeypatch)
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(root))
+        CliRunner().invoke(assemble.app, ["b"])
+
+        leftovers = [p.name for p in (root / "data" / "out").iterdir()
+                     if p.name.startswith(".") or p.name.endswith(".part")]
+        assert leftovers == []
+
+    def test_a_failed_assembly_leaves_the_previous_export_intact(
+            self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        root, assemble = TestAssembleEndToEnd()._build(tmp_path, monkeypatch)
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(root))
+        runner = CliRunner()
+        assert runner.invoke(assemble.app, ["b"]).exit_code == 0
+
+        good = (root / "data" / "out" / "b.m4b").read_bytes()
+
+        # ffmpeg fails this time; the file already there must survive.
+        import bookbinder.assemble as mod
+        def boom(*_a, **_k):
+            raise subprocess.CalledProcessError(1, "ffmpeg")
+        monkeypatch.setattr(mod.subprocess, "run", boom)
+
+        runner.invoke(assemble.app, ["b"])
+        assert (root / "data" / "out" / "b.m4b").read_bytes() == good
+
+
+class TestManifestIsPublishedAtomically:
+    def test_a_failed_write_leaves_the_previous_manifest(self, tmp_path):
+        from bookbinder.manifest import publish
+
+        target = tmp_path / "book.json"
+        target.write_text("previous", encoding="utf-8")
+
+        def boom(_staged):
+            raise RuntimeError("interrupted")
+
+        with pytest.raises(RuntimeError):
+            publish(target, boom)
+        assert target.read_text(encoding="utf-8") == "previous"
+        assert list(tmp_path.iterdir()) == [target]
+
+    def test_a_successful_write_replaces_it(self, tmp_path):
+        from bookbinder.manifest import publish_text
+
+        target = tmp_path / "book.json"
+        target.write_text("previous", encoding="utf-8")
+        publish_text(target, "current")
+        assert target.read_text(encoding="utf-8") == "current"
+
+
+class TestSampleRateFollowsTheFragments:
+    """The pauses are generated here and the concat demuxer needs one rate.
+
+    24 kHz was a safe assumption only while XTTS was the only engine. Silence
+    at the configured output rate against fragments at the engine's own rate is
+    a click at every paragraph break, or a concat that will not run at all.
+    """
+
+    def test_the_report_says_what_rate_the_fragments_are(self, tmp_path, monkeypatch):
+        from bookbinder.assemble import rendered_sample_rate
+
+        audio = tmp_path / "audio"
+        audio.mkdir()
+        (audio / "report.json").write_text(
+            json.dumps({"slug": "b", "sample_rate": 22050}), encoding="utf-8")
+        assert rendered_sample_rate(audio, 24000) == 22050
+
+    def test_without_a_report_it_probes_a_fragment(self, tmp_path):
+        from bookbinder.assemble import rendered_sample_rate
+
+        audio = tmp_path / "audio"
+        audio.mkdir()
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+             "-i", "sine=frequency=200:duration=0.2:sample_rate=16000",
+             "-ac", "1", "-c:a", "pcm_s16le", str(audio / "ch001_0000.wav")],
+            check=True)
+        assert rendered_sample_rate(audio, 24000) == 16000
+
+    def test_with_neither_it_falls_back(self, tmp_path):
+        from bookbinder.assemble import rendered_sample_rate
+
+        audio = tmp_path / "audio"
+        audio.mkdir()
+        assert rendered_sample_rate(audio, 24000) == 24000
+
+    def test_a_malformed_report_does_not_stop_assembly(self, tmp_path):
+        from bookbinder.assemble import rendered_sample_rate
+
+        audio = tmp_path / "audio"
+        audio.mkdir()
+        (audio / "report.json").write_text("{not json", encoding="utf-8")
+        assert rendered_sample_rate(audio, 24000) == 24000
+
+    def test_a_book_rendered_at_another_rate_still_assembles(
+            self, tmp_path, monkeypatch):
+        # What a second backend will look like. The finished file is at the
+        # configured rate; the pauses had to be made at the fragments' rate.
+        from typer.testing import CliRunner
+        root, assemble = TestAssembleEndToEnd()._build(tmp_path, monkeypatch)
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(root))
+
+        audio_dir = root / "data" / "audio" / "b"
+        for wav in sorted(audio_dir.glob("*.wav")):
+            subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(wav),
+                 "-ar", "22050", "-ac", "1", "-c:a", "pcm_s16le",
+                 str(wav.with_suffix(".tmp.wav"))], check=True)
+            wav.with_suffix(".tmp.wav").replace(wav)
+        (audio_dir / "report.json").write_text(
+            json.dumps({"slug": "b", "sample_rate": 22050}), encoding="utf-8")
+
+        result = CliRunner().invoke(assemble.app, ["b"])
+        assert result.exit_code == 0, result.output
+        assert probe_duration(root / "data" / "out" / "b.m4b") == pytest.approx(5.0, abs=0.3)

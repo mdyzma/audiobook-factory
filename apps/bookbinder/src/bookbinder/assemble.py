@@ -22,7 +22,7 @@ import typer
 
 from bookbinder.paths import project_root
 from bookbinder.fingerprint import fragment_fingerprint, voice_revision
-from bookbinder.manifest import BookMeta, is_dry_run_audio, read_book
+from bookbinder.manifest import BookMeta, is_dry_run_audio, publish, publish_text, read_book
 
 app = typer.Typer(add_completion=False)
 
@@ -187,6 +187,69 @@ def completeness_problems(root: Path, chunks: list[dict], planned: list[str]) ->
     return problems
 
 
+def ordering_problems(rendered: list[dict], planned: list[dict]) -> list[str]:
+    """Fragments whose place in the book has moved since they were rendered.
+
+    Assembly sorts by `order` and derives chapter marks from the accumulated
+    durations, so a fragment that has been renumbered or moved to another
+    chapter produces a book that reads in the wrong sequence with chapter marks
+    to match. Every file is present and current; only the arrangement is wrong,
+    which is why neither the completeness nor the staleness check can see it.
+    """
+    plan = {c["id"]: c for c in planned}
+    moved = [c["id"] for c in rendered
+             if c["id"] in plan and c.get("order") != plan[c["id"]].get("order")]
+    rechaptered = [c["id"] for c in rendered
+                   if c["id"] in plan
+                   and c.get("chapter_index") != plan[c["id"]].get("chapter_index")]
+
+    problems: list[str] = []
+    if moved:
+        problems.append(
+            f"{len(moved)} fragment(s) sit at a different position than the chunk "
+            f"plan gives them: {_listed(moved)}")
+    if rechaptered:
+        problems.append(
+            f"{len(rechaptered)} fragment(s) have moved to another chapter since "
+            f"they were rendered: {_listed(rechaptered)}")
+    return problems
+
+
+def rendered_sample_rate(audio_dir: Path, fallback: int) -> int:
+    """The rate the fragments on disk are actually at.
+
+    The pauses between fragments are generated here, and the concat demuxer
+    needs every input at one rate. Generating silence at the configured output
+    rate while the engine rendered at its own is how a book acquires a click at
+    every paragraph break, or fails to concatenate at all.
+
+    Taken from the render report, which records what the backend produced, and
+    otherwise probed from a fragment. 24 kHz was a safe assumption only while
+    XTTS was the only engine.
+    """
+    report = audio_dir / "report.json"
+    if report.exists():
+        try:
+            recorded = json.loads(report.read_text(encoding="utf-8")).get("sample_rate")
+            if recorded:
+                return int(recorded)
+        except (ValueError, TypeError):
+            pass
+
+    wav = next(iter(sorted(audio_dir.glob("*.wav"))), None)
+    if wav is not None:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a:0",
+             "-show_entries", "stream=sample_rate", "-of", "csv=p=0", str(wav)],
+            capture_output=True, text=True,
+        )
+        try:
+            return int(probe.stdout.strip())
+        except ValueError:
+            pass
+    return fallback
+
+
 def concat_line(path: Path) -> str:
     """One entry for an ffmpeg concat list.
 
@@ -247,7 +310,8 @@ def main(
     cfg = load_config(root, "assemble")
     fmt = fmt or cfg.get("format", "m4b")
     bitrate = bitrate or cfg.get("bitrate", "64k")
-    sample_rate = cfg.get("sample_rate", 24000)
+    # The rate the finished file is written at, which is a delivery choice.
+    output_rate = cfg.get("sample_rate", 24000)
     channels = cfg.get("channels", 1)
 
     book_dir = root / "data" / "book" / slug
@@ -257,6 +321,7 @@ def main(
 
     plan = planned_chunks(book_dir)
     problems = completeness_problems(root, chunks, [c["id"] for c in plan])
+    problems += ordering_problems(chunks, plan)
     stale = stale_fragments(root, chunks, {c["id"]: c for c in plan}, book)
     if stale:
         problems.append(
@@ -285,6 +350,15 @@ def main(
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{slug}.{fmt}"
 
+    # The rate the fragments are at, which the backend chose. Silence is
+    # generated to match, and the single resample to `output_rate` happens once
+    # at the end rather than per fragment.
+    source_rate = rendered_sample_rate(audio_dir, output_rate)
+    if source_rate != output_rate:
+        typer.echo(
+            f"fragments are {source_rate} Hz; resampling once to {output_rate} Hz "
+            f"for the finished file", err=True)
+
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
         silence_cache: dict[int, Path] = {}
@@ -307,7 +381,7 @@ def main(
             if pause > 0:
                 if pause not in silence_cache:
                     silence_path = tmp_dir / f"sil_{pause}.wav"
-                    make_silence(silence_path, pause, sample_rate, channels)
+                    make_silence(silence_path, pause, source_rate, channels)
                     silence_cache[pause] = silence_path
                 concat_lines.append(concat_line(silence_cache[pause]))
                 clock += pause / 1000
@@ -338,21 +412,32 @@ def main(
                  "mp3": ["-c:a", "libmp3lame", "-b:a", bitrate],
                  "wav": ["-c:a", "pcm_s16le"]}[fmt]
 
+        # Named explicitly for every format, not just m4b. ffmpeg would
+        # otherwise guess from the extension, and the file it writes is a
+        # staged `.part` on its way to being renamed into place.
+        container = {"m4b": "mp4", "mp3": "mp3", "wav": "wav"}[fmt]
+
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
             "-f", "concat", "-safe", "0", "-i", str(list_path),
             "-i", str(meta_path), "-map_metadata", "1", "-map_chapters", "1",
-            "-ar", str(sample_rate), "-ac", str(channels), *codec,
+            "-ar", str(output_rate), "-ac", str(channels), *codec,
+            "-f", container,
         ]
-        if fmt == "m4b":
-            cmd += ["-f", "mp4"]
-        cmd.append(str(out_path))
-        subprocess.run(cmd, check=True)
 
-    (out_dir / f"{slug}.chapters.json").write_text(
+        # ffmpeg writes beside the target and the result is renamed in. An
+        # assembly killed part-way used to leave a truncated file in data/out/,
+        # which plays, has a plausible length, and reads to the dashboard as a
+        # finished book.
+        def run_ffmpeg(staged: Path) -> None:
+            subprocess.run([*cmd, str(staged)], check=True)
+
+        publish(out_path, run_ffmpeg)
+
+    publish_text(
+        out_dir / f"{slug}.chapters.json",
         json.dumps([{"index": i, "title": t, "start_sec": round(s, 3)}
                     for i, t, s in chapter_marks], ensure_ascii=False, indent=2),
-        encoding="utf-8",
     )
     size_mb = out_path.stat().st_size / 1024 / 1024
     typer.echo(
