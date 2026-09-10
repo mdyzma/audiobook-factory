@@ -87,6 +87,7 @@ everything behind it.
 | `just queue-retry <step>` | Offers a failed or cancelled step again, at its place in the book. The step number comes from `just queue`. |
 | `just queue-cancel <slug>` | Drops a book's remaining steps. Anything already running keeps going; cancel its job from the dashboard to stop that. |
 | `just queue-resume <slug>` | Puts a paused book back in line. |
+| `just preflight <slug> <stage="synth"> <format="">` | Is there room on the disk for this? Runs on its own, and ahead of `just synth` and `just assemble`. |
 
 ## Stage 6: quality
 

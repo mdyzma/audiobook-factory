@@ -203,6 +203,7 @@ chunk-single slug voice:
 
 # 4. Render every fragment. Resumable: re-run to continue after a crash.
 synth slug voice device="auto":
+    just preflight {{quote(slug)}} synth
     cd apps/narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.synth {{quote(slug)}} \
       --voice {{quote(voice)}} --device {{quote(device)}}
 
@@ -223,8 +224,14 @@ dryrun slug strict="":
 
 # 5. Mux fragments, pauses and chapter marks into the finished audiobook.
 assemble slug format="":
+    just preflight {{quote(slug)}} assemble {{quote(format)}}
     cd apps/bookbinder && uv run python -m bookbinder.assemble {{quote(slug)}} \
       --fmt {{quote(format)}}
+
+# Is there room for this? Runs on its own, and ahead of synth and assemble.
+preflight slug stage="synth" format="":
+    cd apps/bookbinder && uv run python -m bookbinder.preflight {{quote(slug)}} \
+      {{quote(stage)}} {{quote(format)}}
 
 # 6. Optional: re-transcribe the rendered audio and compare it to the source.
 verify slug sample="0":

@@ -61,12 +61,14 @@ ACTIONS: dict[str, dict] = {
     "chunk":    {"recipe": "chunk",    "args": ["slug"],            "locks": False},
     # Silence at the estimated durations, written by bookbinder, which has no
     # torch at all. It locks the book but never touches the device.
-    "dryrun":   {"recipe": "dryrun",   "args": ["slug"],            "locks": True},
+    "dryrun":   {"recipe": "dryrun",   "args": ["slug"],            "locks": True,
+                 "space": "synth"},
     "synth":    {"recipe": "synth",    "args": ["slug", "voice"],   "locks": True,
-                 "gpu": True},
+                 "gpu": True, "space": "synth"},
     "resynth":  {"recipe": "resynth",  "args": ["slug", "chunks"],  "locks": True,
-                 "gpu": True},
-    "assemble": {"recipe": "assemble", "args": ["slug", "format"],  "locks": False},
+                 "gpu": True, "space": "synth"},
+    "assemble": {"recipe": "assemble", "args": ["slug", "format"],  "locks": False,
+                 "space": "assemble"},
     "verify":   {"recipe": "verify",   "args": ["slug"],            "locks": False,
                  "gpu": True},
     "clone":    {"recipe": "clone",    "args": ["voice"],           "locks": False,
@@ -74,6 +76,10 @@ ACTIONS: dict[str, dict] = {
     "label":    {"recipe": "label",    "args": ["voice"],           "locks": False,
                  "lock_key": "voice", "scope": "voice", "gpu": True},
 }
+
+# `space` names the disk estimate to run before starting. A render that fills
+# the disk at hour six leaves a truncated fragment and a manifest that may end
+# mid-line, and the six hours are spent either way.
 
 # Everything that wants the one device.
 GPU_ACTIONS = frozenset(name for name, spec in ACTIONS.items() if spec.get("gpu"))
@@ -454,10 +460,31 @@ class JobRunner:
             raise JobError(f"no uploaded book named {name!r}")
         return str(path.relative_to(self.root))
 
+    def check_space(self, action: str, args: dict[str, str]) -> None:
+        """Refuse a job that would very likely run the disk out.
+
+        Checked here rather than only in the recipe so the refusal arrives when
+        the button is pressed, with a sentence worth reading, instead of as a
+        non-zero exit code in a log twenty seconds later.
+        """
+        from bookbinder.preflight import NotEnoughSpace, assembly, require, synthesis
+
+        kind = (ACTIONS.get(action) or {}).get("space")
+        slug = args.get("slug", "")
+        if not kind or not slug:
+            return
+        estimate = (assembly(self.root, slug, args.get("format", ""))
+                    if kind == "assemble" else synthesis(self.root, slug))
+        try:
+            require(estimate)
+        except NotEnoughSpace as exc:
+            raise JobError(str(exc)) from exc
+
     def start(self, action: str, args: dict[str, str]) -> Job:
         spec = ACTIONS[action] if action in ACTIONS else None
         clean = self.validate(action, args)
         assert spec is not None
+        self.check_space(action, clean)
 
         job = Job(
             id=uuid.uuid4().hex[:12],
