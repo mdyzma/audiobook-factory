@@ -35,8 +35,8 @@ app = typer.Typer(add_completion=False)
 
 # narrator cannot import bookbinder (different environments, incompatible
 # numpy), so the report shape is mirrored here. It is validated on the
-# bookbinder side; docs/schemas/render_report_v5.json is the contract.
-SCHEMA_VERSION = 5
+# bookbinder side; docs/schemas/render_report_v6.json is the contract.
+SCHEMA_VERSION = 6
 
 # Mirrors bookbinder.manifest.DRY_RUN_MARKER. A dry run leaves silence at
 # exactly the paths a real render writes, and resume skips any fragment that
@@ -107,6 +107,48 @@ def append_fingerprint(out_dir: Path, chunk_id: str, fingerprint: str) -> None:
         fh.write(json.dumps({"id": chunk_id, "fingerprint": fingerprint}) + "\n")
         fh.flush()
         os.fsync(fh.fileno())
+
+
+# A fault in the voice or the model repeats for every fragment, so failing the
+# whole book one fragment at a time wastes hours to reach a conclusion
+# available after the first few.
+SYSTEMIC_FAILURES = 5
+
+
+def classify_failure(exc: BaseException) -> str:
+    """Whose fault this is: the fragment, the voice, or the model.
+
+    A fragment fault is one piece of text the engine could not read, and the
+    rest of the book is unaffected. A voice or model fault is the run's, and
+    retrying ten thousand fragments against it produces ten thousand identical
+    errors and no audio.
+    """
+    text = f"{type(exc).__name__}: {exc}".lower()
+    if isinstance(exc, FileNotFoundError) or "voice profile" in text or "latent" in text:
+        return "voice"
+    if any(word in text for word in ("checkpoint", "cuda", "out of memory",
+                                     "load_model", "no such file or directory")):
+        return "model"
+    return "fragment"
+
+
+def publish_text(path: Path, content: str) -> Path:
+    """Write beside the target and rename into place.
+
+    Mirrors bookbinder.manifest.publish_text; this environment cannot import
+    it. A rename within a directory is atomic, so a run killed part-way leaves
+    either the previous file or the complete new one, never half of one that
+    parses as a smaller book.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staged = path.with_name(f".{path.name}.part")
+    try:
+        staged.write_text(content, encoding="utf-8")
+        staged.replace(path)
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
+    return path
 
 
 def write_progress(path: Path, payload: dict) -> None:
@@ -212,6 +254,16 @@ def main(
     previous = read_fingerprints(out_dir)
     revisions = {v: voice_revision(root, v) for v in voices}
 
+    # Per-role controls sit on top of the book's, so a dialogue voice can read
+    # slightly faster than the narration. Merged per fragment rather than per
+    # run, and folded into the fingerprint: changing a role's speed has to
+    # invalidate that role's audio and nothing else.
+    cast_settings: dict[str, dict] = book.get("cast_settings") or {}
+
+    def settings_for(chunk: dict) -> dict:
+        role = chunk.get("role") or "narrator"
+        return {**settings, **cast_settings.get(role, {})}
+
     def expected_fingerprint(chunk: dict, chunk_voice: str) -> str:
         return fragment_fingerprint(
             text=chunk["text"],
@@ -219,7 +271,7 @@ def main(
             model=choice.identity,
             voice=chunk_voice,
             voice_revision=revisions.get(chunk_voice, ""),
-            settings=settings,
+            settings=settings_for(chunk),
         )
 
     typer.echo(
@@ -229,6 +281,10 @@ def main(
     )
     started = time.time()
     stale = 0
+    retried = 0
+    # Config promises this and nothing used to read it, so a fragment the
+    # engine fumbled once was recorded as a permanent failure.
+    retries = max(0, int(cfg.get("retries", 2)))
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     rendered: list[dict] = []
     failures: list[dict] = []
@@ -238,7 +294,7 @@ def main(
 
     # A book is hours of work and report.json only lands at the end, so this is
     # the only view into a running render. Shape mirrors bookbinder's
-    # RenderProgress; docs/schemas/render_progress_v5.json is the contract.
+    # RenderProgress; docs/schemas/render_progress_v6.json is the contract.
     progress_path = out_dir / "progress.json"
     last_progress = 0.0
 
@@ -304,14 +360,47 @@ def main(
                 continue
             stale += 1
 
-        try:
-            wav = pool.speak(chunk["text"], chunk.get("language", ""),
-                             chunk_voice, settings)
-            rate = pool.sample_rate(chunk_voice)
-        except Exception as exc:  # a single bad chunk must not kill the run
-            failures.append({"chunk_id": chunk["id"], "error": f"{type(exc).__name__}: {exc}"})
+        # Synthesis is stochastic, so a fragment that failed once may well
+        # succeed on the next roll. Bounded, because a fragment that fails
+        # every time is not going to start working on the twentieth attempt.
+        wav = rate = None
+        last_error: BaseException | None = None
+        for attempt in range(1, retries + 2):
+            try:
+                wav = pool.speak(chunk["text"], chunk.get("language", ""),
+                                 chunk_voice, settings_for(chunk))
+                rate = pool.sample_rate(chunk_voice)
+                if attempt > 1:
+                    retried += 1
+                break
+            except Exception as exc:   # a single bad chunk must not kill the run
+                last_error = exc
+                if classify_failure(exc) != "fragment":
+                    break              # retrying a broken voice changes nothing
+
+        if wav is None or rate is None:
+            assert last_error is not None
+            kind = classify_failure(last_error)
+            failures.append({
+                "chunk_id": chunk["id"],
+                "error": f"{type(last_error).__name__}: {last_error}",
+                "attempts": 1 if kind != "fragment" else retries + 1,
+                "kind": kind,
+            })
             progress(chunk["id"], chunk_voice)
             last_progress = time.time()
+
+            # Every fragment so far has failed the same way. That is the voice
+            # or the model, and grinding through the rest of the book to say so
+            # helps nobody.
+            if (len(failures) >= SYSTEMIC_FAILURES and not rendered
+                    and len({f["kind"] for f in failures}) == 1):
+                progress(running=False)
+                raise typer.BadParameter(
+                    f"the first {len(failures)} fragments all failed the same "
+                    f"way, so this is the {failures[-1]['kind']} rather than the "
+                    f"text: {failures[-1]['error']}"
+                )
             continue
 
         # Written at the engine's own rate. Assembly resamples once, explicitly,
@@ -354,9 +443,8 @@ def main(
     else:
         rendered_out = rendered
 
-    with manifest_path.open("w", encoding="utf-8") as fh:
-        for chunk in rendered_out:
-            fh.write(json.dumps(chunk, ensure_ascii=False) + "\n")
+    publish_text(manifest_path, "".join(
+        json.dumps(chunk, ensure_ascii=False) + "\n" for chunk in rendered_out))
 
     elapsed = time.time() - started
     report = {
@@ -376,19 +464,22 @@ def main(
         "chunks_rendered": len(rendered) - skipped,
         "chunks_skipped": skipped,
         "audio_sec": round(audio_seconds, 3),
+        "chunks_retried": retried,
         "failures": failures,
         # Computed on the bookbinder side too, but written here so the file is
         # readable on its own. test_schemas pins the two shapes together.
         "realtime_factor": round(audio_seconds / elapsed, 2) if elapsed else 0.0,
         "ok": not failures and len(rendered) == len(chunks),
     }
-    report_path = out_dir / "report.json"
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    report_path = publish_text(
+        out_dir / "report.json", json.dumps(report, ensure_ascii=False, indent=2))
 
     typer.echo(
         f"rendered {len(rendered)}/{len(chunks)} chunks "
         f"({skipped} already present"
-        + (f", {stale} re-rendered as stale" if stale else "") + "), {audio_seconds / 3600:.2f} h of audio "
+        + (f", {stale} re-rendered as stale" if stale else "")
+        + (f", {retried} succeeded on a retry" if retried else "")
+        + f"), {audio_seconds / 3600:.2f} h of audio "
         f"in {elapsed / 60:.1f} min ({audio_seconds / elapsed:.1f}x realtime)\n"
         f"-> {manifest_path}\n-> {report_path}"
     )

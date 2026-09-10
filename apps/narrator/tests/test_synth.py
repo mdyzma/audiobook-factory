@@ -170,3 +170,45 @@ class TestFingerprintLedger:
 
         discard_dry_run(audio)
         assert not (audio / FINGERPRINTS).exists()
+
+
+class TestFailureClassification:
+    """Whose fault a failure is decides whether retrying it can help.
+
+    A fragment fault is one piece of text the engine could not read. A voice or
+    model fault repeats for every fragment, so grinding through a whole book to
+    report it ten thousand times helps nobody.
+    """
+
+    def test_a_missing_voice_profile_is_the_voice(self):
+        from narrator.synth import classify_failure
+
+        assert classify_failure(
+            FileNotFoundError("no voice profile at data/voices/absent.json")) == "voice"
+
+    def test_a_latent_problem_is_the_voice(self):
+        from narrator.synth import classify_failure
+
+        assert classify_failure(
+            RuntimeError("could not derive speaker latents for 'michal'")) == "voice"
+
+    def test_running_out_of_memory_is_the_model(self):
+        from narrator.synth import classify_failure
+
+        assert classify_failure(RuntimeError("CUDA out of memory")) == "model"
+
+    def test_a_checkpoint_problem_is_the_model(self):
+        from narrator.synth import classify_failure
+
+        assert classify_failure(RuntimeError("failed to load checkpoint")) == "model"
+
+    def test_anything_else_is_the_fragment(self):
+        from narrator.synth import classify_failure
+
+        assert classify_failure(ValueError("token sequence too long")) == "fragment"
+
+    def test_the_classification_is_one_of_the_documented_kinds(self):
+        from narrator.synth import classify_failure
+
+        for exc in (ValueError("x"), RuntimeError("CUDA"), FileNotFoundError("y")):
+            assert classify_failure(exc) in {"fragment", "voice", "model"}
