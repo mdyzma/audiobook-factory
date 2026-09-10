@@ -154,14 +154,35 @@ this must not wait for XTTS to fail.
 
 | ID | Work | Size |
 |---|---|---|
-| B-1 | Versioned backend request and result schemas in `docs/schemas/`, exported from `manifest.py` like the existing five. Backend-neutral: text, language, voice reference, effective settings, and the resulting audio plus its native rate and engine identity. (ARCH-05 subset) | M |
-| B-2 | Model registry in `config/models.toml`. Per entry: narration and reference languages, reference-audio and transcript requirements, cloning support, token and context limits, native rate, supported controls, runtime environment, exact checkpoint and tokenizer revision, asset hashes, validation status. Resolution order is explicit book or role override, then the validated default for the book language. Never substitute silently. (SEC-02, CONF-01) | M |
-| B-3 | Refactor the narrator behind the contract. `narrator/backends/xtts.py` implements it; `engine.py` stops being the only path. The pinned environment is untouched. | M |
+| B-1 | Versioned backend request and result schemas in `docs/schemas/`, exported from `manifest.py` like the existing five. Backend-neutral: text, language, voice reference, effective settings, and the resulting audio plus its native rate and engine identity. (ARCH-05 subset) | M — **done** |
+| B-2 | Model registry in `config/models.toml`. Per entry: narration and reference languages, reference-audio and transcript requirements, cloning support, token and context limits, native rate, supported controls, runtime environment, exact checkpoint and tokenizer revision, asset hashes, validation status. Resolution order is explicit book or role override, then the validated default for the book language. Never substitute silently. (SEC-02, CONF-01) | M — **done** |
+| B-3 | Refactor the narrator behind the contract. `narrator/backends/xtts.py` implements it; `engine.py` stops being the only path. The pinned environment is untouched. | M — **done** |
 | B-4 | First alternative backend in its own environment. Recommended: Chatterbox Multilingual, because it documents both `pl` and `en` and so serves the Polish comparison and the English one from a single new environment. (ARCH-07, FEAT-18 adapters) | L |
 | B-5 | Benchmark harness and per-language corpora. Same content for every eligible model in that language, at least two reference speakers, MP3 and WAV sources, narration, dialogue, numbers, abbreviations, proper names, short headings, long sentences, chapter transitions. Short diagnostics, then 20 to 30 minutes of connected narration, then a full-chapter soak, with repeat generations to expose stochastic failures. Pinned settings and a bounded, equal tuning budget per backend. (TEST-01 opt-in, TEST-04) | L |
 | B-6 | Result sheets: `docs/MODEL-EVAL-PL.md` and `docs/MODEL-EVAL-EN.md`. Content fidelity, language quality, voice likeness, long-form listening, practical performance, operational fit, each scored per language and never combined into one number. Samples, settings, errors, timing, chosen default, tested alternatives. | M |
-| B-7 | Resolve the model before final chunking. Retain stable source paragraph IDs and derive an engine-specific chunk plan inside that mapping. `char_limit` becomes registry-driven. A model change may require re-chunking the whole book. | M |
+| B-7 | Resolve the model before final chunking. Retain stable source paragraph IDs and derive an engine-specific chunk plan inside that mapping. `char_limit` becomes registry-driven. A model change may require re-chunking the whole book. | M — **done** |
 | B-8 | Second and third English candidates once B-4 proves the adapter shape: Qwen3-TTS-12Hz-1.7B-Base, then Chatterbox-Turbo. Qwen's transcript requirement becomes an engine-specific preparation step, not a WhisperX dependency for every voice. | L |
+
+**Portable half done, 2026-09-09.** B-1, B-2, B-3 and B-7 landed together,
+because they are one change seen from four places: nothing about a model is
+compiled in any more.
+
+- `config/models.toml` holds what each backend narrates, what a reference may
+  be in, its fragment limit, native rate, controls and environment. `just
+  models` prints it. A malformed entry fails at load rather than mid-render.
+- Chunking resolves the backend before splitting, since fragment size is the
+  model's property rather than the language's, and snapshots the choice into
+  `book.json`. Changing a default tomorrow cannot change a queued book.
+- That snapshot is the request. Stage 4 reads it instead of deciding, and
+  refuses a book bound to an engine this environment does not implement.
+  `narrator/backends/` is the seam, `narrator/choice.py` the mirror, and a
+  test compares the mirror against the exported schema so a field added on one
+  side and not the other fails rather than being silently dropped.
+- The render report now records which model and rate produced the audio.
+- Schema 4.
+
+XTTS is unchanged in behaviour; it is simply no longer the only path. The
+remaining items need a second backend and a machine to listen on.
 
 **Hardware dependency.** B-5, B-6, and B-8 produce listening and throughput
 evidence and cannot be completed on the Mac. They belong on the CUDA box; see

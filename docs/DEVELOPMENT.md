@@ -272,6 +272,25 @@ correct, and it is the point: a render that fails leaves the previous export in
 place, so the presence of a file says nothing about the current state. The
 render report decides, and `failed` outranks `done`.
 
+**Adding a synthesis backend.** Nothing about a model is compiled in any more.
+`config/models.toml` records which languages it narrates, which a voice
+reference may be in, its fragment limit, its native rate, the controls it
+implements and the environment that can load it. `just models` prints it.
+
+Three things follow from that. Chunking resolves the backend before it splits
+anything, because the fragment size is the model's property and not the
+language's, so changing model means re-chunking rather than patching fragments.
+The resolved choice is snapshotted into `book.json`, so changing a default
+tomorrow cannot change a book already queued. And stage 4 reads that block
+rather than deciding for itself: a book bound to an engine the running
+environment does not implement is refused, never rendered with whatever is
+installed.
+
+The code side is `narrator/backends/`. A backend answers two questions, what to
+speak and at what rate the audio comes back. If its dependencies conflict with
+the XTTS pins, it gets its own environment under `apps/` and its own module
+there; see `docs/DECISIONS.md`.
+
 **A book that stops with `needs review` at ingestion.** Two things are now
 established from the file rather than assumed: the encoding of plain text, and
 the language of the book. Either can be genuinely undecidable, and guessing is

@@ -33,6 +33,7 @@ pass `""` for the ones between.
 | `just test-one <env> [args]` | One environment, verbose. Example: `just test-one narrator -k formatter`. |
 | `just doctor` | Prints ffmpeg, uv and the versions each environment resolved. |
 | `just check-narrator` | Loads XTTS-v2 for real, not just imports it. Downloads weights on first run. |
+| `just models` | Lists the synthesis backends and which one narrates each language. |
 | `just schemas` | Regenerates `docs/schemas/` from the pydantic models. |
 | `just schemas-check` | Fails if the exported schemas have drifted. Part of `just check` and CI. |
 
@@ -50,8 +51,9 @@ pass `""` for the ones between.
 
 | Command | What it does |
 |---|---|
+| `just inspect <source> <encoding="">` | Reports the encoding and language ingestion would choose, and the evidence for each, without writing anything. Use it when a book stops for review. |
 | `just ingest <source> <slug=""> <language=""> <title=""> <author=""> <encoding="">` | Parses an EPUB, PDF or text file into normalised chapters, establishing the file's encoding and the book's language rather than assuming them. Plain text carries no metadata, so pass `title` and `author` or they come from the filename. Setting them later by editing `book.json` does not last: chunking rebuilds it. Pass `language` (`pl` or `en`) or `encoding` (`cp1250`, `iso-8859-2`) to decide either yourself; a book that cannot settle both stops for review. |
-| `just chunk <slug> <voice="">` | Rewrites each paragraph as it should be spoken, then splits it into fragments under the per-language XTTS limit, assigning a cast role to each. Abbreviations and symbols are expanded per language, and `data/book/<slug>/pronunciation.yml` overrides both. Each fragment keeps the printed spelling it came from. |
+| `just chunk <slug> <voice=""> <model="">` | Rewrites each paragraph as it should be spoken, then splits it into fragments under the per-language XTTS limit, assigning a cast role to each. The synthesis backend is resolved here, from `config/models.toml`, and the fragments are packed against its limit; pass `model` to override the default for the book's language. Abbreviations and symbols are expanded per language, and `data/book/<slug>/pronunciation.yml` overrides both. Each fragment keeps the printed spelling it came from. |
 | `just chunk-single <slug> <voice>` | As above but narrates everything in one voice, ignoring `config/cast.yml`. |
 
 ## Stages 4 and 5: make the audio
@@ -61,7 +63,6 @@ pass `""` for the ones between.
 | `just dryrun <slug> [strict]` | Renders silence at the right durations. No models, no GPU. Pass any value for `strict` to fail on a role whose voice is not cloned. Marks its own output, and `just synth` discards it. |
 | `just preview <slug> <voice>` | Renders the first 20 fragments only, to check the voice before committing hours. |
 | `just synth <slug> <voice> <device="auto">` | Renders every fragment. Resumable: re-run to continue after an interruption. |
-| `just inspect <source> <encoding="">` | Reports the encoding and language ingestion would choose, and the evidence for each, without writing anything. Use it when a book stops for review. |
 | `just assemble <slug> <format="">` | Muxes fragments, pauses and chapter marks into the finished audiobook. Refuses if the rendered fragments do not match the chunk plan exactly, so an unfinished render cannot become a short audiobook. |
 
 ## Dashboard
