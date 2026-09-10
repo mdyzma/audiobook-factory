@@ -21,7 +21,8 @@ from pathlib import Path
 import typer
 
 from bookbinder.paths import project_root
-from bookbinder.manifest import is_dry_run_audio, read_book
+from bookbinder.fingerprint import fragment_fingerprint, voice_revision
+from bookbinder.manifest import BookMeta, is_dry_run_audio, read_book
 
 app = typer.Typer(add_completion=False)
 
@@ -93,13 +94,57 @@ def _listed(ids: list[str]) -> str:
     return f"{shown}, ..." if len(ids) > LISTED_IDS else shown
 
 
-def planned_chunk_ids(book_dir: Path) -> list[str]:
-    """Fragment ids the chunker planned, in order. Empty when unknown."""
+def planned_chunks(book_dir: Path) -> list[dict]:
+    """The fragments the chunker planned, in order. Empty when unknown."""
     path = book_dir / "chunks.jsonl"
     if not path.exists():
         return []
-    return [json.loads(line)["id"]
+    return [json.loads(line)
             for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def stale_fragments(
+    root: Path, rendered: list[dict], planned: dict[str, dict], book: BookMeta
+) -> list[str]:
+    """Fragments whose audio was not made from what the book now says.
+
+    The fingerprint recorded when a fragment was written is compared against
+    one recomputed from the current plan. That is what catches a book
+    re-chunked after a text correction, or half-rendered under a different
+    model: both leave a full set of readable files with exactly the right
+    names, which is all the completeness check above can see.
+
+    Each fragment is checked against the voice it was actually rendered with,
+    so an intentional `--voice` override is not mistaken for drift. Whether
+    that voice still matches the cast is a separate question, and the recorded
+    voice is what makes it answerable.
+
+    Fragments written before fingerprinting existed carry none and are let
+    through, rather than forcing a re-render of every book already on disk.
+    """
+    revisions: dict[str, str] = {}
+    stale: list[str] = []
+    for chunk in rendered:
+        recorded = chunk.get("fingerprint") or ""
+        current = planned.get(chunk["id"])
+        if not recorded or current is None:
+            continue
+
+        voice = chunk.get("voice") or ""
+        if voice not in revisions:
+            revisions[voice] = voice_revision(root, voice)
+
+        expected = fragment_fingerprint(
+            text=current["text"],
+            language=current.get("language", ""),
+            model=book.model.identity,
+            voice=voice,
+            voice_revision=revisions[voice],
+            settings=dict(book.model.settings),
+        )
+        if recorded != expected:
+            stale.append(chunk["id"])
+    return stale
 
 
 def completeness_problems(root: Path, chunks: list[dict], planned: list[str]) -> list[str]:
@@ -210,7 +255,14 @@ def main(
     chunks = [json.loads(l) for l in rendered_path.read_text(encoding="utf-8").splitlines() if l.strip()]
     chunks.sort(key=lambda c: c["order"])
 
-    problems = completeness_problems(root, chunks, planned_chunk_ids(book_dir))
+    plan = planned_chunks(book_dir)
+    problems = completeness_problems(root, chunks, [c["id"] for c in plan])
+    stale = stale_fragments(root, chunks, {c["id"]: c for c in plan}, book)
+    if stale:
+        problems.append(
+            f"{len(stale)} fragment(s) were rendered from different text, a "
+            f"different model or different settings than the book now uses: "
+            f"{_listed(stale)}")
     if problems:
         raise typer.BadParameter(
             f"'{slug}' is not ready to assemble:\n"

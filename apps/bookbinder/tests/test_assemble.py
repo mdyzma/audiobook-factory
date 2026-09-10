@@ -272,3 +272,100 @@ class TestEscaping:
             capture_output=True, text=True, check=True)
         assert "INJECTED" not in probe.stdout
         assert "Lem" in probe.stdout
+
+
+class TestRefusesStaleAudio:
+    """A full set of readable files with the right names is not enough.
+
+    Re-chunking after a text correction, or half-rendering under a different
+    model, leaves exactly that. The completeness check above cannot see it;
+    only the fingerprint can.
+    """
+
+    MODEL = {
+        "id": "xtts-v2", "engine": "xtts", "environment": "narrator",
+        "checkpoint": "c", "revision": "", "native_sample_rate": 24000,
+        "char_limit": 224, "settings": {"temperature": 0.7}, "unsupported": [],
+        "source": "default",
+    }
+
+    def _build(self, tmp_path, monkeypatch):
+        from bookbinder.fingerprint import fragment_fingerprint, voice_revision
+
+        root, assemble = TestAssembleEndToEnd()._build(tmp_path, monkeypatch)
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(root))
+
+        book_json = root / "data" / "book" / "b" / "book.json"
+        payload = json.loads(book_json.read_text(encoding="utf-8"))
+        payload["model"] = self.MODEL
+        book_json.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+        # Fingerprint every fragment as a real render would have.
+        revision = voice_revision(root, "v")
+        path, rows = TestAssembleEndToEnd._rendered(root)
+        for row in rows:
+            row["voice"] = "v"
+            row["fingerprint"] = fragment_fingerprint(
+                text=row["text"], language=row["language"], model="xtts-v2",
+                voice="v", voice_revision=revision,
+                settings={"temperature": 0.7})
+        TestAssembleEndToEnd._rewrite(path, rows)
+        TestAssembleEndToEnd._rewrite(root / "data" / "book" / "b" / "chunks.jsonl", rows)
+
+        from typer.testing import CliRunner
+        return root, assemble, CliRunner()
+
+    def test_a_fingerprinted_book_still_assembles(self, tmp_path, monkeypatch):
+        root, assemble, runner = self._build(tmp_path, monkeypatch)
+        assert runner.invoke(assemble.app, ["b"]).exit_code == 0
+
+    def test_edited_text_blocks_export(self, tmp_path, monkeypatch):
+        # A correction re-chunked without re-rendering: same ids, same files.
+        root, assemble, runner = self._build(tmp_path, monkeypatch)
+        plan = root / "data" / "book" / "b" / "chunks.jsonl"
+        rows = [json.loads(l) for l in plan.read_text(encoding="utf-8").splitlines() if l.strip()]
+        rows[1]["text"] = "Zupełnie inne zdanie niż to, które nagrano."
+        TestAssembleEndToEnd._rewrite(plan, rows)
+
+        result = runner.invoke(assemble.app, ["b"])
+        assert result.exit_code != 0
+        assert "different text" in result.output
+        assert "ch001_0001" in result.output
+
+    def test_a_changed_model_blocks_export(self, tmp_path, monkeypatch):
+        root, assemble, runner = self._build(tmp_path, monkeypatch)
+        book_json = root / "data" / "book" / "b" / "book.json"
+        payload = json.loads(book_json.read_text(encoding="utf-8"))
+        payload["model"]["id"] = "chatterbox-multilingual"
+        book_json.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+        result = runner.invoke(assemble.app, ["b"])
+        assert result.exit_code != 0
+        assert "different model" in result.output
+
+    def test_changed_settings_block_export(self, tmp_path, monkeypatch):
+        root, assemble, runner = self._build(tmp_path, monkeypatch)
+        book_json = root / "data" / "book" / "b" / "book.json"
+        payload = json.loads(book_json.read_text(encoding="utf-8"))
+        payload["model"]["settings"] = {"temperature": 0.95}
+        book_json.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+        assert runner.invoke(assemble.app, ["b"]).exit_code != 0
+
+    def test_a_re_cloned_voice_blocks_export(self, tmp_path, monkeypatch):
+        root, assemble, runner = self._build(tmp_path, monkeypatch)
+        voices = root / "data" / "voices" / "v"
+        voices.mkdir(parents=True, exist_ok=True)
+        (voices / "latents.pt").write_bytes(b"cloned again from new material")
+
+        assert runner.invoke(assemble.app, ["b"]).exit_code != 0
+
+    def test_audio_from_before_fingerprinting_is_let_through(self, tmp_path, monkeypatch):
+        # Refusing every book already on disk would be its own failure.
+        root, assemble, runner = self._build(tmp_path, monkeypatch)
+        path, rows = TestAssembleEndToEnd._rendered(root)
+        for row in rows:
+            row["fingerprint"] = ""
+        TestAssembleEndToEnd._rewrite(path, rows)
+
+        assert runner.invoke(assemble.app, ["b"]).exit_code == 0
