@@ -153,6 +153,13 @@ voice input name language="pl":
 
 # ----------------------------------------- stages 2-3: text preparation ----
 
+# What books are in a folder, and which are already here. Reads nothing but
+# the bytes: the same book under two names is one book, and two different
+# books sharing a title get separate names rather than overwriting each other.
+scan folder recursive="":
+    cd apps/bookbinder && uv run python -m bookbinder.library \
+      {{quote(absolute_path(folder))}} {{ if recursive != "" { "--recursive" } else { "" } }}
+
 # 2. Parse an ebook into normalised chapters.
 ingest source slug="" language="" title="" author="" encoding="":
     # absolute_path so this works from anywhere and with absolute inputs; the
