@@ -81,6 +81,11 @@ REPLACEMENT_WEIGHT = 100.0
 # plausible. It only matters when they also produce different text.
 TIE_MARGIN = 0.05
 
+# Below this, the penalties outweighed everything that looked like text, which
+# real prose never manages: a correct reading scores close to 1. Reached only
+# when the file is not a book, or is one this decoder cannot read.
+POOR_QUALITY = 0.0
+
 
 @dataclass
 class Candidate:
@@ -272,6 +277,18 @@ def decode_bytes(raw: bytes, override: str = "") -> Decoded:
             f"{best.encoding} and {', '.join(c.encoding for c in rivals)} are "
             f"equally plausible and disagree about the text; choose one with "
             f"--encoding"
+        )
+
+    # Being the only reading that did not raise is not the same as being right.
+    # A file of bytes that only ISO-8859-2 accepts decodes to a page of control
+    # characters, wins by default because nothing else is competing, and
+    # otherwise sails through as a book.
+    if best.score < POOR_QUALITY:
+        decoded.needs_review = True
+        decoded.review_reasons.append(
+            f"read as {best.encoding} because nothing else could read it at all, "
+            f"but the result does not look like text (quality {best.score:.2f}). "
+            f"Check the file is a book and not something else"
         )
     return decoded
 

@@ -198,3 +198,31 @@ class TestBomDetection:
 
     def test_plain_utf_8_has_no_mark(self):
         assert detect_bom(POLISH.encode("utf-8")) is None
+
+
+class TestBeingTheOnlyReadingIsNotBeingRight:
+    """A file only one table accepts still has to look like text.
+
+    Bytes that fail UTF-8, Windows-1250 and Windows-1252 but decode under
+    ISO-8859-2 produce a page of control characters. With nothing competing
+    there is no ambiguity to flag, so this used to sail through as a book.
+    """
+
+    ONLY_ISO = bytes([0x81, 0x8D, 0x8F, 0x90, 0x9D]) * 60
+
+    def test_it_is_flagged_rather_than_accepted(self):
+        out = decode_bytes(self.ONLY_ISO)
+        assert out.needs_review
+        assert any("does not look like text" in r for r in out.review_reasons)
+
+    def test_the_reason_says_it_won_by_default(self):
+        out = decode_bytes(self.ONLY_ISO)
+        assert any("nothing else could read it" in r for r in out.review_reasons)
+
+    def test_real_prose_is_not_flagged_by_this(self):
+        for encoding in ("utf-8", "cp1250", "iso-8859-2"):
+            out = decode_bytes(POLISH.encode(encoding))
+            assert not out.needs_review
+
+    def test_plain_english_is_not_flagged_by_this(self):
+        assert not decode_bytes(ENGLISH.encode("cp1250")).needs_review
