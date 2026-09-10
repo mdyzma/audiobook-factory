@@ -258,6 +258,18 @@ case the others miss:
 
 `just verify` refuses outright on marked silence, before whisperx is imported.
 
+**A quality check that disagrees with itself between languages.** One ASR
+model no longer covers a whole book. Fragments are grouped by their own
+language and each group is heard by a transcriber loaded for it, with its own
+word error rate threshold from `[qa.max_wer_by_language]`. Taking the first
+fragment's language for everything, as this used to, reports every fragment in
+the other language as a synthesis failure.
+
+The report says how much of the book it covers and which audio it describes.
+A sampled pass and a full pass are different claims, and the dashboard marks a
+report whose audio has since been re-rendered rather than showing it as
+current.
+
 **Fragments re-rendered as stale, or an assembly refused for "different
 text".** Resume used to mean "skip anything that already has a wav", which is
 what makes a twenty-hour book survivable and also how a book comes out in the

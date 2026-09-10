@@ -41,11 +41,12 @@ pass `""` for the ones between.
 
 | Command | What it does |
 |---|---|
+| `just probe <input>` | What a recording is, and whether it is worth cloning from: duration, level, silence, channels. ffmpeg only, so it answers in seconds. Exits non-zero on a recording that will not work. |
 | `just clean <input> <voice>` | Denoises and normalises a recording to 24 kHz mono. |
 | `just label <voice> <device="auto"> <language="pl">` | Cuts the sample on WhisperX alignment boundaries and transcribes each piece. |
 | `just clone <voice> <device="auto">` | Derives speaker latents and renders an audition clip to judge the clone. |
 | `just train <voice> <language="pl"> <epochs="10"> <batch="3"> <accum="84">` | Optional full fine-tune. CUDA only. `batch * accum` is the effective batch size; keep it near 250. |
-| `just voice <input> <name> <language="pl">` | Stage 1 end to end: clean, label, clone. The dashboard's **Create voice** button runs this. |
+| `just voice <input> <name> <language="pl">` | Stage 1 end to end: probe, clean, label, clone. Stops before the model download if the recording cannot work. The dashboard's **Create voice** button runs this. |
 
 ## Stages 2 and 3: prepare the text
 

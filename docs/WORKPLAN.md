@@ -194,22 +194,22 @@ can override either, one saved voice compares across candidates, and eligibility
 or rejection is visible with its reason. Both defaults pass the longer narration
 checks on the target hardware.
 
-## Slice C — One dependable book
+## Slice C — One dependable book — mostly done
 
 Uses B's contracts. The goal is one Polish chapter and one English chapter that
 survive interruption and a change of model or reference.
 
 | ID | Work | Size |
 |---|---|---|
-| C-1 | Voice library record. Stable ID and display name, original MP3 or WAV, selected clean regions, recording language, optional reviewed transcript, source hashes, processing history. Conditioning artifacts are derived per engine, checkpoint, voice revision, and preprocessing version, cached separately. XTTS latents become one derived representation among several. | L |
-| C-2 | Import, probe, select usable speech, optional cleaning, audition, save. Automatic selection for clean single-speaker material; manual region and speaker selection otherwise. Report silence, clipping, unusable regions, transcript mismatch. Longest ASR segment is not a quality criterion. | M |
-| C-3 | Keep references at native quality and prepare them at each engine's required rate. Preserve engine output metadata and resample explicitly at the assembly boundary. 24 kHz stops being a global assumption. | M |
+| C-1 | Voice library record. Stable ID and display name, original MP3 or WAV, selected clean regions, recording language, optional reviewed transcript, source hashes, processing history. Conditioning artifacts are derived per engine, checkpoint, voice revision, and preprocessing version, cached separately. XTTS latents become one derived representation among several. | L — **part**: the cross-engine conditioning cache waits for a second backend (B-4); see below |
+| C-2 | Import, probe, select usable speech, optional cleaning, audition, save. Automatic selection for clean single-speaker material; manual region and speaker selection otherwise. Report silence, clipping, unusable regions, transcript mismatch. Longest ASR segment is not a quality criterion. | M — **part**: the probe is done; region and speaker selection waits for B-4 |
+| C-3 | Keep references at native quality and prepare them at each engine's required rate. Preserve engine output metadata and resample explicitly at the assembly boundary. 24 kHz stops being a global assumption. | M — **done** |
 | C-4 | Fragment fingerprints (ARCH-04). Reuse a WAV only when accepted text, spoken-text preparation version, language, engine, checkpoint, tokenizer, voice revision, effective settings, and renderer version all match, and the file decodes completely. Replaces the filename check at synth.py:242. | M — **done** |
-| C-5 | Atomic publication of audio, manifests, QA, and exports. Previews and dry runs live outside the production fragment tree. | M |
-| C-6 | Finalisation gate. Require the current expected fragment set exactly once, in order, with matching fingerprints and readable audio. Completes D-04 and D-05. (FEAT-05) | M — **part**: the fingerprint half is done; ordering and the Studio `done` state follow with C-5 |
-| C-7 | Language-aware QA. Group or select ASR by fragment language instead of taking `chunks[0]`. Compare against intended spoken text while keeping links to original spelling and substitutions. Per-language WER and CER thresholds. Distinguish sampled from full coverage. Never suppress a failure or show stale QA as current. | L |
-| C-8 | Per-book cast and effective settings. Carry role speed through the contract and mark unsupported controls explicit rather than accepting them silently. | M |
-| C-9 | Error taxonomy and bounded, targeted retries with visible failures. No automatic model fallback mid-book. (ARCH-06) | M |
+| C-5 | Atomic publication of audio, manifests, QA, and exports. Previews and dry runs live outside the production fragment tree. | M — **done** |
+| C-6 | Finalisation gate. Require the current expected fragment set exactly once, in order, with matching fingerprints and readable audio. Completes D-04 and D-05. (FEAT-05) | M — **done** |
+| C-7 | Language-aware QA. Group or select ASR by fragment language instead of taking `chunks[0]`. Compare against intended spoken text while keeping links to original spelling and substitutions. Per-language WER and CER thresholds. Distinguish sampled from full coverage. Never suppress a failure or show stale QA as current. | L — **done** |
+| C-8 | Per-book cast and effective settings. Carry role speed through the contract and mark unsupported controls explicit rather than accepting them silently. | M — **done** |
+| C-9 | Error taxonomy and bounded, targeted retries with visible failures. No automatic model fallback mid-book. (ARCH-06) | M — **done** |
 
 **Started 2026-09-10 with C-4, because slice B created the hazard it closes.**
 Switching models became a one-word argument while stage 4 still decided to
@@ -229,6 +229,40 @@ other. Both copies are stdlib-only so one test can load both and compare their
 output, including on non-ASCII text where an encoding difference would show
 first. Schema 5 carries the fingerprint and the voice that rendered each
 fragment.
+
+**Completed 2026-09-10 apart from the cross-engine voice work.** What the rest
+turned out to be:
+
+- **C-7** was the defect the assessment named. One transcriber for a whole book
+  meant every fragment in the other language was heard by the wrong model and
+  reported as a synthesis failure. Fragments are now grouped by their own
+  language, each group heard by a transcriber loaded for it, with its own
+  threshold. The report says how much of the book it covers and which audio it
+  describes, and the dashboard marks one whose audio has since been re-rendered.
+- **C-3** was a live bug rather than a future one. Pauses were generated at the
+  configured output rate while fragments carry the engine's, so a backend at any
+  other rate would have produced a click at every paragraph break or failed to
+  concatenate. The rate now follows the fragments and the single resample
+  happens once at the end.
+- **C-8** was the ineffective role speed. `cast.yml` has carried a speed per
+  role since the beginning and nothing read it, so a dialogue voice set faster
+  narrated at exactly the same pace. It is now filtered to controls the backend
+  implements, folded into the fingerprint, and applied per fragment.
+- **C-9**: `retries` was in the config and unread, so a fragment the engine
+  fumbled once was a permanent failure. Failures are also categorised, and a run
+  whose first few fragments all fail the same way stops rather than grinding
+  through a whole book to report the same voice fault ten thousand times.
+- **C-5**: every manifest, report and export is now written beside its target
+  and renamed in. The export mattered most: a killed assembly left a truncated
+  file that plays, has a plausible length, and reads as finished.
+- **C-2**: `just probe` judges a recording before anything is cloned from it.
+  Cloning costs minutes and a model download, and most reasons a recording will
+  not work are visible in the file.
+
+**What waits for a second backend.** C-1's separate conditioning artifact per
+engine and revision, and C-2's manual region and speaker selection, are both
+shaped by what a second engine actually needs from a reference. Building them
+against one engine would be guessing. They unblock with B-4.
 
 **Exit evidence.** Changing language, model, reference, or text invalidates
 incompatible output. Interrupt and restart preserve only valid completed work.
