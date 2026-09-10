@@ -1,0 +1,166 @@
+{
+  "$defs": {
+    "QaCoverage": {
+      "description": "How much of the book this report actually describes.\n\nA sampled pass and a full pass are different claims, and one presented as\nthe other is how a book gets published on the strength of every twentieth\nfragment.",
+      "properties": {
+        "available": {
+          "default": 0,
+          "description": "Fragments with audio",
+          "minimum": 0,
+          "title": "Available",
+          "type": "integer"
+        },
+        "checked": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Checked",
+          "type": "integer"
+        },
+        "full": {
+          "readOnly": true,
+          "title": "Full",
+          "type": "boolean"
+        },
+        "languages": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Languages",
+          "type": "array"
+        },
+        "sample": {
+          "default": 0,
+          "description": "Every Nth; 0 means all",
+          "minimum": 0,
+          "title": "Sample",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "full"
+      ],
+      "title": "QaCoverage",
+      "type": "object"
+    },
+    "QaFinding": {
+      "properties": {
+        "chunk_id": {
+          "minLength": 1,
+          "title": "Chunk Id",
+          "type": "string"
+        },
+        "expected": {
+          "description": "The spoken text the model was given",
+          "title": "Expected",
+          "type": "string"
+        },
+        "heard": {
+          "title": "Heard",
+          "type": "string"
+        },
+        "language": {
+          "default": "",
+          "description": "Which ASR model heard it",
+          "title": "Language",
+          "type": "string"
+        },
+        "source_text": {
+          "default": "",
+          "description": "The printed spelling, where it differs, so the passage can be found in the book",
+          "title": "Source Text",
+          "type": "string"
+        },
+        "wer": {
+          "minimum": 0,
+          "title": "Wer",
+          "type": "number"
+        }
+      },
+      "required": [
+        "chunk_id",
+        "expected",
+        "heard",
+        "wer"
+      ],
+      "title": "QaFinding",
+      "type": "object"
+    }
+  },
+  "description": "Output of re-transcribing rendered audio and comparing it to the source.",
+  "properties": {
+    "audio_fingerprint": {
+      "default": "",
+      "description": "Digest of the fragments checked, so a later render shows this report as describing audio that no longer exists",
+      "title": "Audio Fingerprint",
+      "type": "string"
+    },
+    "chunks_checked": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Chunks Checked",
+      "type": "integer"
+    },
+    "coverage": {
+      "$ref": "#/$defs/QaCoverage"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/QaFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "max_wer": {
+      "default": 0.15,
+      "minimum": 0,
+      "title": "Max Wer",
+      "type": "number"
+    },
+    "mean_wer": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Mean Wer",
+      "type": "number"
+    },
+    "model": {
+      "default": "",
+      "title": "Model",
+      "type": "string"
+    },
+    "ok": {
+      "readOnly": true,
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "default": 6,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "slug": {
+      "minLength": 1,
+      "title": "Slug",
+      "type": "string"
+    },
+    "synthesis_model": {
+      "default": "",
+      "description": "Which backend made the audio",
+      "title": "Synthesis Model",
+      "type": "string"
+    },
+    "thresholds": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "description": "Per-language limits, where they differ from max_wer",
+      "title": "Thresholds",
+      "type": "object"
+    }
+  },
+  "required": [
+    "slug",
+    "ok"
+  ],
+  "title": "QaReport",
+  "type": "object"
+}

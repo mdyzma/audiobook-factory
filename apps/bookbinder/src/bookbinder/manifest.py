@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Iterator, Literal
+from typing import Callable, Iterator, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
@@ -25,10 +25,13 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 # 4 added the resolved synthesis backend, which is what makes book.json the
 # request a narrator environment reads rather than a description of one.
 # 5 added each fragment's fingerprint, so reusing audio stops being a guess
-# based on a filename.
+# based on a filename. 6 made the quality report say which languages it
+# checked, how much of the book, and which audio it describes, and gave
+# render failures a category and an attempt count, and carried
+# per-role controls through to the renderer.
 # The set is versioned as a unit so a reader only has to check one number.
 # narrator and transcriber mirror this constant.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # XTTS-v2 silently truncates text past these per-language limits.
 # Source: Coqui TTS xtts.py char_limits.
@@ -65,6 +68,35 @@ FINGERPRINT_LEDGER = "fingerprints.jsonl"
 
 def char_limit(language: str) -> int:
     return XTTS_CHAR_LIMITS.get(language, 250)
+
+
+def publish(path: Path, write: "Callable[[Path], object]") -> Path:
+    """Produce `path` by writing beside it and renaming into place.
+
+    Every file here is read by something that decides what to do next: a
+    manifest says what to render, a report says whether a render worked, an
+    export is the deliverable. Written directly, a run killed part-way leaves a
+    half-file that parses as a smaller book or reads as a finished one.
+
+    A rename within a directory is atomic, so a reader sees either the previous
+    file or the complete new one. `write` is handed the temporary path and must
+    fill it; if it raises, nothing is replaced. Its return value is ignored,
+    so `Path.write_text` can be passed straight through.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staged = path.with_name(f".{path.name}.part")
+    try:
+        write(staged)
+        staged.replace(path)
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
+    return path
+
+
+def publish_text(path: Path, content: str) -> Path:
+    """`publish` for a file that is one string."""
+    return publish(path, lambda p: p.write_text(content, encoding="utf-8"))
 
 
 def mark_dry_run(audio_dir: Path, slug: str, chunks: int = 0) -> Path:
@@ -305,6 +337,12 @@ class BookMeta(StrictModel):
         default_factory=dict,
         description="role -> voice name, as resolved when the book was chunked",
     )
+    cast_settings: dict[str, dict[str, float]] = Field(
+        default_factory=dict,
+        description="role -> controls that differ from the book's, such as a "
+                    "slightly faster dialogue voice. Only controls the chosen "
+                    "backend implements appear here",
+    )
     chapters: list[ChapterRef] = Field(default_factory=list)
     chunk_count: int = Field(default=0, ge=0)
     est_hours: float = Field(default=0.0, ge=0)
@@ -331,6 +369,7 @@ class BookManifest(StrictModel):
     source_sha256: str = ""
     voice: str = ""
     cast: dict[str, str] = Field(default_factory=dict)
+    cast_settings: dict[str, dict[str, float]] = Field(default_factory=dict)
     chapters: list[ChapterRef] = Field(default_factory=list)
     chunks: list[Chunk] = Field(default_factory=list)
     encoding: EncodingRecord = Field(default_factory=EncodingRecord)
@@ -354,6 +393,7 @@ class BookManifest(StrictModel):
             language=self.language, source_file=self.source_file,
             original_source=self.original_source,
             source_sha256=self.source_sha256, voice=self.voice, cast=self.cast,
+            cast_settings=self.cast_settings,
             chapters=self.chapters, chunk_count=len(self.chunks),
             est_hours=self.est_hours, encoding=self.encoding,
             language_decision=self.language_decision, model=self.model,
@@ -363,15 +403,12 @@ class BookManifest(StrictModel):
     def write(self, out_dir: Path) -> tuple[Path, Path]:
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        chunks_path = out_dir / "chunks.jsonl"
-        with chunks_path.open("w", encoding="utf-8") as fh:
-            for chunk in self.chunks:
-                fh.write(chunk.model_dump_json() + "\n")
-
-        meta_path = out_dir / "book.json"
-        meta_path.write_text(
-            self.to_meta().model_dump_json(indent=2), encoding="utf-8"
+        chunks_path = publish_text(
+            out_dir / "chunks.jsonl",
+            "".join(c.model_dump_json() + "\n" for c in self.chunks),
         )
+        meta_path = publish_text(
+            out_dir / "book.json", self.to_meta().model_dump_json(indent=2))
         return meta_path, chunks_path
 
 
@@ -413,6 +450,14 @@ def json_schemas() -> dict[str, dict]:
 class RenderFailure(ReportModel):
     chunk_id: str = Field(min_length=1)
     error: str
+    attempts: int = Field(
+        default=1, ge=1, description="How many times it was tried before giving up"
+    )
+    kind: str = Field(
+        default="fragment",
+        description="fragment | voice | model | unknown. A voice or model fault is "
+                    "the run's, not this fragment's, and repeats for every one",
+    )
 
 
 class RenderReport(ReportModel):
@@ -441,6 +486,9 @@ class RenderReport(ReportModel):
     chunks_total: int = Field(default=0, ge=0)
     chunks_rendered: int = Field(default=0, ge=0)
     chunks_skipped: int = Field(default=0, ge=0, description="Already had audio")
+    chunks_retried: int = Field(
+        default=0, ge=0, description="Succeeded only after a retry, worth a listen"
+    )
     audio_sec: float = Field(default=0.0, ge=0)
     failures: list[RenderFailure] = Field(default_factory=list)
 
@@ -456,9 +504,7 @@ class RenderReport(ReportModel):
         return not self.failures and self.chunks_rendered + self.chunks_skipped == self.chunks_total
 
     def write(self, path: Path) -> Path:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(self.model_dump_json(indent=2), encoding="utf-8")
-        return path
+        return publish_text(path, self.model_dump_json(indent=2))
 
 
 class RenderProgress(ReportModel):
@@ -521,9 +567,34 @@ class RenderProgress(ReportModel):
 
 class QaFinding(ReportModel):
     chunk_id: str = Field(min_length=1)
-    expected: str
+    expected: str = Field(description="The spoken text the model was given")
     heard: str
     wer: float = Field(ge=0)
+    language: str = Field(default="", description="Which ASR model heard it")
+    source_text: str = Field(
+        default="",
+        description="The printed spelling, where it differs, so the passage can "
+                    "be found in the book",
+    )
+
+
+class QaCoverage(ReportModel):
+    """How much of the book this report actually describes.
+
+    A sampled pass and a full pass are different claims, and one presented as
+    the other is how a book gets published on the strength of every twentieth
+    fragment.
+    """
+
+    checked: int = Field(default=0, ge=0)
+    available: int = Field(default=0, ge=0, description="Fragments with audio")
+    sample: int = Field(default=0, ge=0, description="Every Nth; 0 means all")
+    languages: list[str] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def full(self) -> bool:
+        return self.available > 0 and self.checked == self.available
 
 
 class QaReport(ReportModel):
@@ -533,8 +604,19 @@ class QaReport(ReportModel):
     slug: str = Field(min_length=1)
     model: str = ""
     max_wer: float = Field(default=0.15, ge=0)
+    thresholds: dict[str, float] = Field(
+        default_factory=dict,
+        description="Per-language limits, where they differ from max_wer",
+    )
     chunks_checked: int = Field(default=0, ge=0)
     mean_wer: float = Field(default=0.0, ge=0)
+    coverage: QaCoverage = Field(default_factory=QaCoverage)
+    audio_fingerprint: str = Field(
+        default="",
+        description="Digest of the fragments checked, so a later render shows this "
+                    "report as describing audio that no longer exists",
+    )
+    synthesis_model: str = Field(default="", description="Which backend made the audio")
     findings: list[QaFinding] = Field(default_factory=list)
 
     @computed_field
@@ -543,6 +625,4 @@ class QaReport(ReportModel):
         return not self.findings
 
     def write(self, path: Path) -> Path:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(self.model_dump_json(indent=2), encoding="utf-8")
-        return path
+        return publish_text(path, self.model_dump_json(indent=2))

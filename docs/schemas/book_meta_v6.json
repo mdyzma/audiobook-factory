@@ -249,6 +249,17 @@
       "title": "Cast",
       "type": "object"
     },
+    "cast_settings": {
+      "additionalProperties": {
+        "additionalProperties": {
+          "type": "number"
+        },
+        "type": "object"
+      },
+      "description": "role -> controls that differ from the book's, such as a slightly faster dialogue voice. Only controls the chosen backend implements appear here",
+      "title": "Cast Settings",
+      "type": "object"
+    },
     "chapters": {
       "items": {
         "$ref": "#/$defs/ChapterRef"
@@ -302,7 +313,7 @@
       "type": "array"
     },
     "schema_version": {
-      "default": 5,
+      "default": 6,
       "title": "Schema Version",
       "type": "integer"
     },

@@ -2,6 +2,13 @@
   "$defs": {
     "RenderFailure": {
       "properties": {
+        "attempts": {
+          "default": 1,
+          "description": "How many times it was tried before giving up",
+          "minimum": 1,
+          "title": "Attempts",
+          "type": "integer"
+        },
         "chunk_id": {
           "minLength": 1,
           "title": "Chunk Id",
@@ -9,6 +16,12 @@
         },
         "error": {
           "title": "Error",
+          "type": "string"
+        },
+        "kind": {
+          "default": "fragment",
+          "description": "fragment | voice | model | unknown. A voice or model fault is the run's, not this fragment's, and repeats for every one",
+          "title": "Kind",
           "type": "string"
         }
       },
@@ -39,6 +52,13 @@
       "default": 0,
       "minimum": 0,
       "title": "Chunks Rendered",
+      "type": "integer"
+    },
+    "chunks_retried": {
+      "default": 0,
+      "description": "Succeeded only after a retry, worth a listen",
+      "minimum": 0,
+      "title": "Chunks Retried",
       "type": "integer"
     },
     "chunks_skipped": {
@@ -112,7 +132,7 @@
       "type": "integer"
     },
     "schema_version": {
-      "default": 5,
+      "default": 6,
       "title": "Schema Version",
       "type": "integer"
     },
