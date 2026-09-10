@@ -218,3 +218,59 @@ class TestChunksCarryBothSpellings:
         rows = self._chunk(tmp_path, monkeypatch, dense)
         for row in rows:
             assert len(row["text"]) <= PL
+
+
+class TestPerRoleControlsReachTheRenderer:
+    """cast.yml has carried a speed per role since the beginning and nothing
+    ever read it, so a dialogue voice set faster narrated at the same pace as
+    everything else."""
+
+    CAST = """roles:
+  narrator:
+    voice: v
+    speed: 1.0
+  kelvin:
+    voice: v
+    speed: 1.15
+"""
+
+    def _book(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        import bookbinder.chunk as chunk_mod
+
+        (tmp_path / "justfile").write_text("", encoding="utf-8")
+        (tmp_path / "config").mkdir()
+        (tmp_path / "config" / "pipeline.toml").write_text("", encoding="utf-8")
+        (tmp_path / "config" / "models.toml").write_text(REGISTRY, encoding="utf-8")
+        (tmp_path / "config" / "cast.yml").write_text(self.CAST, encoding="utf-8")
+        book_dir = tmp_path / "data" / "book" / "b"
+        book_dir.mkdir(parents=True)
+        book_dir.joinpath("chapters.json").write_text(json.dumps({
+            "meta": {"title": "S", "author": "Lem", "language": "pl",
+                     "slug": "b", "source_file": ""},
+            "chapters": [{"index": 1, "title": "Jeden", "source_ref": "c1",
+                          # Role assignment needs a speaker label; an em-dash
+                          # paragraph alone stays with the narrator.
+                          "paragraphs": ["Ocean falował pod stacją badawczą.",
+                                         "Kelvin: — Wracam na Ziemię."]}],
+        }, ensure_ascii=False), encoding="utf-8")
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(tmp_path))
+
+        assert CliRunner().invoke(chunk_mod.app, ["b"]).exit_code == 0
+        return json.loads((book_dir / "book.json").read_text(encoding="utf-8"))
+
+    def test_a_role_that_differs_is_recorded(self, tmp_path, monkeypatch):
+        book = self._book(tmp_path, monkeypatch)
+        assert book["cast_settings"].get("kelvin") == {"speed": 1.15}
+
+    def test_a_role_at_the_default_is_not(self, tmp_path, monkeypatch):
+        # Recording every role at 1.0 would be noise in every manifest.
+        book = self._book(tmp_path, monkeypatch)
+        assert "narrator" not in book["cast_settings"]
+
+    def test_only_controls_the_backend_implements_are_recorded(
+            self, tmp_path, monkeypatch):
+        book = self._book(tmp_path, monkeypatch)
+        for controls in book["cast_settings"].values():
+            assert set(controls) <= {"temperature", "speed"}

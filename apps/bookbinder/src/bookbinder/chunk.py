@@ -295,6 +295,21 @@ def main(
         ))
 
     manifest.cast = cast.mapping(manifest.roles)
+
+    # Per-role controls, filtered to what this backend implements. cast.yml has
+    # carried a `speed` per role since the beginning and nothing ever read it,
+    # so a dialogue voice set slightly faster narrated at exactly the same pace
+    # as everything else. Only roles that differ from the default are recorded;
+    # writing every role at 1.0 would be noise in every manifest.
+    per_role: dict[str, dict[str, float]] = {}
+    for role in sorted(manifest.roles):
+        speed = cast.resolve(role).speed
+        if speed == 1.0:
+            continue
+        controls = spec.supported_controls({"speed": speed})
+        if controls:
+            per_role[role] = controls
+    manifest.cast_settings = per_role
     meta_path, chunks_path = manifest.write(book_dir)
 
     oversize = sum(1 for c in manifest.chunks if c.chars > limit)
