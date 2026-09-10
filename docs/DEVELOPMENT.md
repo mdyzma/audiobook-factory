@@ -258,6 +258,25 @@ case the others miss:
 
 `just verify` refuses outright on marked silence, before whisperx is imported.
 
+**Fragments re-rendered as stale, or an assembly refused for "different
+text".** Resume used to mean "skip anything that already has a wav", which is
+what makes a twenty-hour book survivable and also how a book comes out in the
+wrong voice: change the model, re-run, and every existing fragment is kept
+while the report says it succeeded.
+
+Each fragment now carries a fingerprint over the text, language, model
+identity, voice, voice revision and effective settings behind it. Stage 4
+reuses a wav only when that matches and the file still decodes, and appends to
+`data/audio/<slug>/fingerprints.jsonl` as each fragment lands, so a render
+killed at hour six leaves the first six hours reusable. Assembly recomputes the
+same fingerprint from the current plan and refuses anything that disagrees.
+
+Re-cloning a voice counts as a change, because the latents are hashed into the
+revision. Audio rendered before any of this exists carries no fingerprint and
+is let through, rather than invalidating every book already on disk. The
+algorithm lives in two places, `bookbinder/fingerprint.py` and its mirror in
+`narrator/`, both stdlib-only so a test can load both and compare them.
+
 **`'<slug>' is not ready to assemble`.** Stage 5 now checks the rendered
 fragments against the chunk plan before it runs ffmpeg, and names what is
 wrong: fragments that were never rendered, a wav that has been deleted, a

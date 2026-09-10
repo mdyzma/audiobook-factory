@@ -204,12 +204,31 @@ survive interruption and a change of model or reference.
 | C-1 | Voice library record. Stable ID and display name, original MP3 or WAV, selected clean regions, recording language, optional reviewed transcript, source hashes, processing history. Conditioning artifacts are derived per engine, checkpoint, voice revision, and preprocessing version, cached separately. XTTS latents become one derived representation among several. | L |
 | C-2 | Import, probe, select usable speech, optional cleaning, audition, save. Automatic selection for clean single-speaker material; manual region and speaker selection otherwise. Report silence, clipping, unusable regions, transcript mismatch. Longest ASR segment is not a quality criterion. | M |
 | C-3 | Keep references at native quality and prepare them at each engine's required rate. Preserve engine output metadata and resample explicitly at the assembly boundary. 24 kHz stops being a global assumption. | M |
-| C-4 | Fragment fingerprints (ARCH-04). Reuse a WAV only when accepted text, spoken-text preparation version, language, engine, checkpoint, tokenizer, voice revision, effective settings, and renderer version all match, and the file decodes completely. Replaces the filename check at synth.py:242. | M |
+| C-4 | Fragment fingerprints (ARCH-04). Reuse a WAV only when accepted text, spoken-text preparation version, language, engine, checkpoint, tokenizer, voice revision, effective settings, and renderer version all match, and the file decodes completely. Replaces the filename check at synth.py:242. | M — **done** |
 | C-5 | Atomic publication of audio, manifests, QA, and exports. Previews and dry runs live outside the production fragment tree. | M |
-| C-6 | Finalisation gate. Require the current expected fragment set exactly once, in order, with matching fingerprints and readable audio. Completes D-04 and D-05. (FEAT-05) | M |
+| C-6 | Finalisation gate. Require the current expected fragment set exactly once, in order, with matching fingerprints and readable audio. Completes D-04 and D-05. (FEAT-05) | M — **part**: the fingerprint half is done; ordering and the Studio `done` state follow with C-5 |
 | C-7 | Language-aware QA. Group or select ASR by fragment language instead of taking `chunks[0]`. Compare against intended spoken text while keeping links to original spelling and substitutions. Per-language WER and CER thresholds. Distinguish sampled from full coverage. Never suppress a failure or show stale QA as current. | L |
 | C-8 | Per-book cast and effective settings. Carry role speed through the contract and mark unsupported controls explicit rather than accepting them silently. | M |
 | C-9 | Error taxonomy and bounded, targeted retries with visible failures. No automatic model fallback mid-book. (ARCH-06) | M |
+
+**Started 2026-09-10 with C-4, because slice B created the hazard it closes.**
+Switching models became a one-word argument while stage 4 still decided to
+reuse audio on nothing but a filename, so changing model and re-running would
+have kept every fragment and reported a clean run.
+
+A fingerprint now covers the text, language, model identity, voice, voice
+revision and effective settings behind each fragment. Stage 4 reuses a wav only
+on a match that also decodes; assembly recomputes the same fingerprint from the
+current plan and refuses what disagrees. The ledger is appended per fragment
+rather than written at the end, so a render killed at hour six leaves the first
+six hours reusable. Re-cloning a voice invalidates its audio, because the
+latents are hashed into the revision.
+
+The algorithm exists twice, since the two environments cannot import each
+other. Both copies are stdlib-only so one test can load both and compare their
+output, including on non-ASCII text where an encoding difference would show
+first. Schema 5 carries the fingerprint and the voice that rendered each
+fragment.
 
 **Exit evidence.** Changing language, model, reference, or text invalidates
 incompatible output. Interrupt and restart preserve only valid completed work.
