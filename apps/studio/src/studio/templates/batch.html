@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% block title %}batch{% endblock %}
+{% block crumb %}batch{% endblock %}
+{% block body %}
+
+<div id="note" class="note"></div>
+
+<h2>Import a folder</h2>
+<div class="card">
+  <div class="actions">
+    <input id="folder" type="text" placeholder="/path/to/books"
+           style="flex:1 1 20rem; font:inherit; font-size:.85rem; padding:.35rem .5rem;
+                  border:1px solid var(--line); border-radius:6px;
+                  background:var(--panel); color:var(--ink)">
+    <label class="meta"><input id="recursive" type="checkbox"> subfolders</label>
+    <select id="bulk-language">
+      <option value="">language: detect</option>
+      {% for code in languages %}<option value="{{ code }}">language: {{ code }}</option>{% endfor %}
+    </select>
+    <select id="bulk-encoding">
+      <option value="">encoding: work it out</option>
+      {% for enc in encodings %}<option value="{{ enc }}">encoding: {{ enc }}</option>{% endfor %}
+    </select>
+    <button onclick="scanFolder(this)">Scan</button>
+    <button onclick="importFolder(this)">Import</button>
+  </div>
+  <p class="meta" style="margin:.6rem 0 0">
+    Scanning changes nothing. It says which files are new, which are already
+    here, and which are copies of one another.
+  </p>
+  <pre class="log" id="scan-out" hidden></pre>
+</div>
+
+<h2>Books here</h2>
+{% if not rows %}
+  <div class="empty">Nothing imported yet.</div>
+{% else %}
+<div class="card">
+  <div class="actions" style="margin-bottom:.8rem">
+    <strong style="font-size:.85rem">Queue:</strong>
+    {% for step in steps %}
+      <label class="meta"><input type="checkbox" class="step" value="{{ step }}"
+        {% if step in default_steps %}checked{% endif %}> {{ step }}</label>
+    {% endfor %}
+    <select id="default-voice">
+      <option value="">voice: as recorded</option>
+      {% for voice in voices %}<option value="{{ voice.name }}">voice: {{ voice.name }}</option>{% endfor %}
+    </select>
+    <select id="default-format">
+      <option value="">format: default</option>
+      {% for fmt in formats %}<option value="{{ fmt }}">format: {{ fmt }}</option>{% endfor %}
+    </select>
+    <button onclick="queueSelected(this)">Queue selected</button>
+    <button onclick="toggleAll()">Select ready</button>
+  </div>
+
+  <div class="scroll">
+  <table>
+    <tr>
+      <th></th><th>book</th><th>read as</th><th>language</th><th>model</th>
+      <th>reader</th><th>length</th><th>left to do</th>
+    </tr>
+    {% for row in rows %}
+    <tr>
+      <td><input type="checkbox" class="pick" value="{{ row.slug }}"
+                 data-ready="{{ 1 if row.ready else 0 }}"
+                 {% if not row.ready %}disabled{% endif %}></td>
+      <td>
+        <a href="/book/{{ row.slug }}">{{ row.title or row.slug }}</a>
+        {% if row.author %}<div class="meta">{{ row.author }}</div>{% endif %}
+        {% if row.source %}<div class="meta"><code>{{ row.source }}</code></div>{% endif %}
+      </td>
+      <td>{{ row.encoding or "—" }}</td>
+      <td>
+        {{ row.language or "—" }}
+        {% if row.language_method %}<div class="meta">{{ row.language_method }}</div>{% endif %}
+      </td>
+      <td>{{ row.model or "—" }}</td>
+      <td>
+        <select class="voice-override" data-slug="{{ row.slug }}">
+          <option value="">{{ row.reader or "not set" }}</option>
+          {% for voice in voices %}<option value="{{ voice.name }}">{{ voice.name }}</option>{% endfor %}
+        </select>
+        {% if row.cast_is_default %}<div class="meta">from config/cast.yml</div>{% endif %}
+      </td>
+      <td>{{ "%.1f h"|format(row.est_hours) if row.est_hours else "—" }}</td>
+      <td>
+        {% if row.queued %}
+          <span class="state rendering">in the queue</span>
+        {% elif row.blocking %}
+          <span class="state failed">needs a decision</span>
+          {% for reason in row.blocking %}<div class="meta review">{{ reason }}</div>{% endfor %}
+        {% elif row.nothing_to_do %}
+          <span class="state done">finished</span>
+        {% else %}
+          {% for step in row.outstanding %}<span class="tag">{{ step }}</span>{% endfor %}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+{% endif %}
+
+<h2>The queue</h2>
+{% if not items %}
+  <div class="empty">Nothing queued.</div>
+{% else %}
+<div class="card">
+  <p class="meta" style="margin:0 0 .8rem">
+    {{ counts.total }} step(s):
+    {% for name, n in counts.items() %}{% if name not in ("total", "open") and n %}{{ n }} {{ name }}{% if not loop.last %}, {% endif %}{% endif %}{% endfor %}
+  </p>
+  <table>
+    <tr><th>step</th><th>book</th><th>state</th><th></th></tr>
+    {% for item in items %}
+    <tr>
+      <td><code>{{ item.action }}</code>{% if item.id in ready %}
+        <span class="tag">next</span>{% endif %}</td>
+      <td>{{ item.slug }}</td>
+      <td>
+        <span class="state {{ item.status }}">{{ item.status }}</span>
+        {% if item.note %}<div class="meta">{{ item.note }}</div>{% endif %}
+      </td>
+      <td class="actions">
+        {% if item.status == "pending" %}
+          <button onclick="queueAct({{ item.id }}, 'pause', this)">Hold</button>
+          <button class="danger" onclick="queueAct({{ item.id }}, 'cancel', this)">Drop</button>
+        {% elif item.status == "paused" %}
+          <button onclick="queueAct({{ item.id }}, 'resume', this)">Release</button>
+          <button class="danger" onclick="queueAct({{ item.id }}, 'cancel', this)">Drop</button>
+        {% elif item.status in ("failed", "cancelled") %}
+          <button onclick="queueAct({{ item.id }}, 'retry', this)">Try again</button>
+        {% elif item.status == "running" and item.job_id %}
+          <button class="danger" onclick="cancelJob('{{ item.job_id }}')">Stop the job</button>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  <div class="actions" style="margin-top:.8rem">
+    <span class="meta">Whole book:</span>
+    <select id="book-target">
+      {% for slug in items|map(attribute="slug")|unique %}
+        <option value="{{ slug }}">{{ slug }}</option>
+      {% endfor %}
+    </select>
+    <button onclick="bookAct('pause', this)">Hold</button>
+    <button onclick="bookAct('resume', this)">Release</button>
+    <button class="danger" onclick="bookAct('cancel', this)">Drop remaining</button>
+  </div>
+</div>
+{% endif %}
+
+<script>
+const note = document.getElementById('note');
+
+function fail(e, button) {
+  note.textContent = e.message;
+  if (button) button.disabled = false;
+}
+
+function folderPayload() {
+  return {
+    folder: document.getElementById('folder').value.trim(),
+    recursive: document.getElementById('recursive').checked,
+    language: document.getElementById('bulk-language').value,
+    encoding: document.getElementById('bulk-encoding').value,
+  };
+}
+
+async function post(url, body) {
+  return (await api(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {}),
+  })).json();
+}
+
+async function scanFolder(button) {
+  note.textContent = '';
+  button.disabled = true;
+  const out = document.getElementById('scan-out');
+  try {
+    const result = await post('/api/batch/scan', folderPayload());
+    out.hidden = false;
+    out.textContent = result.text;
+  } catch (e) { fail(e, button); }
+  button.disabled = false;
+}
+
+async function importFolder(button) {
+  note.textContent = '';
+  button.disabled = true;
+  const out = document.getElementById('scan-out');
+  try {
+    const result = await post('/api/batch/import', folderPayload());
+    out.hidden = false;
+    out.textContent = result.text;
+    if (result.imported) setTimeout(() => location.reload(), 1200);
+  } catch (e) { fail(e, button); }
+  button.disabled = false;
+}
+
+function toggleAll() {
+  const boxes = [...document.querySelectorAll('.pick:not(:disabled)')];
+  const turnOn = boxes.some(b => !b.checked);
+  boxes.forEach(b => { b.checked = turnOn; });
+}
+
+async function queueSelected(button) {
+  note.textContent = '';
+  const picked = [...document.querySelectorAll('.pick:checked')].map(b => b.value);
+  if (!picked.length) { note.textContent = 'Nothing selected.'; return; }
+
+  const overrides = {};
+  document.querySelectorAll('.voice-override').forEach(select => {
+    if (select.value) overrides[select.dataset.slug] = {voice: select.value};
+  });
+
+  button.disabled = true;
+  try {
+    const result = await post('/api/batch/queue', {
+      books: picked,
+      steps: [...document.querySelectorAll('.step:checked')].map(b => b.value),
+      voice: document.getElementById('default-voice').value,
+      format: document.getElementById('default-format').value,
+      overrides: overrides,
+    });
+    const skipped = Object.entries(result.skipped);
+    if (skipped.length) {
+      note.textContent = skipped.map(([s, why]) => s + ': ' + why).join('; ');
+    }
+    if (result.steps) setTimeout(() => location.reload(), skipped.length ? 2500 : 300);
+    else button.disabled = false;
+  } catch (e) { fail(e, button); }
+}
+
+async function queueAct(id, what, button) {
+  note.textContent = '';
+  button.disabled = true;
+  try { await post('/api/queue/' + id + '/' + what); location.reload(); }
+  catch (e) { fail(e, button); }
+}
+
+async function bookAct(what, button) {
+  note.textContent = '';
+  const slug = document.getElementById('book-target').value;
+  button.disabled = true;
+  try { await post('/api/queue/book/' + slug + '/' + what); location.reload(); }
+  catch (e) { fail(e, button); }
+}
+</script>
+{% endblock %}

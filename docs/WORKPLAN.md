@@ -269,7 +269,7 @@ incompatible output. Interrupt and restart preserve only valid completed work.
 Deleting a fragment blocks export. QA states its language, coverage, input
 revision, and synthesis preset.
 
-## Slice D — Folder batches (FEAT-03) — started
+## Slice D — Folder batches (FEAT-03) — done, bar model reuse
 
 Needs C's reliable single-book render first. Unattended batches over an
 unreliable renderer multiply the damage.
@@ -280,9 +280,55 @@ unreliable renderer multiply the damage.
 | D-12 | Import and deduplication. Copy and hash on import, detect exact duplicates, assign stable book IDs, handle identical titles and basenames without overwriting. A re-scan distinguishes an unchanged input from a new source revision. Input files are never renamed or deleted.   | M — **done** |
 | D-13 | Durable queue in SQLite owned by Studio, at `data/.studio/queue.db` beside the jobs and locks rather than in a second studio directory. Atomic claims. Sources, manifests, and audio stay on disk. (ARCH-01 subset) | L — **done** |
 | D-14 | One GPU workload at a time, counting clone preparation and ASR. Reuse a loaded model where batch order allows; swapping models between books is acceptable. Depends on D-09. | M — **gate done**, reuse deferred and sized below |
-| D-15 | Batch review. Filename, title, encoding, detected or overridden language, model, voice or cast, estimated duration, readiness. Bulk defaults with per-book overrides. | M |
-| D-16 | Pause, cancel, retry, and explicit continuation after a failure. An encoding, language, or model exception pauses that book only. Disk preflight before synthesis and before assembly. | M |
+| D-15 | Batch review. Filename, title, encoding, detected or overridden language, model, voice or cast, estimated duration, readiness. Bulk defaults with per-book overrides. | M — **done** |
+| D-16 | Pause, cancel, retry, and explicit continuation after a failure. An encoding, language, or model exception pauses that book only. Disk preflight before synthesis and before assembly. | M — **done** |
 | D-17 | Snapshot resolved language, model, cast, and settings per run so tomorrow's default cannot change a queued or resumed job. (CONF-01)  | S — **done** in slice B: `book.json` carries the resolved model, its settings and the cast |
+
+**Slice D finished 2026-09-10.** The queue now has something driving it. A
+worker settles what finished, then claims at most one step and starts it. One
+per tick is deliberate: starting everything ready would put five renders on one
+graphics card, and the device gate would refuse four of them as *failures*, so
+a batch that started them all at once would be worse than one that takes turns.
+The dashboard runs a worker while it is open, `just drain` runs one without it,
+and `AF_NO_DRAIN=1` turns the dashboard back into a viewer.
+
+A failed step stops its own book and nothing else, and that needed no new
+machinery: a step which is not done already blocks what follows it, so the book
+stands still with the reason recorded against the step that failed while the
+others carry on. Retrying that step is the explicit continuation. Deliberately
+*not* pausing the successors, because then retrying the failed step alone would
+leave the rest held and the person would have to do it twice.
+
+The reason on a failed step is the last line the stage printed. That is nearly
+always the actual cause and is what someone would have scrolled to, so carrying
+it onto the queue saves opening twenty logs to find which book needs a look.
+
+Refusals are told apart. Something else holding the book, the voice or the
+device is a matter of timing: the step goes back and the next tick takes it. A
+bad argument or a full disk needs a person, so the book stops there.
+
+**The disk preflight is deliberately rough.** It sizes what is left to write,
+not the whole book, so a resumed render asks for what it still owes. It keeps a
+512 MB reserve, because a render that fits exactly leaves a machine with
+nowhere to write the log that would say what went wrong. It runs both in the
+recipe and at the moment the button is pressed, so the refusal arrives as a
+sentence rather than as an exit code in a log twenty seconds later.
+
+**Two faults came out of running the batch screen on real books rather than on
+fixtures.** Both would have passed any test written from the code.
+
+`book.json` is written by chunking, so between importing and splitting a book
+had a title, an encoding and a language decision on disk that nothing read. The
+review showed a bare slug with no encoding and no language, at exactly the
+moment those facts decide whether to commit the machine to narrating it. The
+dashboard now falls back to the import record, which fixes every page, not just
+this one.
+
+Readiness then refused both freshly imported books for having "no voice or
+cast". A book carries no cast of its own until chunking fills it in from
+`config/cast.yml`, so an empty field meant "not decided yet", not "nobody".
+Every book in a batch that was in fact ready was held back. Readiness now knows
+about the configured cast, and the row says when the cast is borrowed from it.
 
 **GPU gate done 2026-09-10.** Every action that loads a model onto the device
 now says so, and that includes the two easy to forget: `label` and `verify` run

@@ -281,13 +281,43 @@ def find_outputs(root: Path, slug: str) -> list[str]:
     )
 
 
+def imported_meta(book_dir: Path) -> "BookMeta | None":
+    """What import recorded, for a book that has not been split into fragments.
+
+    `book.json` is written by chunking, so between importing and chunking a
+    book has a title, an encoding and a language decision on disk that nothing
+    was reading. It showed on the dashboard as a bare slug with no encoding and
+    no language, which is precisely the moment those facts matter most: it is
+    when someone decides whether to commit the machine to narrating it.
+    """
+    path = book_dir / "chapters.json"
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    meta = raw.get("meta")
+    if not isinstance(meta, dict):
+        return None
+    try:
+        # The chapters themselves are not carried: this stands in for a book
+        # that has no fragments yet, and claiming chapter counts from a
+        # different file would be inventing a shape that is not there.
+        return BookMeta.model_validate(dict(meta) | {"chapters": []})
+    except Exception:
+        # Same reasoning as `_load`: a half-written file greys out one card
+        # rather than taking the dashboard down.
+        return None
+
+
 def get_book(root: Path, slug: str) -> BookView | None:
     check_name(slug)
     book_dir = root / "data" / "book" / slug
     if not book_dir.is_dir():
         return None
 
-    meta = _load(book_dir / "book.json", BookMeta)
+    meta = _load(book_dir / "book.json", BookMeta) or imported_meta(book_dir)
     audio_dir = root / "data" / "audio" / slug
     view = BookView(
         slug=slug,

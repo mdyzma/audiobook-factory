@@ -23,6 +23,8 @@ from studio.data import UnsafeName
 from studio import authoring
 from studio.authoring import AuthoringError
 from studio.jobs import ACTIONS, FORMATS, LANGUAGES, JobError, JobRunner
+from studio import batch as batching
+from studio.queue import Queue, QueueError
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -358,6 +360,131 @@ def library(request: Request):
         "voices": data.list_voices(root()),
         "known_books": {b.slug for b in data.list_books(root())},
     })
+
+
+# --- batches -----------------------------------------------------------------
+
+# Offered as overrides when the decoder cannot settle it on its own. Kept to
+# what the decoder itself will try, so the list cannot promise a reading it
+# would then refuse.
+ENCODINGS = ("utf-8", "cp1250", "iso-8859-2", "cp1252", "utf-16")
+
+def _queue() -> Queue:
+    return Queue(root())
+
+
+def _queued(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except QueueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/batch", response_class=HTMLResponse)
+def batch_page(request: Request):
+    """Review a batch before committing a day of the machine to it."""
+    queue = _queue()
+    return TEMPLATES.TemplateResponse(request, "batch.html", {
+        "rows": batching.review(root()),
+        "items": queue.items(),
+        "ready": {item.id for item in queue.ready()},
+        "counts": queue.summary(),
+        "voices": data.list_voices(root()),
+        "formats": FORMATS,
+        "languages": sorted(LANGUAGES),
+        "encodings": ENCODINGS,
+        "steps": batching.STEPS,
+        "default_steps": batching.DEFAULT_STEPS,
+    })
+
+
+@app.get("/api/batch/books")
+def api_batch_books():
+    return [vars(row) | {"ready": row.ready, "reader": row.reader}
+            for row in batching.review(root())]
+
+
+@app.post("/api/batch/scan")
+def api_batch_scan(payload: dict = Body(...)):
+    """Look at a folder without importing anything from it."""
+    from bookbinder.library import report, scan
+
+    folder = Path(str(payload.get("folder") or "")).expanduser()
+    try:
+        found = scan(root(), folder, recursive=bool(payload.get("recursive")))
+    except (NotADirectoryError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"text": report(found), "ready": len(found.ready),
+            "books": len(found.books), "unsupported": len(found.unsupported)}
+
+
+@app.post("/api/batch/import")
+def api_batch_import(payload: dict = Body(...)):
+    """Import a folder, with one language and encoding for the whole pass."""
+    from bookbinder.library import import_folder, import_report
+
+    folder = Path(str(payload.get("folder") or "")).expanduser()
+    try:
+        result = import_folder(
+            root(), folder,
+            recursive=bool(payload.get("recursive")),
+            language=str(payload.get("language") or ""),
+            encoding=str(payload.get("encoding") or ""),
+        )
+    except (NotADirectoryError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"text": import_report(result), "imported": len(result.imported),
+            "paused": len(result.paused)}
+
+
+@app.post("/api/batch/queue")
+def api_batch_queue(payload: dict = Body(...)):
+    """Queue the chosen books, and say what was left out and why."""
+    slugs = [safe(str(s)) for s in (payload.get("books") or [])]
+    result = batching.queue_books(
+        root(), slugs,
+        steps=[str(s) for s in (payload.get("steps") or [])],
+        overrides={str(k): dict(v) for k, v in (payload.get("overrides") or {}).items()},
+        voice=str(payload.get("voice") or ""),
+        fmt=str(payload.get("format") or ""),
+        batch=str(payload.get("batch") or ""),
+    )
+    return {"queued": result.queued, "skipped": result.skipped,
+            "steps": result.total_steps}
+
+
+# --- the queue ---------------------------------------------------------------
+
+@app.get("/api/queue")
+def api_queue():
+    queue = _queue()
+    ready = {item.id for item in queue.ready()}
+    return {"items": [vars(item) | {"ready": item.id in ready}
+                      for item in queue.items()],
+            "counts": queue.summary()}
+
+
+@app.post("/api/queue/{item_id}/{what}")
+def api_queue_item(item_id: int, what: str):
+    """Hold, release, drop or re-offer one step."""
+    queue = _queue()
+    calls = {"pause": queue.pause, "resume": queue.resume,
+             "cancel": queue.cancel, "retry": queue.retry}
+    if what not in calls:
+        raise HTTPException(status_code=400, detail=f"cannot '{what}' a queue item")
+    return vars(_queued(calls[what], item_id))
+
+
+@app.post("/api/queue/book/{slug}/{what}")
+def api_queue_book(slug: str, what: str):
+    """The same, for every step of one book: the unit a decision is made about."""
+    queue = _queue()
+    name = safe(slug)
+    calls = {"pause": queue.pause_book, "resume": queue.resume_book,
+             "cancel": queue.cancel_book}
+    if what not in calls:
+        raise HTTPException(status_code=400, detail=f"cannot '{what}' a book")
+    return {"slug": name, "changed": _queued(calls[what], name)}
 
 
 @app.post("/api/upload/{kind}")

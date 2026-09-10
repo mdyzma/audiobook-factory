@@ -404,3 +404,115 @@ class TestQualityReportsSayWhatTheyCover:
         self._qa(project, audio_fingerprint="")
         assert "ran against different audio" not in client.get(
             "/book/solaris/quality").text
+
+
+class TestTheBatchPage:
+    """The screen a batch is committed from, and the queue it commits to."""
+
+    def _book(self, project, slug="eden"):
+        from test_batch import write_book
+
+        return write_book(project, slug)
+
+    def test_it_opens_with_nothing_imported(self, client):
+        assert client.get("/batch").status_code == 200
+
+    def test_it_lists_what_is_here(self, client, project):
+        self._book(project)
+        assert "Eden" in client.get("/batch").text
+
+    def test_it_shows_how_the_source_was_read(self, client, project):
+        self._book(project)
+        page = client.get("/batch").text
+        assert "read as" in page and "language" in page
+
+    def test_the_review_is_available_as_data(self, client, project):
+        self._book(project)
+        rows = client.get("/api/batch/books").json()
+        eden = next(r for r in rows if r["slug"] == "eden")
+        assert eden["ready"] and eden["reader"] == "michal"
+
+    def test_queueing_puts_steps_in_the_queue(self, client, project):
+        self._book(project)
+        result = client.post("/api/batch/queue",
+                             json={"books": ["eden"], "steps": ["synth"]}).json()
+        assert result["queued"] == ["eden/synth"]
+        assert client.get("/api/queue").json()["counts"]["pending"] == 1
+
+    def test_a_book_needing_a_decision_comes_back_with_its_reason(self, client, project):
+        from test_batch import write_book
+
+        write_book(project, "eden", voice="", cast={})
+        result = client.post("/api/batch/queue", json={"books": ["eden"]}).json()
+        assert "nobody would read it" in result["skipped"]["eden"]
+
+    def test_scanning_a_folder_that_is_not_there_says_so(self, client):
+        r = client.post("/api/batch/scan", json={"folder": "/no/such/folder"})
+        assert r.status_code == 400
+
+    def test_scanning_changes_nothing(self, client, project, tmp_path):
+        inbox = tmp_path / "inbox"
+        inbox.mkdir()
+        (inbox / "notes.md").write_text("not a book", encoding="utf-8")
+        result = client.post("/api/batch/scan", json={"folder": str(inbox)}).json()
+        assert result["books"] == 0 and result["unsupported"] == 1
+        assert not (project / "data" / "book" / "notes").exists()
+
+    def test_an_unsafe_slug_is_refused(self, client):
+        r = client.post("/api/batch/queue", json={"books": ["../etc"]})
+        assert r.status_code == 400
+
+
+class TestDrivingTheQueue:
+    def _queued(self, client, project):
+        from test_batch import write_book
+
+        write_book(project, "eden")
+        client.post("/api/batch/queue", json={"books": ["eden"], "steps": ["synth"]})
+        return client.get("/api/queue").json()["items"][0]["id"]
+
+    def test_a_step_can_be_held_and_released(self, client, project):
+        item_id = self._queued(client, project)
+        assert client.post(f"/api/queue/{item_id}/pause").json()["status"] == "paused"
+        assert client.post(f"/api/queue/{item_id}/resume").json()["status"] == "pending"
+
+    def test_a_step_can_be_dropped(self, client, project):
+        item_id = self._queued(client, project)
+        assert client.post(f"/api/queue/{item_id}/cancel").json()["status"] == "cancelled"
+
+    def test_a_dropped_step_can_be_offered_again(self, client, project):
+        item_id = self._queued(client, project)
+        client.post(f"/api/queue/{item_id}/cancel")
+        assert client.post(f"/api/queue/{item_id}/retry").json()["status"] == "pending"
+
+    def test_a_whole_book_can_be_held(self, client, project):
+        self._queued(client, project)
+        assert client.post("/api/queue/book/eden/pause").json()["changed"] == 1
+
+    def test_an_invented_verb_is_refused(self, client, project):
+        item_id = self._queued(client, project)
+        assert client.post(f"/api/queue/{item_id}/destroy").status_code == 400
+
+    def test_retrying_something_that_has_not_failed_is_refused(self, client, project):
+        item_id = self._queued(client, project)
+        assert client.post(f"/api/queue/{item_id}/retry").status_code == 400
+
+    def test_the_queue_shows_on_the_page(self, client, project):
+        self._queued(client, project)
+        page = client.get("/batch").text
+        assert "The queue" in page and "eden" in page
+
+
+class TestTheDrainSwitch:
+    def test_the_dashboard_runs_the_queue_by_default(self, monkeypatch):
+        from studio.app import NO_DRAIN, draining
+
+        monkeypatch.delenv(NO_DRAIN, raising=False)
+        assert draining()
+
+    @pytest.mark.parametrize("value", ["1", "true", "YES"])
+    def test_it_can_be_told_not_to(self, monkeypatch, value):
+        from studio.app import NO_DRAIN, draining
+
+        monkeypatch.setenv(NO_DRAIN, value)
+        assert not draining()

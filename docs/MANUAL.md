@@ -21,8 +21,9 @@ open that page. Both are written out below exactly as you should type them.
 9. [Giving characters their own voices](#9-giving-characters-their-own-voices)
 10. [Checking it read everything correctly](#10-checking-it-read-everything-correctly)
 11. [How long things take](#11-how-long-things-take)
-12. [When something looks wrong](#12-when-something-looks-wrong)
-13. [Words you will see](#13-words-you-will-see)
+12. [Doing a whole shelf at once](#12-doing-a-whole-shelf-at-once)
+13. [When something looks wrong](#13-when-something-looks-wrong)
+14. [Words you will see](#14-words-you-will-see)
 
 ---
 
@@ -60,7 +61,7 @@ It will print a list of things it is installing and finish by saying
 system asking permission to install a program; type it and press Enter. Nothing
 is shown as you type a password, which is normal.
 
-If it stops with an error, see [section 12](#12-when-something-looks-wrong).
+If it stops with an error, see [section 13](#13-when-something-looks-wrong).
 
 ---
 
@@ -159,7 +160,7 @@ roughly how long the finished audiobook will be.
 useless but proves the structure is right. Look at the **Chapters** list that
 appears. If the chapter titles match your book, everything is fine. If there is
 only one chapter and your book has many, see
-[section 12](#12-when-something-looks-wrong).
+[section 13](#13-when-something-looks-wrong).
 
 **Then make it for real.** Click **Synthesise**.
 
@@ -256,7 +257,35 @@ A computer with a dedicated graphics card does this many times faster.
 
 ---
 
-## 12. When something looks wrong
+## 12. Doing a whole shelf at once
+
+Adding books one at a time is fine for one book. For twenty, open the control
+panel and click **batch** at the top right.
+
+**Point it at a folder.** Type the folder's path in the box and press **Scan**.
+Scanning changes nothing: it tells you which files are new, which are already
+here, and which are copies of each other under different names. When it looks
+right, press **Import**.
+
+If every book in the folder is in the same language, choose it beside the box
+before importing. A book the program cannot read confidently stops on its own
+and the rest carry on, so nothing waits on the one that needs a decision.
+
+**Look at the table before you start.** Each book shows how its file was read,
+what language it was taken to be, who will read it, how long it will be, and
+what is left to do. A book that needs a decision says so in red and cannot be
+ticked; the reason is written underneath it.
+
+**Choose and go.** Tick the books you want, pick a voice for the batch if you
+want them all read by one person, and press **Queue selected**. One book can
+disagree with the batch: change its voice in its own row.
+
+**Watch it.** The queue at the bottom shows every step. Books are done one step
+at a time, and only one thing uses the graphics card at once, so a batch takes
+as long as its parts added together. You can **Hold** a step, **Drop** it, or
+press **Try again** on one that failed. If a book fails, only that book stops.
+
+## 13. When something looks wrong
 
 **The setup stops with an error.** Read the last few lines; it usually names
 what is missing and how to install it. If it mentions `ffmpeg`, `uv` or `just`,
@@ -269,6 +298,10 @@ try again. If it persists, run `./install.sh` again.
 **The control panel will not open in the browser.** Check the Terminal where you
 typed `just ui` is still open and has not printed an error. The address must be
 exactly `http://127.0.0.1:8765`.
+
+**The disk is nearly full.** The program works out how much room a book needs
+before it starts, and refuses rather than filling the disk in the middle of the
+night. Free some space and try again; nothing already made is lost.
 
 **It says the graphics card is busy.** Only one thing can use it at a time.
 Making the audiobook, creating a voice and checking a reading all use it, so
@@ -306,7 +339,7 @@ last twenty lines when asking for help.
 
 ---
 
-## 13. Words you will see
+## 14. Words you will see
 
 **Fragment** — one short piece of text, usually a sentence or two. The computer
 reads one at a time. A book becomes thousands of them.

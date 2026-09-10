@@ -266,3 +266,69 @@ class TestContainment:
         real = project / "data" / "audio" / "solaris" / "ch001_0000.wav"
         real.write_bytes(b"RIFF")
         assert data.rendered_audio(project, "solaris", "ch001_0000") == real
+
+
+class TestABookThatHasOnlyBeenImported:
+    """Between importing and splitting there is a real book on disk.
+
+    `book.json` is written by chunking, so until then the title, the encoding
+    and the language decision live in `chapters.json` and nothing was reading
+    them. The dashboard showed a bare slug with no encoding and no language,
+    which is exactly the moment those facts matter: it is when someone decides
+    whether to commit the machine to narrating it.
+    """
+
+    def _imported(self, project, slug="eden", encoding="cp1250"):
+        book_dir = project / "data" / "book" / slug
+        book_dir.mkdir(parents=True, exist_ok=True)
+        (book_dir / "chapters.json").write_text(json.dumps({
+            "meta": {
+                "slug": slug, "title": "Eden", "author": "Lem", "language": "pl",
+                "source_file": f"data/sources/{slug}/{slug}.txt",
+                "original_source": f"/inbox/{slug}.txt", "source_sha256": "abc",
+                "encoding": {"encoding": encoding, "method": "quality",
+                             "score": 0.98, "equivalent": [], "decoder_version": 1,
+                             "warnings": []},
+                "language_decision": {"method": "detected", "confidence": 0.97,
+                                      "detector": "lingua-language-detector",
+                                      "metadata_language": "", "coverage_chars": 900,
+                                      "samples": []},
+                "needs_review": False, "review_reasons": [],
+            },
+            "chapters": [{"index": 1, "title": "One", "paragraphs": ["Ocean."]}],
+        }), encoding="utf-8")
+        return book_dir
+
+    def test_the_title_is_shown_rather_than_the_slug(self, project):
+        self._imported(project)
+        book = data.get_book(project, "eden")
+        assert book is not None and book.title == "Eden"
+
+    def test_the_encoding_it_was_read_with_is_shown(self, project):
+        self._imported(project)
+        book = data.get_book(project, "eden")
+        assert book is not None and book.encoding == "cp1250"
+
+    def test_how_the_language_was_decided_is_shown(self, project):
+        self._imported(project)
+        book = data.get_book(project, "eden")
+        assert book is not None and book.language_method == "detected"
+
+    def test_it_claims_no_fragments_it_does_not_have(self, project):
+        # Chapters exist in that file; fragments do not, and reporting a count
+        # from the wrong file would make the book look ready to narrate.
+        self._imported(project)
+        book = data.get_book(project, "eden")
+        assert book is not None and book.chunk_count == 0
+
+    def test_book_json_still_wins_once_it_exists(self, project):
+        self._imported(project, slug="solaris", encoding="cp1250")
+        book = data.get_book(project, "solaris")
+        assert book is not None and book.title == "So\u0142aris"
+
+    def test_a_damaged_import_record_greys_out_one_book(self, project):
+        book_dir = project / "data" / "book" / "eden"
+        book_dir.mkdir(parents=True, exist_ok=True)
+        (book_dir / "chapters.json").write_text("{ not json", encoding="utf-8")
+        book = data.get_book(project, "eden")
+        assert book is not None and book.meta is None

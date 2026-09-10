@@ -74,6 +74,10 @@ pass `""` for the ones between.
 |---|---|
 | `just ui <port="8765">` | Opens the local dashboard at `http://127.0.0.1:8765`. Shows books, voices, renders and quality checks, plays the audio, and runs pipeline stages. While it is open it also runs the queue; set `AF_NO_DRAIN=1` to open it as a viewer instead. |
 
+The dashboard's `/batch` page imports a folder, reviews what is in it, and
+queues the books it is told to. Set `AF_NO_DRAIN=1` when running a second
+dashboard beside a `just drain`, so only one of them takes work.
+
 ## Queue
 
 The work waiting to happen, kept in `data/.studio/queue.db` so it survives the
