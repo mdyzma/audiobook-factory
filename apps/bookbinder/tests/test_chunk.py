@@ -16,6 +16,27 @@ from bookbinder.manifest import char_limit
 
 PL = char_limit("pl")  # 224
 
+# A project without a model registry is not configured, so chunking refuses
+# rather than guessing. Test projects therefore carry a minimal one.
+REGISTRY = """
+[defaults]
+pl = "xtts-v2"
+en = "xtts-v2"
+
+[models.xtts-v2]
+engine = "xtts"
+environment = "narrator"
+checkpoint = "tts_models/multilingual/multi-dataset/xtts_v2"
+narration_languages = ["pl", "en"]
+native_sample_rate = 24000
+controls = ["temperature", "speed"]
+validation = "baseline"
+
+[models.xtts-v2.char_limits]
+pl = 224
+en = 250
+"""
+
 
 def words(chunks: list[str]) -> list[str]:
     return " ".join(chunks).split()
@@ -141,6 +162,7 @@ class TestChunksCarryBothSpellings:
         (tmp_path / "justfile").write_text("", encoding="utf-8")
         (tmp_path / "config").mkdir()
         (tmp_path / "config" / "pipeline.toml").write_text("", encoding="utf-8")
+        (tmp_path / "config" / "models.toml").write_text(REGISTRY, encoding="utf-8")
         book_dir = tmp_path / "data" / "book" / "b"
         book_dir.mkdir(parents=True)
         book_dir.joinpath("chapters.json").write_text(json.dumps({

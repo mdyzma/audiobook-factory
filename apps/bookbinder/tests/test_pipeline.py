@@ -59,8 +59,13 @@ roles:
 @pytest.fixture
 def project(tmp_path, monkeypatch):
     """A miniature project tree, with each module's root pointed at it."""
+    from test_chunk import REGISTRY
+
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "cast.yml").write_text(CAST, encoding="utf-8")
+    # Chunking resolves a backend before it splits anything, so a project
+    # without a registry is not configured enough to run.
+    (tmp_path / "config" / "models.toml").write_text(REGISTRY, encoding="utf-8")
     (tmp_path / "config" / "pipeline.toml").write_text(
         '[book]\nheading_pause_ms = 900\nparagraph_pause_ms = 350\n'
         'sentence_pause_ms = 120\n\n[chunk]\nmax_chars = 0\nmin_chars = 40\n\n'

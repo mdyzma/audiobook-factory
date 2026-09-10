@@ -26,9 +26,10 @@ from bookbinder.manifest import (
     Chunk,
     EncodingRecord,
     LanguageRecord,
+    ModelChoice,
     SpokenSubstitution,
-    char_limit,
 )
+from bookbinder.models import RegistryError, load_registry
 from bookbinder.speech import load_dictionary, prepare, split_provenance
 from bookbinder.roles import assign_role
 from bookbinder import overrides as role_overrides
@@ -143,7 +144,11 @@ def main(
     single_voice: bool = typer.Option(
         False, help="Ignore the cast and narrate everything in one voice"
     ),
-    max_chars: int = typer.Option(0, help="0 = use the XTTS limit for the book language"),
+    max_chars: int = typer.Option(
+        0, help="0 = use the resolved model's limit for the book language"),
+    model: str = typer.Option(
+        "", help="Narrate with this backend instead of the default for the "
+                 "book's language. Must be a key in config/models.toml."),
 ) -> None:
     root = project_root()
     book_dir = root / "data" / "book" / slug
@@ -179,10 +184,34 @@ def main(
             f"--language, so chunking, synthesis and QA agree on one."
         )
 
-    limit = max_chars or chunk_cfg.get("max_chars") or char_limit(language)
+    # The backend is resolved before the text is split, because the fragment
+    # size is its property rather than the language's, and changing models
+    # later means re-chunking rather than patching fragments.
+    try:
+        spec = load_registry(root).resolve(language, override=model)
+    except RegistryError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    limit = max_chars or chunk_cfg.get("max_chars") or spec.char_limit(language)
     min_chars = chunk_cfg.get("min_chars", 40)
     heading_pause = book_cfg.get("heading_pause_ms", 900)
     paragraph_pause = book_cfg.get("paragraph_pause_ms", 350)
+
+    # Snapshotted here so that changing a default in config/models.toml
+    # tomorrow cannot change a book that is already queued or half-rendered.
+    # `retries` is how many times the pipeline re-rolls a rejected fragment,
+    # not something the engine is asked to do, so it is not a control and its
+    # absence from a backend is not worth reporting.
+    configured = {k: float(v) for k, v in config.get("synth", {}).items()
+                  if isinstance(v, (int, float)) and k != "retries"}
+    choice = ModelChoice(
+        id=spec.id, engine=spec.engine, environment=spec.environment,
+        checkpoint=spec.checkpoint, revision=spec.revision,
+        native_sample_rate=spec.native_sample_rate, char_limit=limit,
+        settings=spec.supported_controls(configured),
+        unsupported=spec.unsupported_controls(configured),
+        source="override" if model else "default",
+    )
 
     manifest = BookManifest(
         slug=slug,
@@ -201,6 +230,7 @@ def main(
         # read and which language it is, and chunking has no new evidence.
         encoding=EncodingRecord(**meta.get("encoding", {})),
         language_decision=LanguageRecord(**meta.get("language_decision", {})),
+        model=choice,
         needs_review=bool(meta.get("needs_review", False)),
         review_reasons=list(meta.get("review_reasons", [])),
     )
@@ -272,7 +302,7 @@ def main(
     applied = sum(1 for c in manifest.chunks if c.source_ref in corrections)
     typer.echo(
         f"{len(manifest.chunks)} chunks across {len(manifest.chapters)} chapters "
-        f"(limit {limit} chars for '{language}', {oversize} oversize)\n"
+        f"({spec.id} at {limit} chars for '{language}', {oversize} oversize)\n"
         + (f"{applied} chunks use a hand correction\n" if applied else "")
         + f"{dialogue} dialogue chunks; cast: "
         + ", ".join(f"{r}->{v}" for r, v in manifest.cast.items()) + "\n"
