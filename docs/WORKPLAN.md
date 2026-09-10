@@ -278,11 +278,34 @@ unreliable renderer multiply the damage.
 |---|---|---|
 | D-11 | Folder scan. Non-recursive by default with explicit recursion, deterministic reviewable order, TXT and EPUB only, unsupported files reported rather than guessed.  | M — **done** |
 | D-12 | Import and deduplication. Copy and hash on import, detect exact duplicates, assign stable book IDs, handle identical titles and basenames without overwriting. A re-scan distinguishes an unchanged input from a new source revision. Input files are never renamed or deleted.   | M — **done** |
-| D-13 | Durable queue in SQLite owned by Studio, at `data/studio/queue.db`. Atomic claims. Sources, manifests, and audio stay on disk. (ARCH-01 subset) | L |
+| D-13 | Durable queue in SQLite owned by Studio, at `data/.studio/queue.db` beside the jobs and locks rather than in a second studio directory. Atomic claims. Sources, manifests, and audio stay on disk. (ARCH-01 subset) | L — **done** |
 | D-14 | One GPU workload at a time, counting clone preparation and ASR. Reuse a loaded model where batch order allows; swapping models between books is acceptable. Depends on D-09. | M |
 | D-15 | Batch review. Filename, title, encoding, detected or overridden language, model, voice or cast, estimated duration, readiness. Bulk defaults with per-book overrides. | M |
 | D-16 | Pause, cancel, retry, and explicit continuation after a failure. An encoding, language, or model exception pauses that book only. Disk preflight before synthesis and before assembly. | M |
 | D-17 | Snapshot resolved language, model, cast, and settings per run so tomorrow's default cannot change a queued or resumed job. (CONF-01)  | S — **done** in slice B: `book.json` carries the resolved model, its settings and the cast |
+
+**Queue done 2026-09-10.** One queue entry is one stage of one book, not a
+whole book. That is what lets a failed chapter split hold back only that book,
+and what will give the GPU gate individual workloads to admit one at a time.
+Steps of a book run in order and a step that is not `done` blocks what follows,
+including a failed or cancelled one: assembling a book whose synthesis was
+cancelled produces a truncated audiobook that looks finished. Across books the
+order is insertion order, so a twenty-hour render does not stop the next book's
+chapter split from starting.
+
+Two things about the claim are worth recording. It opens `BEGIN IMMEDIATE`
+rather than the default deferred transaction, because a claim reads which item
+is next and then writes that it is taken, and the write lock has to be held
+across both. The first attempt at a concurrency test could not tell the two
+apart: eight threads, then six separate processes, all claimed cleanly either
+way, because expiry runs first and its `UPDATE` happens to take the lock as a
+side effect. The test that does discriminate forces the interleaving directly
+and skips expiry, so what it pins is the transaction rather than a coincidence
+upstream of it that a later tidy-up could remove.
+
+That test also turned up a real fault: building a `Queue` wrote to the database
+unconditionally, so opening a page would queue behind whatever claim was in
+flight. Creating the tables now takes no write lock once they exist.
 
 **Scan and import done 2026-09-10.** Ingestion was refactored into a callable
 so the single-file command and the folder pass share one implementation, and it

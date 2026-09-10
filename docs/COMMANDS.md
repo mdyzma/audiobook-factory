@@ -74,6 +74,20 @@ pass `""` for the ones between.
 |---|---|
 | `just ui <port="8765">` | Opens the local dashboard at `http://127.0.0.1:8765`. Shows books, voices, renders and quality checks, plays the audio, and runs pipeline stages. |
 
+## Queue
+
+The work waiting to happen, kept in `data/.studio/queue.db` so it survives the
+browser closing and the server restarting. One entry is one stage of one book;
+stages of the same book run in order, and a step that is not `done` holds back
+everything behind it.
+
+| Command | What it does |
+|---|---|
+| `just queue <book="">` | Shows every queued step, grouped by book, with what each waiting step is waiting for. Give a slug to see one book. |
+| `just queue-retry <step>` | Offers a failed or cancelled step again, at its place in the book. The step number comes from `just queue`. |
+| `just queue-cancel <slug>` | Drops a book's remaining steps. Anything already running keeps going; cancel its job from the dashboard to stop that. |
+| `just queue-resume <slug>` | Puts a paused book back in line. |
+
 ## Stage 6: quality
 
 | Command | What it does |

@@ -288,6 +288,23 @@ clean-audio slug:
 clean-book slug:
     rm -rf {{quote("data/book/" + slug)}} {{quote("data/audio/" + slug)}}
 
+# ---------------------------------------------------------------- queue ----
+
+# Show the work waiting to happen, grouped by book.
+queue book="":
+    cd apps/studio && uv run python -m studio.queue --book {{quote(book)}}
+
+# Offer a failed step again. Takes the step number from `just queue`.
+queue-retry step:
+    cd apps/studio && uv run python -m studio.queue --retry {{quote(step)}}
+
+# Drop a book's remaining steps, or put a paused book back in line.
+queue-cancel slug:
+    cd apps/studio && uv run python -m studio.queue --cancel {{quote(slug)}}
+
+queue-resume slug:
+    cd apps/studio && uv run python -m studio.queue --resume {{quote(slug)}}
+
 # --------------------------------------------------------------- studio ----
 
 # Open the local dashboard. Read-only: it shows books, voices and renders.
