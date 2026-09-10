@@ -119,6 +119,7 @@ class BookView:
     qa: QaReport | None = None
     outputs: list[str] = field(default_factory=list)
     dry_run_audio: bool = False
+    rendered_fingerprint: str = ""
 
     @property
     def encoding(self) -> str:
@@ -129,6 +130,27 @@ class BookView:
     def language_method(self) -> str:
         """Whether the language was detected, taken from metadata, or given."""
         return self.meta.language_decision.method if self.meta else ""
+
+    @property
+    def qa_is_stale(self) -> bool:
+        """Whether the quality report describes audio that has since changed.
+
+        A report outlives the render it was made from. Showing an old one as
+        current is how a book gets published on the strength of a check that
+        ran against different audio.
+        """
+        if not self.qa or not self.qa.audio_fingerprint:
+            return False
+        return self.qa.audio_fingerprint != self.rendered_fingerprint
+
+    @property
+    def qa_coverage(self) -> str:
+        """`full`, `sampled`, or blank when there is no report."""
+        if not self.qa:
+            return ""
+        if not self.qa.coverage.available:
+            return "unknown"
+        return "full" if self.qa.coverage.full else "sampled"
 
     @property
     def needs_review(self) -> bool:
@@ -221,6 +243,33 @@ def _inside(root: Path, path: Path) -> bool:
     return True
 
 
+def rendered_fingerprint(audio_dir: Path) -> str:
+    """Digest of the audio currently on disk for this book.
+
+    Mirrors what the transcriber records in its report, so the two can be
+    compared. Reading the render manifest is enough: it names every fragment
+    and what each was made from.
+    """
+    import hashlib
+
+    path = audio_dir / "rendered.jsonl"
+    if not path.exists():
+        return ""
+    pairs = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if row.get("audio_path"):
+            pairs.append((row["id"], row.get("fingerprint") or ""))
+    if not pairs:
+        return ""
+    return hashlib.sha256(json.dumps(sorted(pairs)).encode("utf-8")).hexdigest()[:32]
+
+
 def find_outputs(root: Path, slug: str) -> list[str]:
     out_dir = root / "data" / "out"
     if not out_dir.is_dir():
@@ -255,6 +304,7 @@ def get_book(root: Path, slug: str) -> BookView | None:
         qa=_load(audio_dir / "qa_report.json", QaReport),
         outputs=find_outputs(root, slug),
         dry_run_audio=is_dry_run_audio(audio_dir),
+        rendered_fingerprint=rendered_fingerprint(audio_dir),
     )
     return view
 

@@ -6,10 +6,36 @@
 <h2>Quality check</h2>
 {% if book.qa %}
 <div class="card">
+  {% if book.qa_is_stale %}
+    {# The report describes a render that has since been redone, so its
+       verdict is about audio nobody will hear. #}
+    <div class="meta review">
+      This check ran against different audio. The book has been re-rendered
+      since, so these results say nothing about the fragments now on disk.
+      Run <code>just verify {{ book.slug }}</code> again.
+    </div>
+  {% endif %}
   <div class="meta">
     mean word error rate {{ book.qa.mean_wer }} over {{ book.qa.chunks_checked }} fragments,
     flagging anything above {{ book.qa.max_wer }} · model {{ book.qa.model }}
   </div>
+  {% if book.qa_coverage %}
+    <div class="meta">
+      {% if book.qa_coverage == "full" %}
+        every rendered fragment was checked
+      {% elif book.qa_coverage == "sampled" %}
+        {# Said plainly: a sampled pass read as a full one is how a book ships
+           on the strength of every twentieth fragment. #}
+        <span class="review">sampled</span>:
+        {{ book.qa.coverage.checked }} of {{ book.qa.coverage.available }} fragments{#
+        #}{% if book.qa.coverage.sample %}, every {{ book.qa.coverage.sample }}th{% endif %}
+      {% endif %}
+      {% if book.qa.coverage.languages %}
+        · heard as {{ book.qa.coverage.languages | join(", ") }}
+      {% endif %}
+      {% if book.qa.synthesis_model %}· audio from {{ book.qa.synthesis_model }}{% endif %}
+    </div>
+  {% endif %}
   <div class="meta">
     A non-zero baseline is normal: the transcriber mishears too. What matters is
     an outlier, especially one whose tail is missing, which is what a truncation

@@ -327,3 +327,80 @@ class TestSourceEvidenceIsShown:
         # Books imported before any of this existed have empty records.
         assert client.get("/book/solaris").status_code == 200
         assert client.get("/").status_code == 200
+
+
+class TestQualityReportsSayWhatTheyCover:
+    """A quality report outlives the audio it was made from.
+
+    Shown without that context, a sampled pass over a render that has since
+    been redone reads exactly like a full pass over the current one.
+    """
+
+    def _qa(self, project, **overrides):
+        import json
+        payload = {
+            "schema_version": 6, "slug": "solaris", "model": "large-v3",
+            "max_wer": 0.15, "chunks_checked": 1, "mean_wer": 0.02,
+            "coverage": {"checked": 1, "available": 1, "sample": 0,
+                         "languages": ["pl"]},
+            "audio_fingerprint": "", "synthesis_model": "xtts-v2",
+            "findings": [],
+        }
+        payload.update(overrides)
+        (project / "data" / "audio" / "solaris" / "qa_report.json").write_text(
+            json.dumps(payload), encoding="utf-8")
+
+    def _rendered(self, project, fingerprint="abc"):
+        import json
+        row = {"id": "ch001_0000", "chapter_index": 1, "chapter_title": "Przybysz",
+               "order": 0, "text": "Ocean falował.", "kind": "paragraph",
+               "language": "pl", "role": "narrator", "is_dialogue": False,
+               "pause_after_ms": 350, "chars": 14, "est_seconds": 0.9,
+               "source_ref": "", "audio_path": "data/audio/solaris/ch001_0000.wav",
+               "duration_sec": 1.0, "voice": "michal", "fingerprint": fingerprint}
+        (project / "data" / "audio" / "solaris" / "rendered.jsonl").write_text(
+            json.dumps(row) + "\n", encoding="utf-8")
+
+    def test_a_full_check_says_so(self, client, project):
+        self._rendered(project)
+        self._qa(project)
+        assert "every rendered fragment was checked" in client.get(
+            "/book/solaris/quality").text
+
+    def test_a_sampled_check_says_so(self, client, project):
+        self._rendered(project)
+        self._qa(project, coverage={"checked": 1, "available": 20, "sample": 20,
+                                    "languages": ["pl"]})
+        body = client.get("/book/solaris/quality").text
+        assert "sampled" in body
+        assert "1 of 20" in body
+
+    def test_the_languages_heard_are_named(self, client, project):
+        self._rendered(project)
+        self._qa(project, coverage={"checked": 2, "available": 2, "sample": 0,
+                                    "languages": ["en", "pl"]})
+        assert "en, pl" in client.get("/book/solaris/quality").text
+
+    def test_a_report_describing_older_audio_is_flagged(self, client, project):
+        from studio.data import rendered_fingerprint
+
+        self._rendered(project, fingerprint="first-render")
+        self._qa(project, audio_fingerprint="a-completely-different-render")
+        body = client.get("/book/solaris/quality").text
+        assert "ran against different audio" in body
+
+    def test_a_report_matching_the_current_audio_is_not_flagged(self, client, project):
+        from studio.data import rendered_fingerprint
+
+        self._rendered(project, fingerprint="current")
+        current = rendered_fingerprint(project / "data" / "audio" / "solaris")
+        self._qa(project, audio_fingerprint=current)
+        assert "ran against different audio" not in client.get(
+            "/book/solaris/quality").text
+
+    def test_a_report_from_before_this_existed_is_not_flagged(self, client, project):
+        # No fingerprint recorded, so nothing can be concluded either way.
+        self._rendered(project)
+        self._qa(project, audio_fingerprint="")
+        assert "ran against different audio" not in client.get(
+            "/book/solaris/quality").text
