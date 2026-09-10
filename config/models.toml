@@ -1,0 +1,73 @@
+# Synthesis backends, and which one narrates each language.
+#
+# Polish and English are separate decisions. They may end up on the same
+# engine or on different ones, and this file supports either without the
+# pipeline caring which.
+#
+# A named default points at a tested preset. Changing a default here must not
+# change a book that is already queued or part-rendered: the resolved model and
+# its settings are copied into that book's manifest when it is chunked, and the
+# render reads them from there.
+#
+# `validation` says how much is actually known about an entry:
+#   unvalidated  nothing has been rendered with it on this project
+#   baseline     it works and has produced whole chapters, but has not been
+#                compared against anything
+#   validated    it won a per-language comparison; see docs/MODEL-EVAL-<lang>.md
+#
+# Adding a backend whose dependencies conflict with the narrator's means a new
+# environment under apps/, not a relaxed pin. See docs/DECISIONS.md.
+
+[defaults]
+# The language a book is in decides which entry below narrates it.
+pl = "xtts-v2"
+en = "xtts-v2"
+
+[models.xtts-v2]
+engine = "xtts"
+environment = "narrator"
+checkpoint = "tts_models/multilingual/multi-dataset/xtts_v2"
+# Coqui resolves the checkpoint through its own downloader, which is pinned
+# only by the package version until a revision is recorded here from the
+# machine that validated it. Slice B-5 fills this in.
+package = "tts==0.22.0"
+revision = ""
+narration_languages = [
+    "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "ar",
+    "zh-cn", "ja", "hu", "ko", "hi",
+]
+reference_languages = [
+    "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "ar",
+    "zh-cn", "ja", "hu", "ko", "hi",
+]
+cloning = "instant"
+needs_reference_transcript = false
+native_sample_rate = 24000
+controls = [
+    "temperature", "length_penalty", "repetition_penalty",
+    "top_k", "top_p", "speed",
+]
+validation = "baseline"
+# XTTS truncates text past these without warning, which is why they are a
+# property of the model rather than of the language.
+# Source: Coqui TTS xtts.py char_limits.
+default_char_limit = 250
+
+[models.xtts-v2.char_limits]
+en = 250
+es = 239
+fr = 273
+de = 253
+it = 213
+pt = 203
+pl = 224
+tr = 226
+ru = 182
+nl = 251
+cs = 186
+ar = 166
+"zh-cn" = 82
+ja = 71
+hu = 224
+ko = 95
+hi = 150
