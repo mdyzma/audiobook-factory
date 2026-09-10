@@ -32,7 +32,7 @@ app = typer.Typer(add_completion=False)
 # Mirrors bookbinder.manifest.DRY_RUN_MARKER; this environment cannot import it.
 DRY_RUN_MARKER = ".dry-run.json"
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def normalise_for_compare(text: str) -> list[str]:

@@ -41,7 +41,11 @@ class TestExportedSchemas:
         props = json_schemas()[f"render_report_v{V}"]["properties"]
         for field in ("slug", "voice", "cast", "device", "dry_run", "started_at",
                       "finished_at", "elapsed_sec", "chunks_total",
-                      "chunks_rendered", "chunks_skipped", "audio_sec", "failures"):
+                      "chunks_rendered", "chunks_skipped", "audio_sec", "failures",
+                      # Which backend produced the audio, and at what rate.
+                      # Without these, a book rendered under one model and
+                      # resumed under another reads as one clean run.
+                      "model", "engine", "sample_rate"):
             assert field in props
 
     def test_render_progress_matches_what_narrator_writes(self):
@@ -108,3 +112,37 @@ class TestCrossEnvironmentShape:
         })
         assert not report.ok
         assert report.findings[0].wer == 0.5
+
+
+class TestTheModelBlockIsTheEngineContract:
+    """`BookMeta.model` is what a narrator environment reads to know what to
+    load. narrator mirrors it in narrator/choice.py and cannot import it."""
+
+    def test_book_meta_carries_the_resolved_backend(self):
+        props = json_schemas()[f"book_meta_v{V}"]["properties"]
+        assert "model" in props
+
+    def test_the_model_block_names_what_narrator_needs(self):
+        schema = json_schemas()[f"book_meta_v{V}"]
+        model = schema["$defs"]["ModelChoice"]["properties"]
+        for field in ("id", "engine", "environment", "checkpoint", "revision",
+                      "native_sample_rate", "char_limit", "settings",
+                      "unsupported", "source"):
+            assert field in model
+
+    def test_the_mirror_on_the_narrator_side_matches(self):
+        # The two are separate environments, so this is the only place the
+        # shapes are compared. A field added here and not there is silently
+        # dropped when narrator reads the book.
+        import re
+        from pathlib import Path
+
+        # tests/ -> bookbinder/ -> apps/
+        mirror = (Path(__file__).resolve().parents[2] / "narrator" / "src"
+                  / "narrator" / "choice.py")
+        assert mirror.exists(), f"no mirror at {mirror}"
+
+        declared = set(re.findall(r"^    (\w+): ", mirror.read_text(encoding="utf-8"),
+                                  re.MULTILINE))
+        exported = set(json_schemas()[f"book_meta_v{V}"]["$defs"]["ModelChoice"]["properties"])
+        assert exported <= declared, f"narrator/choice.py is missing {exported - declared}"

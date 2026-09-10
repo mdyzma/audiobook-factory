@@ -159,6 +159,78 @@
       },
       "title": "LanguageSample",
       "type": "object"
+    },
+    "ModelChoice": {
+      "additionalProperties": false,
+      "description": "The synthesis backend that will narrate this book.\n\nResolved once, when the book is chunked, and read from here afterwards.\nThat is deliberate: changing tomorrow's default in `config/models.toml`\nmust not change a book that is already queued or half-rendered, and the\nchunk sizes were computed against this model's limit rather than another's.\n\nIt is also the request a narrator environment reads. `environment` says\nwhich one can load it, so a book bound to a backend the running\nenvironment does not implement is refused rather than silently rendered\nwith whatever is at hand.",
+      "properties": {
+        "char_limit": {
+          "default": 0,
+          "description": "What the fragments below were packed against",
+          "minimum": 0,
+          "title": "Char Limit",
+          "type": "integer"
+        },
+        "checkpoint": {
+          "default": "",
+          "title": "Checkpoint",
+          "type": "string"
+        },
+        "engine": {
+          "default": "",
+          "description": "Which backend implements it",
+          "title": "Engine",
+          "type": "string"
+        },
+        "environment": {
+          "default": "",
+          "description": "The uv project that can load it",
+          "title": "Environment",
+          "type": "string"
+        },
+        "id": {
+          "default": "",
+          "description": "Registry key, e.g. xtts-v2",
+          "title": "Id",
+          "type": "string"
+        },
+        "native_sample_rate": {
+          "default": 24000,
+          "exclusiveMinimum": 0,
+          "title": "Native Sample Rate",
+          "type": "integer"
+        },
+        "revision": {
+          "default": "",
+          "description": "Pinned weights; blank until validated on the target machine",
+          "title": "Revision",
+          "type": "string"
+        },
+        "settings": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Effective controls this backend implements",
+          "title": "Settings",
+          "type": "object"
+        },
+        "source": {
+          "default": "",
+          "description": "default | override",
+          "title": "Source",
+          "type": "string"
+        },
+        "unsupported": {
+          "description": "Configured controls this backend ignores, recorded rather than dropped",
+          "items": {
+            "type": "string"
+          },
+          "title": "Unsupported",
+          "type": "array"
+        }
+      },
+      "title": "ModelChoice",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -208,6 +280,9 @@
     "language_decision": {
       "$ref": "#/$defs/LanguageRecord"
     },
+    "model": {
+      "$ref": "#/$defs/ModelChoice"
+    },
     "needs_review": {
       "default": false,
       "title": "Needs Review",
@@ -227,7 +302,7 @@
       "type": "array"
     },
     "schema_version": {
-      "default": 3,
+      "default": 4,
       "title": "Schema Version",
       "type": "integer"
     },

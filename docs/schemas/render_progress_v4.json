@@ -93,7 +93,7 @@
       "type": "boolean"
     },
     "schema_version": {
-      "default": 3,
+      "default": 4,
       "title": "Schema Version",
       "type": "integer"
     },

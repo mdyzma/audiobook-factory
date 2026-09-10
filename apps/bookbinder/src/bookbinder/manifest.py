@@ -22,9 +22,11 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 
 # 2 added the decoding and language provenance to book.json. 3 added the
 # extracted spelling and the substitutions behind each chunk's spoken text.
+# 4 added the resolved synthesis backend, which is what makes book.json the
+# request a narrator environment reads rather than a description of one.
 # The set is versioned as a unit so a reader only has to check one number.
 # narrator and transcriber mirror this constant.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # XTTS-v2 silently truncates text past these per-language limits.
 # Source: Coqui TTS xtts.py char_limits.
@@ -224,6 +226,46 @@ class LanguageRecord(StrictModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class ModelChoice(StrictModel):
+    """The synthesis backend that will narrate this book.
+
+    Resolved once, when the book is chunked, and read from here afterwards.
+    That is deliberate: changing tomorrow's default in `config/models.toml`
+    must not change a book that is already queued or half-rendered, and the
+    chunk sizes were computed against this model's limit rather than another's.
+
+    It is also the request a narrator environment reads. `environment` says
+    which one can load it, so a book bound to a backend the running
+    environment does not implement is refused rather than silently rendered
+    with whatever is at hand.
+    """
+
+    id: str = Field(default="", description="Registry key, e.g. xtts-v2")
+    engine: str = Field(default="", description="Which backend implements it")
+    environment: str = Field(default="", description="The uv project that can load it")
+    checkpoint: str = ""
+    revision: str = Field(
+        default="", description="Pinned weights; blank until validated on the target machine"
+    )
+    native_sample_rate: int = Field(default=24000, gt=0)
+    char_limit: int = Field(
+        default=0, ge=0, description="What the fragments below were packed against"
+    )
+    settings: dict[str, float] = Field(
+        default_factory=dict, description="Effective controls this backend implements"
+    )
+    unsupported: list[str] = Field(
+        default_factory=list,
+        description="Configured controls this backend ignores, recorded rather than dropped",
+    )
+    source: str = Field(default="", description="default | override")
+
+    @property
+    def identity(self) -> str:
+        """What has to match for rendered audio to be reusable."""
+        return f"{self.id}@{self.revision}" if self.revision else self.id
+
+
 class BookMeta(StrictModel):
     """What `book.json` holds. Chunks live beside it in chunks.jsonl."""
 
@@ -250,6 +292,7 @@ class BookMeta(StrictModel):
 
     encoding: EncodingRecord = Field(default_factory=EncodingRecord)
     language_decision: LanguageRecord = Field(default_factory=LanguageRecord)
+    model: ModelChoice = Field(default_factory=ModelChoice)
 
     # Hoisted out of the two records above so a folder of books can be shown
     # and filtered without opening each one.
@@ -273,6 +316,7 @@ class BookManifest(StrictModel):
     chunks: list[Chunk] = Field(default_factory=list)
     encoding: EncodingRecord = Field(default_factory=EncodingRecord)
     language_decision: LanguageRecord = Field(default_factory=LanguageRecord)
+    model: ModelChoice = Field(default_factory=ModelChoice)
     needs_review: bool = False
     review_reasons: list[str] = Field(default_factory=list)
 
@@ -293,7 +337,7 @@ class BookManifest(StrictModel):
             source_sha256=self.source_sha256, voice=self.voice, cast=self.cast,
             chapters=self.chapters, chunk_count=len(self.chunks),
             est_hours=self.est_hours, encoding=self.encoding,
-            language_decision=self.language_decision,
+            language_decision=self.language_decision, model=self.model,
             needs_review=self.needs_review, review_reasons=self.review_reasons,
         )
 
@@ -363,6 +407,13 @@ class RenderReport(ReportModel):
     slug: str = Field(min_length=1)
     voice: str = ""
     cast: dict[str, str] = Field(default_factory=dict)
+    # Which backend actually produced this audio. Without it, a book rendered
+    # under one model and resumed under another looks like one clean run.
+    model: str = Field(default="", description="Registry id, with revision where pinned")
+    engine: str = ""
+    sample_rate: int = Field(
+        default=0, ge=0, description="The engine's native rate, before any resampling"
+    )
     device: str = ""
     dry_run: bool = False
     started_at: str = ""

@@ -70,6 +70,11 @@
       "title": "Elapsed Sec",
       "type": "number"
     },
+    "engine": {
+      "default": "",
+      "title": "Engine",
+      "type": "string"
+    },
     "failures": {
       "items": {
         "$ref": "#/$defs/RenderFailure"
@@ -80,6 +85,12 @@
     "finished_at": {
       "default": "",
       "title": "Finished At",
+      "type": "string"
+    },
+    "model": {
+      "default": "",
+      "description": "Registry id, with revision where pinned",
+      "title": "Model",
       "type": "string"
     },
     "ok": {
@@ -93,8 +104,15 @@
       "title": "Realtime Factor",
       "type": "number"
     },
+    "sample_rate": {
+      "default": 0,
+      "description": "The engine's native rate, before any resampling",
+      "minimum": 0,
+      "title": "Sample Rate",
+      "type": "integer"
+    },
     "schema_version": {
-      "default": 3,
+      "default": 4,
       "title": "Schema Version",
       "type": "integer"
     },
