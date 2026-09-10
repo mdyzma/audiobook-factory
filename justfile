@@ -117,6 +117,11 @@ check-narrator:
 
 # --------------------------------------------- stage 1: clone the voice ----
 
+# What a recording is, and whether it is worth cloning from. ffmpeg only, so
+# it answers in seconds rather than after a model download.
+probe input:
+    cd apps/bookbinder && uv run python -m bookbinder.voices {{quote(absolute_path(input))}}
+
 # 1a. Denoise and normalise a raw recording to 24 kHz mono.
 clean input voice:
     ./scripts/preprocess.sh {{quote(input)}} {{quote(voice)}}
@@ -139,6 +144,9 @@ train voice language="pl" epochs="10" batch="3" accum="84":
 
 # Stage 1 end to end.
 voice input name language="pl":
+    # Judged first: cloning costs minutes and a model download, and most
+    # reasons a recording will not work are visible in the file itself.
+    just probe {{quote(input)}}
     just clean {{quote(input)}} {{quote(name)}}
     just label {{quote(name)}} auto {{quote(language)}}
     just clone {{quote(name)}}
