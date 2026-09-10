@@ -21,30 +21,21 @@ import time
 import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import torch
 import typer
 
-if TYPE_CHECKING:  # heavy imports stay out of the runtime path
-    from TTS.tts.models.xtts import Xtts
-
 from narrator.paths import project_root
-from narrator.engine import (
-    VoiceProfile,
-    checkpoint_key,
-    compute_latents,
-    load_latents,
-    load_model,
-    pick_device,
-)
+from narrator.backends import UnsupportedEngine, backend_for
+from narrator.choice import ModelChoice
+from narrator.engine import pick_device
 
 app = typer.Typer(add_completion=False)
 
 # narrator cannot import bookbinder (different environments, incompatible
 # numpy), so the report shape is mirrored here. It is validated on the
-# bookbinder side; docs/schemas/render_report_v3.json is the contract.
-SCHEMA_VERSION = 3
+# bookbinder side; docs/schemas/render_report_v4.json is the contract.
+SCHEMA_VERSION = 4
 
 # Mirrors bookbinder.manifest.DRY_RUN_MARKER. A dry run leaves silence at
 # exactly the paths a real render writes, and resume skips any fragment that
@@ -95,45 +86,6 @@ def load_synth_config(root: Path) -> dict:
     return tomllib.loads(path.read_text(encoding="utf-8")).get("synth", {})
 
 
-class VoicePool:
-    """Loads each checkpoint once and keeps a latent pair per voice.
-
-    Instant-cloned voices all share the stock XTTS weights and differ only in
-    their speaker latents, so one loaded model serves the whole cast. A
-    fine-tuned voice has its own weights, so models are cached by checkpoint
-    identity rather than globally: caching a single model meant the first
-    voice loaded narrated every other voice in the book.
-    """
-
-    def __init__(self, root: Path, device: str) -> None:
-        self.root = root
-        self.device = device
-        self._models: "dict[str, Xtts]" = {}
-        self._latents: dict[str, tuple] = {}
-        self._profiles: dict[str, VoiceProfile] = {}
-
-    def profile(self, voice: str) -> VoiceProfile:
-        if voice not in self._profiles:
-            self._profiles[voice] = VoiceProfile.load(self.root, voice)
-        return self._profiles[voice]
-
-    def model(self, voice: str) -> "Xtts":
-        profile = self.profile(voice)
-        key = checkpoint_key(profile)
-        if key not in self._models:
-            self._models[key] = load_model(profile, self.device)
-        return self._models[key]
-
-    def latents(self, voice: str):
-        if voice not in self._latents:
-            profile = self.profile(voice)
-            cached = load_latents(self.root, voice, self.device)
-            if cached is None:
-                cached = compute_latents(self.model(voice), profile)
-            self._latents[voice] = cached
-        return self._latents[voice]
-
-
 @app.command()
 def main(
     slug: str = typer.Argument(..., help="Book slug under data/book/"),
@@ -158,6 +110,11 @@ def main(
 
     book = json.loads((book_dir / "book.json").read_text(encoding="utf-8"))
     cast: dict[str, str] = book.get("cast") or {}
+
+    # Which backend this book was chunked for. Read rather than chosen here:
+    # the fragment sizes were packed against this model's limit, so rendering
+    # them with another one is not the same book.
+    choice = ModelChoice.from_book(book)
 
     all_chunks = [json.loads(line) for line in chunks_path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
@@ -195,22 +152,37 @@ def main(
     if discarded:
         typer.echo(f"discarding {discarded} dry-run silence files before rendering")
 
-    typer.echo(
-        f"synthesising {len(chunks)} chunks on {dev}\n"
-        f"voices: {', '.join(voices)}"
-    )
+    try:
+        pool = backend_for(choice, root, dev)
+    except UnsupportedEngine as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
-    pool = VoicePool(root, dev)
+    # Configured controls this backend does not implement. Saying so is the
+    # point: a setting that is quietly ignored looks like one that had no
+    # effect, and the difference matters when comparing two engines.
+    settings = dict(choice.settings) or {
+        k: v for k, v in cfg.items() if isinstance(v, (int, float))}
+    if choice.unsupported:
+        typer.echo(
+            f"note: {choice.id or 'this backend'} ignores "
+            f"{', '.join(choice.unsupported)}", err=True)
+
+    typer.echo(
+        f"synthesising {len(chunks)} chunks on {dev}"
+        + (f" with {choice.identity}" if choice.id else "")
+        + f"\nvoices: {', '.join(voices)}"
+    )
     started = time.time()
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     rendered: list[dict] = []
     failures: list[dict] = []
     skipped = 0
     audio_seconds = 0.0
+    rendered_rate = choice.native_sample_rate
 
     # A book is hours of work and report.json only lands at the end, so this is
     # the only view into a running render. Shape mirrors bookbinder's
-    # RenderProgress; docs/schemas/render_progress_v3.json is the contract.
+    # RenderProgress; docs/schemas/render_progress_v4.json is the contract.
     progress_path = out_dir / "progress.json"
     last_progress = 0.0
 
@@ -262,28 +234,21 @@ def main(
             continue
 
         try:
-            profile = pool.profile(chunk_voice)
-            gpt_cond_latent, speaker_embedding = pool.latents(chunk_voice)
-            out = pool.model(chunk_voice).inference(
-                chunk["text"],
-                chunk.get("language", profile.language),
-                gpt_cond_latent,
-                speaker_embedding,
-                temperature=cfg.get("temperature", 0.70),
-                length_penalty=cfg.get("length_penalty", 1.0),
-                repetition_penalty=cfg.get("repetition_penalty", 2.0),
-                top_k=cfg.get("top_k", 50),
-                top_p=cfg.get("top_p", 0.85),
-                speed=cfg.get("speed", 1.0),
-            )
+            wav = pool.speak(chunk["text"], chunk.get("language", ""),
+                             chunk_voice, settings)
+            rate = pool.sample_rate(chunk_voice)
         except Exception as exc:  # a single bad chunk must not kill the run
             failures.append({"chunk_id": chunk["id"], "error": f"{type(exc).__name__}: {exc}"})
             progress(chunk["id"], chunk_voice)
             last_progress = time.time()
             continue
 
-        sf.write(wav_path, out["wav"], profile.sample_rate)
-        duration = len(out["wav"]) / profile.sample_rate
+        # Written at the engine's own rate. Assembly resamples once, explicitly,
+        # at its own boundary; converting here would hide which rate the audio
+        # was actually produced at.
+        sf.write(wav_path, wav, rate)
+        duration = len(wav) / rate
+        rendered_rate = rate
         chunk["audio_path"] = str(wav_path.relative_to(root))
         chunk["duration_sec"] = round(duration, 3)
         audio_seconds += duration
@@ -322,6 +287,9 @@ def main(
         "slug": slug,
         "voice": voice,
         "cast": cast,
+        "model": choice.identity,
+        "engine": choice.engine,
+        "sample_rate": rendered_rate,
         "device": dev,
         "dry_run": False,
         "started_at": started_at,

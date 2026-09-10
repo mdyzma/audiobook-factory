@@ -71,7 +71,7 @@ class TestVoicePoolCheckpointIsolation:
     """
 
     def _pool(self, tmp_path, monkeypatch, profiles):
-        import narrator.synth as synth
+        import narrator.backends.xtts as backend
 
         voices = tmp_path / "data" / "voices"
         voices.mkdir(parents=True)
@@ -87,8 +87,8 @@ class TestVoicePoolCheckpointIsolation:
             loaded.append(profile.name)
             return f"model-for-{profile.name}"
 
-        monkeypatch.setattr(synth, "load_model", fake_load_model)
-        return synth.VoicePool(tmp_path, "cpu"), loaded
+        monkeypatch.setattr(backend, "load_model", fake_load_model)
+        return backend.XttsBackend(tmp_path, "cpu"), loaded
 
     def test_instant_voices_share_one_loaded_model(self, tmp_path, monkeypatch):
         pool, loaded = self._pool(tmp_path, monkeypatch, {"a": {}, "b": {}})
