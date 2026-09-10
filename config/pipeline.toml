@@ -51,4 +51,11 @@ channels = 1
 
 [qa]
 enabled = false              # re-transcribe generated audio and compare to source text
-max_wer = 0.15
+max_wer = 0.15               # fallback for any language not listed below
+
+# The transcriber is not equally good at every language, so a rate that means
+# trouble in one is ordinary in another. A fragment above its language's limit
+# is flagged for a listen, not declared broken.
+[qa.max_wer_by_language]
+pl = 0.18
+en = 0.12

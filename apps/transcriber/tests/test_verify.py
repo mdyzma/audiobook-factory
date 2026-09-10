@@ -110,3 +110,89 @@ class TestDryRunGuard:
         result = CliRunner().invoke(verify_mod.app, ["solaris"])
         # It gets past the guard and fails later, on the missing model.
         assert "dry-run silence" not in result.output
+
+
+class TestLanguageAwareChecking:
+    """A mixed folder is the point of the product, so one ASR model for a whole
+    book is not enough.
+
+    Verification used to take the first fragment's language and use it for
+    everything, which hears every fragment in the other language through the
+    wrong model and reports it as a synthesis failure.
+    """
+
+    def test_fragments_are_grouped_by_their_own_language(self):
+        from transcriber.verify import group_by_language
+
+        groups = group_by_language([
+            {"id": "a", "language": "pl"},
+            {"id": "b", "language": "en"},
+            {"id": "c", "language": "pl"},
+        ])
+        assert sorted(groups) == ["en", "pl"]
+        assert [c["id"] for c in groups["pl"]] == ["a", "c"]
+
+    def test_a_single_language_book_is_one_group(self):
+        from transcriber.verify import group_by_language
+
+        groups = group_by_language([{"id": "a", "language": "pl"},
+                                    {"id": "b", "language": "pl"}])
+        assert list(groups) == ["pl"]
+
+    def test_a_fragment_with_no_language_falls_back(self):
+        from transcriber.verify import group_by_language
+
+        assert list(group_by_language([{"id": "a"}], default="en")) == ["en"]
+
+
+class TestThresholds:
+    def test_each_language_gets_its_own_limit(self):
+        from transcriber.verify import thresholds_for
+
+        base, per_language = thresholds_for(
+            {"max_wer": 0.15, "max_wer_by_language": {"pl": 0.18, "en": 0.12}})
+        assert base == 0.15
+        assert per_language == {"pl": 0.18, "en": 0.12}
+
+    def test_a_language_with_no_entry_uses_the_fallback(self):
+        from transcriber.verify import thresholds_for
+
+        base, per_language = thresholds_for({"max_wer": 0.15})
+        assert base == 0.15 and per_language == {}
+
+    def test_an_explicit_override_applies_to_everything(self):
+        # A one-off tighter check must not be relaxed by a config entry.
+        from transcriber.verify import thresholds_for
+
+        base, per_language = thresholds_for(
+            {"max_wer": 0.15, "max_wer_by_language": {"pl": 0.5}}, override=0.05)
+        assert base == 0.05 and per_language == {}
+
+    def test_an_empty_config_still_gives_a_limit(self):
+        from transcriber.verify import thresholds_for
+
+        assert thresholds_for({})[0] > 0
+
+
+class TestReportDescribesItsOwnAudio:
+    """A quality report outlives the audio it was made from."""
+
+    def test_the_fingerprint_follows_the_fragments_checked(self):
+        from transcriber.verify import audio_fingerprint
+
+        one = [{"id": "a", "fingerprint": "x"}, {"id": "b", "fingerprint": "y"}]
+        assert audio_fingerprint(one) == audio_fingerprint(list(reversed(one)))
+
+    def test_re_rendering_a_fragment_changes_it(self):
+        from transcriber.verify import audio_fingerprint
+
+        before = audio_fingerprint([{"id": "a", "fingerprint": "x"}])
+        after = audio_fingerprint([{"id": "a", "fingerprint": "z"}])
+        assert before != after
+
+    def test_checking_a_different_subset_changes_it(self):
+        from transcriber.verify import audio_fingerprint
+
+        assert audio_fingerprint([{"id": "a", "fingerprint": "x"}]) != \
+            audio_fingerprint([{"id": "a", "fingerprint": "x"},
+                               {"id": "b", "fingerprint": "y"}])
