@@ -270,6 +270,11 @@ try again. If it persists, run `./install.sh` again.
 typed `just ui` is still open and has not printed an error. The address must be
 exactly `http://127.0.0.1:8765`.
 
+**It says the graphics card is busy.** Only one thing can use it at a time.
+Making the audiobook, creating a voice and checking a reading all use it, so
+the second one you start is asked to wait. Nothing is lost: wait for the first
+to finish, or stop it, then start the other.
+
 **The book has one chapter but should have many.** The chapter headings were not
 recognised. `.epub` files usually work best. A plain text file needs its chapter
 titles written on their own line starting with `# `, like `# Chapter One`.

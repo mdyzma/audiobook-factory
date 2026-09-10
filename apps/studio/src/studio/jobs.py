@@ -13,6 +13,12 @@ server restarting.
 
 **One render per book.** Two syntheses on the same slug would interleave writes
 to the same `rendered.jsonl`. A lock file per slug prevents it.
+
+**One GPU workload at a time.** There is one device, and everything that wants
+it wants all of it: a render, a voice clone, and the transcription a quality
+check runs are three model loads, not one. Nothing here checks free VRAM, since
+the answer would be stale by the time it was acted on. The device is taken like
+any other lock, and whoever asks second is told to wait.
 """
 
 from __future__ import annotations
@@ -41,23 +47,45 @@ LANGUAGES = frozenset(XTTS_CHAR_LIMITS)
 # same book, or on the same voice, are never safe to run together: chunking
 # rewrites the manifest a render is reading, assembly reads the fragment list a
 # render is still appending to, and verification reads audio mid-write.
+# `gpu` says the action loads a model onto the device. Clone preparation and
+# transcription count as much as synthesis does: `label` and `verify` run ASR,
+# and `voice` runs the labelling step on its way to cloning. Leaving those out
+# is how a batch survives eight hours and then fails out of memory when a
+# quality check lands beside a render.
 ACTIONS: dict[str, dict] = {
     # Cleans a recording, cuts and labels it, then clones the voice. Minutes,
     # not seconds: the labelling step downloads a speech model the first time.
     "voice":    {"recipe": "voice",    "args": ["sample", "name", "language"],
-                 "locks": True, "lock_key": "name", "scope": "voice"},
+                 "locks": True, "lock_key": "name", "scope": "voice", "gpu": True},
     "ingest":   {"recipe": "ingest",   "args": ["source", "slug"],  "locks": False},
     "chunk":    {"recipe": "chunk",    "args": ["slug"],            "locks": False},
+    # Silence at the estimated durations, written by bookbinder, which has no
+    # torch at all. It locks the book but never touches the device.
     "dryrun":   {"recipe": "dryrun",   "args": ["slug"],            "locks": True},
-    "synth":    {"recipe": "synth",    "args": ["slug", "voice"],   "locks": True},
-    "resynth":  {"recipe": "resynth",  "args": ["slug", "chunks"],  "locks": True},
+    "synth":    {"recipe": "synth",    "args": ["slug", "voice"],   "locks": True,
+                 "gpu": True},
+    "resynth":  {"recipe": "resynth",  "args": ["slug", "chunks"],  "locks": True,
+                 "gpu": True},
     "assemble": {"recipe": "assemble", "args": ["slug", "format"],  "locks": False},
-    "verify":   {"recipe": "verify",   "args": ["slug"],            "locks": False},
+    "verify":   {"recipe": "verify",   "args": ["slug"],            "locks": False,
+                 "gpu": True},
     "clone":    {"recipe": "clone",    "args": ["voice"],           "locks": False,
-                 "lock_key": "voice", "scope": "voice"},
+                 "lock_key": "voice", "scope": "voice", "gpu": True},
     "label":    {"recipe": "label",    "args": ["voice"],           "locks": False,
-                 "lock_key": "voice", "scope": "voice"},
+                 "lock_key": "voice", "scope": "voice", "gpu": True},
 }
+
+# Everything that wants the one device.
+GPU_ACTIONS = frozenset(name for name, spec in ACTIONS.items() if spec.get("gpu"))
+
+# The device, as a lock. Namespaced like every other lock name, so no book or
+# voice can ever be called the same thing.
+DEVICE_LOCK = "device-gpu"
+
+DEVICE_BUSY = (
+    "the GPU is busy: job {job} has it. Renders, voice cloning and "
+    "transcription each load a model onto the one device, so they take turns."
+)
 
 FORMATS = ("m4b", "mp3", "wav")
 
@@ -74,6 +102,16 @@ def studio_dir(root: Path) -> Path:
     return root / "data" / ".studio"
 
 
+def lock_name(scope: str, target: str) -> str:
+    """A lock name that says what it protects, not just what it is called.
+
+    Without the prefix a voice and a book of the same name share one lock file,
+    and cloning `solaris` reports the book of that name as already rendering.
+    Prefixing every lock makes the mapping from thing to lock injective.
+    """
+    return f"{scope}-{check_name(target)}"
+
+
 @dataclass
 class Job:
     id: str
@@ -85,6 +123,10 @@ class Job:
     finished_at: str = ""
     exit_code: int | None = None
     command: list[str] = field(default_factory=list)
+    # Every lock this job took, so finishing gives all of them back. A job may
+    # hold both its book and the device, and releasing one of the two leaves
+    # the batch wedged behind the other.
+    locks_held: list[str] = field(default_factory=list)
 
     @property
     def slug(self) -> str:
@@ -99,6 +141,16 @@ class Job:
     def lock_target(self) -> str:
         spec = ACTIONS.get(self.action) or {}
         return self.args.get(spec.get("lock_key", "slug"), "")
+
+    @property
+    def lock_name(self) -> str:
+        spec = ACTIONS.get(self.action) or {}
+        target = self.lock_target
+        return lock_name(spec.get("scope", "book"), target) if target else ""
+
+    @property
+    def uses_gpu(self) -> bool:
+        return bool((ACTIONS.get(self.action) or {}).get("gpu"))
 
     @property
     def conflict_key(self) -> str:
@@ -266,29 +318,38 @@ class JobStore:
         path.unlink(missing_ok=True)
         return None
 
-    def acquire(self, slug: str, job_id: str) -> None:
-        """Take the render lock for a book, or refuse.
+    def acquire(self, name: str, job_id: str, refusal: str = "") -> None:
+        """Take a named lock, or refuse.
 
         Created with O_EXCL because check-then-write loses the race: two
         requests arriving together both saw no holder, both wrote, and the two
         renders then shared one audio directory and one rendered.jsonl.
+
+        `refusal` is the message to raise when someone else holds it, with
+        `{job}` for the holder. The device needs a different sentence from a
+        book, and the person reading it is the one who clicked the button.
         """
         self.locks.mkdir(parents=True, exist_ok=True)
-        path = self.lock_path(slug)
+        path = self.lock_path(name)
+        template = refusal or "'{name}' is already being rendered by job {job}"
         for _attempt in range(2):
             try:
                 fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
             except FileExistsError:
                 # Either a live holder, or a lock whose owner died. `holder`
                 # clears the second case, so one retry is enough.
-                held = self.holder(slug)
+                held = self.holder(name)
                 if held:
-                    raise JobError(f"'{slug}' is already being rendered by job {held}")
+                    raise JobError(template.format(job=held, name=name))
                 continue
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(job_id)
             return
-        raise JobError(f"could not take the render lock for '{slug}'")
+        raise JobError(f"could not take the '{name}' lock")
+
+    def device_holder(self) -> str | None:
+        """The job using the GPU, if one is."""
+        return self.holder(DEVICE_LOCK)
 
     def conflicting_job(self, key: str) -> Job | None:
         """A running job already working on the same book or voice."""
@@ -297,11 +358,18 @@ class JobStore:
         return next((j for j in self.all() if j.running and j.conflict_key == key), None)
 
     def release(self, job: Job) -> None:
-        target = job.lock_target
-        if not target:
-            return
-        path = self.lock_path(target)
-        if path.exists() and path.read_text(encoding="utf-8").strip() == job.id:
+        """Give back everything this job took.
+
+        `locks_held` is authoritative for jobs started since it existed; the
+        fallback covers records written before, which knew only one lock.
+        """
+        for name in job.locks_held or ([job.lock_name] if job.lock_target else []):
+            self.release_lock(name, job.id)
+
+    def release_lock(self, name: str, job_id: str) -> None:
+        """Unlink a lock this job holds, and leave anyone else's alone."""
+        path = self.lock_path(name)
+        if path.exists() and path.read_text(encoding="utf-8").strip() == job_id:
             path.unlink(missing_ok=True)
 
 
@@ -410,10 +478,25 @@ class JobRunner:
                 f"'{busy.action}'. Wait for it, or cancel it first."
             )
 
-        if spec["locks"]:
-            # Most actions lock the book they render; creating a voice locks the
-            # voice instead, so two runs cannot build the same one at once.
-            self.store.acquire(clean[spec.get("lock_key", "slug")], job.id)
+        # Book or voice first, then the device. Neither call waits, so there is
+        # no deadlock to order around; what matters is giving back the first
+        # lock when the second is refused, or a book stays locked by a job that
+        # never started.
+        taken: list[str] = []
+        try:
+            if spec["locks"]:
+                # Most actions lock the book they render; creating a voice locks
+                # the voice instead, so two runs cannot build the same one.
+                self.store.acquire(job.lock_name, job.id)
+                taken.append(job.lock_name)
+            if job.uses_gpu:
+                self.store.acquire(DEVICE_LOCK, job.id, DEVICE_BUSY)
+                taken.append(DEVICE_LOCK)
+        except JobError:
+            for name in taken:
+                self.store.release_lock(name, job.id)
+            raise
+        job.locks_held = taken
 
         self.store.dir.mkdir(parents=True, exist_ok=True)
         log = self.store.log_path(job.id)
@@ -463,6 +546,15 @@ class JobRunner:
         self.store.save(job)
         self.store.release(job)
         return job
+
+    def device_busy(self) -> str | None:
+        """The job holding the GPU, if any.
+
+        A queue worker asks this before claiming, so a busy device makes it
+        take the next book's chapter split instead of waiting on the render.
+        """
+        reap()
+        return self.store.device_holder()
 
     def jobs(self) -> list[Job]:
         """Every job, with stored statuses reconciled against reality."""

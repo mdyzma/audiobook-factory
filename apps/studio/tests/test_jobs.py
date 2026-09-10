@@ -12,7 +12,18 @@ import time
 
 import pytest
 
-from studio.jobs import ACTIONS, Job, JobError, JobRunner, JobStore, _child_env, reap
+from studio.jobs import (
+    ACTIONS,
+    DEVICE_LOCK,
+    GPU_ACTIONS,
+    Job,
+    JobError,
+    JobRunner,
+    JobStore,
+    _child_env,
+    lock_name,
+    reap,
+)
 
 
 @pytest.fixture
@@ -104,7 +115,7 @@ class TestLocking:
 
     def test_a_second_render_is_refused(self, project):
         store, holder = self._holder(project)
-        store.acquire("solaris", holder.id)
+        store.acquire(lock_name("book", "solaris"), holder.id)
 
         with pytest.raises(JobError, match="busy"):
             JobRunner(project).start("synth", {"slug": "solaris", "voice": ""})
@@ -112,10 +123,10 @@ class TestLocking:
     def test_acquire_refuses_a_book_already_locked(self, project):
         # The lock itself, independent of the conflict check above it.
         store, holder = self._holder(project)
-        store.acquire("solaris", holder.id)
+        store.acquire(lock_name("book", "solaris"), holder.id)
 
         with pytest.raises(JobError, match="already being rendered"):
-            store.acquire("solaris", "bbbbbbbbbbbb")
+            store.acquire(lock_name("book", "solaris"), "bbbbbbbbbbbb")
 
     def test_acquire_is_atomic(self, project):
         # Check-then-write let two callers both pass the check and both write,
@@ -123,12 +134,12 @@ class TestLocking:
         store = JobStore(project)
         store.dir.mkdir(parents=True, exist_ok=True)
         store.locks.mkdir(parents=True, exist_ok=True)
-        store.lock_path("solaris").write_text("", encoding="utf-8")
+        store.lock_path(lock_name("book", "solaris")).write_text("", encoding="utf-8")
 
         # An empty lock names no job, so `holder` treats it as stale and clears
         # it; the retry must then create the file rather than find it gone.
-        store.acquire("solaris", "cccccccccccc")
-        assert store.lock_path("solaris").read_text(encoding="utf-8") == "cccccccccccc"
+        store.acquire(lock_name("book", "solaris"), "cccccccccccc")
+        assert store.lock_path(lock_name("book", "solaris")).read_text(encoding="utf-8") == "cccccccccccc"
 
     def test_a_non_locking_stage_is_refused_while_a_render_runs(self, project):
         # Assembling mid-render reads a fragment list still being appended to,
@@ -161,10 +172,17 @@ class TestLocking:
                    status="running", pid=999999, started_at="2026-01-01T00:00:00+00:00")
         store.save(dead)
         store.locks.mkdir(parents=True, exist_ok=True)
-        store.lock_path("solaris").write_text(dead.id, encoding="utf-8")
+        store.lock_path(lock_name("book", "solaris")).write_text(dead.id, encoding="utf-8")
 
         # Nothing should stay locked by a process that no longer exists.
-        assert store.holder("solaris") is None
+        assert store.holder(lock_name("book", "solaris")) is None
+
+    def test_a_book_and_a_voice_of_one_name_do_not_share_a_lock_file(self, project):
+        # Both are called solaris. Sharing a lock would have cloning the voice
+        # report the book as already rendering, and refuse a job that is fine.
+        store = JobStore(project)
+        assert store.lock_path(lock_name("book", "solaris")) != \
+            store.lock_path(lock_name("voice", "solaris"))
 
     def test_non_rendering_actions_do_not_lock(self):
         assert ACTIONS["assemble"]["locks"] is False
@@ -292,23 +310,23 @@ class TestPrune:
                       started_at="2020-01-01T00:00:00+00:00")
         store.save(running)
         store.log_path(running.id).write_text("mid render\n", encoding="utf-8")
-        store.acquire("solaris", running.id)
+        store.acquire(lock_name("book", "solaris"), running.id)
 
         result = JobRunner(project).prune(remove_all=True)
         assert result["running"] == 1
         assert (store.dir / "runningjobaa.json").exists()
         assert store.log_path("runningjobaa").exists()
-        assert store.holder("solaris") == "runningjobaa"
+        assert store.holder(lock_name("book", "solaris")) == "runningjobaa"
 
     def test_clears_a_lock_whose_holder_is_gone(self, project):
         # Otherwise it refuses the next render forever.
         store = JobStore(project)
         store.dir.mkdir(parents=True, exist_ok=True)
         store.locks.mkdir(parents=True, exist_ok=True)
-        store.lock_path("solaris").write_text("vanishedjobx", encoding="utf-8")
+        store.lock_path(lock_name("book", "solaris")).write_text("vanishedjobx", encoding="utf-8")
 
         JobRunner(project).prune()
-        assert not store.lock_path("solaris").exists()
+        assert not store.lock_path(lock_name("book", "solaris")).exists()
 
     def test_pruning_an_empty_store_is_harmless(self, project):
         assert JobRunner(project).prune()["removed"] == 0
@@ -374,10 +392,10 @@ class TestVoiceCreation:
                      status="running", pid=os.getpid(),
                      started_at="2026-01-01T00:00:00+00:00")
         store.save(holder)
-        store.acquire("michal", holder.id)
-        assert store.holder("michal") == holder.id
+        store.acquire(lock_name("voice", "michal"), holder.id)
+        assert store.holder(lock_name("voice", "michal")) == holder.id
         # A book render is unaffected.
-        assert store.holder("solaris") is None
+        assert store.holder(lock_name("book", "solaris")) is None
 
     def test_a_finished_voice_job_releases_its_lock(self, project):
         store = JobStore(project)
@@ -388,6 +406,113 @@ class TestVoiceCreation:
                   started_at="2026-01-01T00:00:00+00:00")
         store.save(job)
         store.locks.mkdir(parents=True, exist_ok=True)
-        store.lock_path("michal").write_text(job.id, encoding="utf-8")
+        store.lock_path(lock_name("voice", "michal")).write_text(job.id, encoding="utf-8")
         store.release(job)
-        assert not store.lock_path("michal").exists()
+        assert not store.lock_path(lock_name("voice", "michal")).exists()
+
+
+class TestOneGpuWorkloadAtATime:
+    """There is one device, and everything that wants it wants all of it.
+
+    The failure this prevents is not subtle but it is slow: a batch runs for
+    eight hours, a quality check starts beside a render, and both die out of
+    memory with most of a book still to narrate.
+    """
+
+    def _holding_the_device(self, project, action="synth", args=None):
+        store = JobStore(project)
+        store.dir.mkdir(parents=True, exist_ok=True)
+        job = Job(id="dddddddddddd", action=action, args=args or {"slug": "eden"},
+                  status="running", pid=os.getpid(),
+                  started_at="2026-01-01T00:00:00+00:00",
+                  locks_held=[DEVICE_LOCK])
+        store.save(job)
+        store.acquire(DEVICE_LOCK, job.id)
+        return store, job
+
+    def test_transcription_and_cloning_count_as_gpu_work(self):
+        # The whole point: leaving ASR out is how two models end up loaded.
+        assert GPU_ACTIONS == {"voice", "clone", "label", "synth", "resynth", "verify"}
+
+    def test_work_that_loads_no_model_is_not_gated(self):
+        for action in ("chunk", "ingest", "assemble", "dryrun"):
+            assert not ACTIONS[action].get("gpu"), action
+
+    def test_a_second_gpu_job_is_refused(self, project):
+        self._holding_the_device(project)
+        with pytest.raises(JobError, match="GPU is busy"):
+            JobRunner(project).start("verify", {"slug": "solaris"})
+
+    def test_the_refusal_names_the_job_that_has_it(self, project):
+        _store, holder = self._holding_the_device(project)
+        with pytest.raises(JobError, match=holder.id):
+            JobRunner(project).start("verify", {"slug": "solaris"})
+
+    def test_work_needing_no_model_runs_alongside(self, project):
+        # Assembling is ffmpeg. Making it wait for a render would halve the
+        # throughput of a batch for no reason at all.
+        self._holding_the_device(project)
+        job = JobRunner(project).start("assemble", {"slug": "solaris", "format": "m4b"})
+        assert job.id
+
+    def test_a_refused_job_does_not_leave_the_book_locked(self, project):
+        # It takes the book lock first and the device second. Losing the device
+        # must give the book back there and then. `holder` would paper over a
+        # leak here, because it clears a lock naming a job that was never saved,
+        # so this looks at the file itself.
+        store, _holder = self._holding_the_device(project)
+        with pytest.raises(JobError, match="GPU is busy"):
+            JobRunner(project).start("synth", {"slug": "solaris", "voice": ""})
+        assert not store.lock_path(lock_name("book", "solaris")).exists()
+
+    def test_finishing_gives_the_device_back(self, project):
+        store, holder = self._holding_the_device(project)
+        store.exit_path(holder.id).write_text("0", encoding="utf-8")
+        store.load(holder.id)          # reconciles, and releases what it held
+        assert store.device_holder() is None
+
+    def test_a_job_holding_two_locks_gives_back_both(self, project):
+        store = JobStore(project)
+        store.dir.mkdir(parents=True, exist_ok=True)
+        book = lock_name("book", "solaris")
+        job = Job(id="eeeeeeeeeeee", action="synth", args={"slug": "solaris"},
+                  status="running", pid=os.getpid(),
+                  started_at="2026-01-01T00:00:00+00:00",
+                  locks_held=[book, DEVICE_LOCK])
+        store.save(job)
+        store.acquire(book, job.id)
+        store.acquire(DEVICE_LOCK, job.id)
+
+        store.release(job)
+        assert store.holder(book) is None
+        assert store.device_holder() is None
+
+    def test_a_dead_holder_does_not_keep_the_device(self, project):
+        store = JobStore(project)
+        store.dir.mkdir(parents=True, exist_ok=True)
+        dead = Job(id="ffffffffffff", action="synth", args={"slug": "eden"},
+                   status="running", pid=999999,
+                   started_at="2026-01-01T00:00:00+00:00", locks_held=[DEVICE_LOCK])
+        store.save(dead)
+        store.acquire(DEVICE_LOCK, dead.id)
+        assert store.device_holder() is None
+
+    def test_a_busy_device_sends_the_worker_to_the_next_book(self, project):
+        # The queue does not know what a GPU is. It is told which kinds of work
+        # cannot start, and finds something else that can.
+        from studio.queue import Queue
+
+        queue = Queue(project)
+        queue.add_plan("solaris", [("synth", {}), ("assemble", {})])
+        queue.add_plan("eden", [("chunk", {})])
+
+        item = queue.claim("worker", skip_actions=tuple(sorted(GPU_ACTIONS)))
+        assert item is not None and item.label == "eden/chunk"
+
+    def test_nothing_is_skipped_once_the_device_is_free(self, project):
+        from studio.queue import Queue
+
+        queue = Queue(project)
+        queue.add_plan("solaris", [("synth", {}), ("assemble", {})])
+        item = queue.claim("worker")
+        assert item is not None and item.label == "solaris/synth"

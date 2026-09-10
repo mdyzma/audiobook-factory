@@ -279,10 +279,36 @@ unreliable renderer multiply the damage.
 | D-11 | Folder scan. Non-recursive by default with explicit recursion, deterministic reviewable order, TXT and EPUB only, unsupported files reported rather than guessed.  | M — **done** |
 | D-12 | Import and deduplication. Copy and hash on import, detect exact duplicates, assign stable book IDs, handle identical titles and basenames without overwriting. A re-scan distinguishes an unchanged input from a new source revision. Input files are never renamed or deleted.   | M — **done** |
 | D-13 | Durable queue in SQLite owned by Studio, at `data/.studio/queue.db` beside the jobs and locks rather than in a second studio directory. Atomic claims. Sources, manifests, and audio stay on disk. (ARCH-01 subset) | L — **done** |
-| D-14 | One GPU workload at a time, counting clone preparation and ASR. Reuse a loaded model where batch order allows; swapping models between books is acceptable. Depends on D-09. | M |
+| D-14 | One GPU workload at a time, counting clone preparation and ASR. Reuse a loaded model where batch order allows; swapping models between books is acceptable. Depends on D-09. | M — **gate done**, reuse deferred and sized below |
 | D-15 | Batch review. Filename, title, encoding, detected or overridden language, model, voice or cast, estimated duration, readiness. Bulk defaults with per-book overrides. | M |
 | D-16 | Pause, cancel, retry, and explicit continuation after a failure. An encoding, language, or model exception pauses that book only. Disk preflight before synthesis and before assembly. | M |
 | D-17 | Snapshot resolved language, model, cast, and settings per run so tomorrow's default cannot change a queued or resumed job. (CONF-01)  | S — **done** in slice B: `book.json` carries the resolved model, its settings and the cast |
+
+**GPU gate done 2026-09-10.** Every action that loads a model onto the device
+now says so, and that includes the two easy to forget: `label` and `verify` run
+transcription, and `voice` runs labelling on its way to cloning. Leaving those
+out is how a batch survives eight hours and then dies out of memory when a
+quality check lands beside a render. Nothing inspects free VRAM, because the
+answer is stale by the time it is acted on; the device is taken like any other
+lock and whoever asks second is told to wait. Work that loads no model still
+runs alongside, so assembling one book does not queue behind narrating another.
+
+Two things came out of this. Lock names were not namespaced, so a voice and a
+book of the same name shared one lock file and cloning `solaris` could report
+the book of that name as already rendering; every lock name now says what it
+protects. And a job that took its book lock and was then refused the device
+used to leave the book locked, which the next attempt only survived because
+`holder` clears a lock naming a job that was never saved. It now gives back
+what it took, and the test looks at the lock file rather than at `holder`,
+which papered over the leak.
+
+**Reuse of a loaded model is not done and is bigger than this row suggests.**
+Each stage runs as its own detached process, so the model is loaded from disk
+every time whatever the batch order is; grouping books by model saves nothing
+today. Real reuse needs a resident narrator process that outlives one book,
+which is an architecture change rather than a scheduling one. Within a single
+render the model is already loaded once and the conditioning swapped per voice,
+which is where the cost actually was for a multi-voice cast.
 
 **Queue done 2026-09-10.** One queue entry is one stage of one book, not a
 whole book. That is what lets a failed chapter split hold back only that book,
