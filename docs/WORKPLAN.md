@@ -277,12 +277,25 @@ unreliable renderer multiply the damage.
 | ID | Work | Size |
 |---|---|---|
 | D-11 | Folder scan. Non-recursive by default with explicit recursion, deterministic reviewable order, TXT and EPUB only, unsupported files reported rather than guessed.  | M — **done** |
-| D-12 | Import and deduplication. Copy and hash on import, detect exact duplicates, assign stable book IDs, handle identical titles and basenames without overwriting. A re-scan distinguishes an unchanged input from a new source revision. Input files are never renamed or deleted.  | M — **part**: the scan classifies every file; importing the ready ones in one go is next |
+| D-12 | Import and deduplication. Copy and hash on import, detect exact duplicates, assign stable book IDs, handle identical titles and basenames without overwriting. A re-scan distinguishes an unchanged input from a new source revision. Input files are never renamed or deleted.   | M — **done** |
 | D-13 | Durable queue in SQLite owned by Studio, at `data/studio/queue.db`. Atomic claims. Sources, manifests, and audio stay on disk. (ARCH-01 subset) | L |
 | D-14 | One GPU workload at a time, counting clone preparation and ASR. Reuse a loaded model where batch order allows; swapping models between books is acceptable. Depends on D-09. | M |
 | D-15 | Batch review. Filename, title, encoding, detected or overridden language, model, voice or cast, estimated duration, readiness. Bulk defaults with per-book overrides. | M |
 | D-16 | Pause, cancel, retry, and explicit continuation after a failure. An encoding, language, or model exception pauses that book only. Disk preflight before synthesis and before assembly. | M |
 | D-17 | Snapshot resolved language, model, cast, and settings per run so tomorrow's default cannot change a queued or resumed job. (CONF-01)  | S — **done** in slice B: `book.json` carries the resolved model, its settings and the cast |
+
+**Scan and import done 2026-09-10.** Ingestion was refactored into a callable
+so the single-file command and the folder pass share one implementation, and it
+now returns its outcome rather than raising: an unreadable file among twenty
+must not stop the other nineteen. `just import-folder` reports every file
+exactly once, and re-running it imports nothing, because books already here are
+recognised by their bytes.
+
+Importing a folder exposed a gap in the decoder. A file that only ISO-8859-2
+would accept decodes to a page of control characters, and with nothing
+competing there was no ambiguity to flag, so it was imported as a book. Being
+the only reading that did not raise is not the same as being right, and a
+quality floor now catches it.
 
 **Started 2026-09-10 with the scan.** Classification is the part that can do
 damage, so it went first and the order of its questions is the design.

@@ -334,6 +334,14 @@ already here, which should replace it, from a different book that happens to
 share a filename, which must not. Anything left is new, and takes a numbered
 name if a different book already holds the one it wants.
 
+**One book pausing in a folder import.** That is the design, not a failure.
+Twenty books must not wait on the one that needs a decision, so `just
+import-folder` imports what it can and names what it could not, exiting
+non-zero so a script can tell. Resolve each paused book with `just ingest` and
+a language or encoding, or `just inspect` to see the evidence first. Re-running
+the import is safe: books already here are recognised by their bytes and left
+alone.
+
 **A book that stops with `needs review` at ingestion.** Two things are now
 established from the file rather than assumed: the encoding of plain text, and
 the language of the book. Either can be genuinely undecidable, and guessing is
