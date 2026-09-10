@@ -16,7 +16,10 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from bookbinder.ingest import Imported
 
 # What counts as a book here. PDF is out: the assessment scoped folder work to
 # TXT and EPUB, and `just ingest` still takes a PDF one file at a time.
@@ -74,7 +77,7 @@ def file_sha256(path: Path) -> str:
 
 
 @dataclass(frozen=True)
-class Imported:
+class KnownBook:
     """A book already here, as the scan needs to see it."""
 
     slug: str
@@ -82,7 +85,7 @@ class Imported:
     source: str = ""            # the path it was imported from
 
 
-def imported_books(root: Path) -> dict[str, Imported]:
+def imported_books(root: Path) -> dict[str, KnownBook]:
     """Every book already here, keyed by slug.
 
     Read from the manifests rather than from a separate index, so it cannot
@@ -92,14 +95,14 @@ def imported_books(root: Path) -> dict[str, Imported]:
     if not book_root.is_dir():
         return {}
 
-    known: dict[str, Imported] = {}
+    known: dict[str, KnownBook] = {}
     for meta_path in sorted(book_root.glob("*/chapters.json")):
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8")).get("meta") or {}
         except (OSError, ValueError):
             continue
         slug = meta_path.parent.name
-        known[slug] = Imported(
+        known[slug] = KnownBook(
             slug=slug,
             sha256=str(meta.get("source_sha256") or ""),
             source=str(meta.get("original_source") or ""),
@@ -126,7 +129,7 @@ def classify(
     path: Path,
     sha: str,
     base_slug: str,
-    known: dict[str, Imported],
+    known: dict[str, KnownBook],
     seen: dict[str, str],
     taken: set[str],
 ) -> Candidate:
@@ -254,20 +257,114 @@ def report(found: Scan) -> str:
     return "\n".join(lines)
 
 
+@dataclass
+class BatchImport:
+    """What one pass over a folder actually did."""
+
+    scan: Scan
+    results: "list[Imported]" = field(default_factory=list)
+
+    @property
+    def imported(self) -> "list[Imported]":
+        return [r for r in self.results if r.written]
+
+    @property
+    def paused(self) -> "list[Imported]":
+        """Books that stopped for review, or could not be read at all."""
+        return [r for r in self.results if not r.written]
+
+
+def import_folder(
+    root: Path,
+    folder: Path,
+    recursive: bool = False,
+    language: str = "",
+    encoding: str = "",
+) -> BatchImport:
+    """Import every book in `folder` that is ready to be imported.
+
+    One bad file must not derail the batch. A book whose encoding or language
+    cannot be settled pauses on its own and the rest carry on, which is the
+    whole point of importing a folder rather than a file: twenty books should
+    not wait on the one that needs a decision.
+
+    `language` and `encoding` apply to every book in the pass. They are the
+    bulk default the assessment asks for, and are how a folder known to be all
+    Polish gets through without twenty separate answers.
+    """
+    from bookbinder.ingest import import_book
+
+    found = scan(root, folder, recursive=recursive)
+    batch = BatchImport(scan=found)
+
+    for candidate in found.ready:
+        batch.results.append(import_book(
+            root, candidate.path, slug=candidate.slug,
+            language=language, encoding=encoding,
+        ))
+    return batch
+
+
+def import_report(batch: BatchImport) -> str:
+    """What the pass did, with every file accounted for exactly once.
+
+    Each line says which of four things happened to a file, and the counts add
+    up to what was in the folder. A summary that quietly leaves the unreadable
+    files out is how a folder of twenty books becomes an audiobook of twelve.
+    """
+    lines = [f"{batch.scan.folder}", ""]
+    for result in batch.results:
+        mark = "imported" if result.written else "paused"
+        lines.append(f"  {mark:11} {result.source.name}")
+        lines.append(f"  {'':11} {result.summary}")
+
+    not_ready = [c for c in batch.scan.books if not c.ready]
+    for candidate in not_ready + batch.scan.unsupported:
+        lines.append(f"  {candidate.status:11} {candidate.name}")
+        if candidate.note:
+            lines.append(f"  {'':11} {candidate.note}")
+
+    paused = batch.paused
+    total = len(batch.scan.books) + len(batch.scan.unsupported)
+    lines += ["", f"  {total} file(s): {len(batch.imported)} imported, "
+                  f"{len(paused)} paused, {len(not_ready)} already here or "
+                  f"duplicated, {len(batch.scan.unsupported)} unsupported"]
+    if paused:
+        lines.append("  Paused books need a decision: re-run just ingest on each "
+                     "with a language or encoding, or just inspect to see why.")
+    return "\n".join(lines)
+
+
+def _option(args: list[str], name: str) -> str:
+    prefix = f"--{name}="
+    return next((a[len(prefix):] for a in args if a.startswith(prefix)), "")
+
+
 def main() -> None:
-    """`just scan <folder>`."""
+    """`just scan <folder>` and `just import-folder <folder>`."""
     import sys
 
     from bookbinder.paths import project_root
 
     args = [a for a in sys.argv[1:] if a]
     recursive = "--recursive" in args
+    doing_import = "--import" in args
     folders = [a for a in args if not a.startswith("-")]
     if not folders:
-        print("usage: scan <folder> [--recursive]", file=sys.stderr)
+        print("usage: library <folder> [--recursive] [--import]", file=sys.stderr)
         raise SystemExit(2)
 
-    print(report(scan(project_root(), Path(folders[0]), recursive=recursive)))
+    root, folder = project_root(), Path(folders[0])
+    if not doing_import:
+        print(report(scan(root, folder, recursive=recursive)))
+        return
+
+    batch = import_folder(root, folder, recursive=recursive,
+                          language=_option(args, "language"),
+                          encoding=_option(args, "encoding"))
+    print(import_report(batch))
+    # Non-zero when something needs a person, so a script can tell.
+    raise SystemExit(1 if batch.paused else 0)
 
 
 if __name__ == "__main__":

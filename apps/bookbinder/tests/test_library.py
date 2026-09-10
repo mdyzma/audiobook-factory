@@ -22,9 +22,16 @@ from bookbinder.library import (
     unique_slug,
 )
 
+# Long enough that the language can be established from the text alone. A
+# shorter sample pauses for review, which is correct and is its own test.
 POLISH = (
     "Ocean falował pod stacją, a wiatr wiał nieprzerwanie od trzech dni. "
-    "Zszedłem po drabince do kabiny i zamknąłem właz za sobą, nasłuchując."
+    "Zszedłem po drabince do kabiny i zamknąłem właz za sobą, nasłuchując. "
+    "Śnieg padał na łąki pod Łodzią, a mgła osiadła na rzece o świcie. "
+    "Wczesnym rankiem wróciłem na pokład i długo patrzyłem w stronę brzegu. "
+    "Woda była ciemna i gęsta, a nad nią unosiła się para, którą wiatr "
+    "rozwiewał w długie smugi ciągnące się aż po widnokrąg bez końca. "
+    "Nikt nie odpowiadał na wezwania, więc usiadłem przy pulpicie i czekałem."
 )
 
 
@@ -222,14 +229,14 @@ class TestNamingCannotOverwrite:
 
 class TestClassification:
     def test_every_status_is_one_of_the_documented_ones(self, tmp_path):
-        from bookbinder.library import Imported
+        from bookbinder.library import KnownBook
 
         here = tmp_path / "a.txt"
         statuses = {"new", "unchanged", "revised", "duplicate"}
         cases = [
             ({}, {}, set()),
-            ({"a": Imported("a", "h1", str(here))}, {}, {"a"}),
-            ({"a": Imported("a", "h2", str(here))}, {}, {"a"}),
+            ({"a": KnownBook("a", "h1", str(here))}, {}, {"a"}),
+            ({"a": KnownBook("a", "h2", str(here))}, {}, {"a"}),
             ({}, {"h1": "earlier.txt"}, set()),
         ]
         for known, seen, taken in cases:
@@ -281,3 +288,102 @@ class TestAlreadyImportedOutranksDuplicate:
         already_imported(project, "solaris", file_sha256(path), path)
 
         assert scan(project, project / "inbox").ready == []
+
+
+class TestImportingAWholeFolder:
+    """Twenty books must not wait on the one that needs a decision.
+
+    That is the whole reason to import a folder rather than a file at a time,
+    so failure isolation is the property under test rather than a nicety.
+    """
+
+    @pytest.fixture
+    def configured(self, project, monkeypatch):
+        (project / "justfile").write_text("", encoding="utf-8")
+        (project / "config").mkdir(exist_ok=True)
+        (project / "config" / "pipeline.toml").write_text("", encoding="utf-8")
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(project))
+        return project
+
+    def test_every_ready_book_is_imported(self, configured):
+        from bookbinder.library import import_folder
+
+        book(configured, "solaris.txt", POLISH)
+        book(configured, "lustra.txt", POLISH + " Zupełnie inny akapit tutaj.")
+
+        batch = import_folder(configured, configured / "inbox", language="pl")
+        assert len(batch.imported) == 2
+        assert batch.paused == []
+
+    def test_each_book_lands_in_its_own_place(self, configured):
+        from bookbinder.library import import_folder
+
+        book(configured, "solaris.txt", POLISH)
+        book(configured, "lustra.txt", POLISH + " Zupełnie inny akapit tutaj.")
+
+        import_folder(configured, configured / "inbox", language="pl")
+        slugs = sorted(p.name for p in (configured / "data" / "book").iterdir())
+        assert slugs == ["lustra", "solaris"]
+
+    def test_one_book_needing_review_does_not_stop_the_others(self, configured):
+        # The failure isolation the assessment asks for, stated as a test.
+        from bookbinder.library import import_folder
+
+        book(configured, "solaris.txt", POLISH)
+        book(configured, "krotki.txt", "Za krótki.")
+
+        batch = import_folder(configured, configured / "inbox")
+        assert [r.source.name for r in batch.imported] == ["solaris.txt"]
+        assert [r.source.name for r in batch.paused] == ["krotki.txt"]
+        assert any("characters of text" in r for r in batch.paused[0].reasons)
+
+    def test_an_unreadable_file_does_not_stop_the_others(self, configured):
+        from bookbinder.library import import_folder
+
+        book(configured, "solaris.txt", POLISH)
+        (configured / "inbox" / "broken.txt").write_bytes(
+            bytes([0x81, 0x8D, 0x8F, 0x90, 0x9D]) * 60)
+
+        batch = import_folder(configured, configured / "inbox", language="pl")
+        assert [r.source.name for r in batch.imported] == ["solaris.txt"]
+        assert len(batch.paused) == 1
+        assert batch.paused[0].reasons
+
+    def test_a_paused_book_writes_nothing(self, configured):
+        from bookbinder.library import import_folder
+
+        book(configured, "krotki.txt", "Za krótki.")
+        import_folder(configured, configured / "inbox")
+        assert list((configured / "data" / "book").iterdir()) == []
+
+    def test_a_bulk_language_gets_a_whole_folder_through(self, configured):
+        # Twenty books known to be Polish should not need twenty answers.
+        from bookbinder.library import import_folder
+
+        book(configured, "a.txt", "Krótkie zdanie.")
+        book(configured, "b.txt", "Inne krótkie zdanie.")
+
+        batch = import_folder(configured, configured / "inbox", language="pl")
+        assert len(batch.imported) == 2
+        assert all(r.language == "pl" for r in batch.imported)
+
+    def test_already_imported_books_are_not_imported_again(self, configured):
+        from bookbinder.library import import_folder
+
+        book(configured, "solaris.txt", POLISH)
+        first = import_folder(configured, configured / "inbox", language="pl")
+        second = import_folder(configured, configured / "inbox", language="pl")
+
+        assert len(first.imported) == 1
+        assert second.results == []
+
+    def test_the_report_names_the_paused_books_and_why(self, configured):
+        from bookbinder.library import import_folder, import_report
+
+        book(configured, "solaris.txt", POLISH)
+        book(configured, "krotki.txt", "Za krótki.")
+
+        text = import_report(import_folder(configured, configured / "inbox"))
+        assert "imported" in text and "paused" in text
+        assert "krotki.txt" in text
+        assert "need a decision" in text

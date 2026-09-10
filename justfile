@@ -160,6 +160,15 @@ scan folder recursive="":
     cd apps/bookbinder && uv run python -m bookbinder.library \
       {{quote(absolute_path(folder))}} {{ if recursive != "" { "--recursive" } else { "" } }}
 
+# Import every book in a folder that is ready. A book whose encoding or
+# language cannot be settled pauses on its own and the rest carry on; `language`
+# and `encoding` apply to the whole pass, for a folder you already know about.
+import-folder folder language="" encoding="" recursive="":
+    cd apps/bookbinder && uv run python -m bookbinder.library \
+      {{quote(absolute_path(folder))}} --import \
+      {{quote("--language=" + language)}} {{quote("--encoding=" + encoding)}} \
+      {{ if recursive != "" { "--recursive" } else { "" } }}
+
 # 2. Parse an ebook into normalised chapters.
 ingest source slug="" language="" title="" author="" encoding="":
     # absolute_path so this works from anywhere and with absolute inputs; the
