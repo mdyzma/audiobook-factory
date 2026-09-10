@@ -161,9 +161,14 @@ inspect source encoding="":
       --encoding {{quote(encoding)}} --review
 
 # 3. Split chapters into fragments, assigning a cast role to each.
-chunk slug voice="":
+chunk slug voice="" model="":
     cd apps/bookbinder && uv run python -m bookbinder.chunk {{quote(slug)}} \
-      --voice {{quote(voice)}}
+      --voice {{quote(voice)}} --model {{quote(model)}}
+
+# The synthesis backends this project knows about, and which one narrates each
+# language. Read from config/models.toml.
+models:
+    cd apps/bookbinder && uv run python -m bookbinder.models
 
 # As above but narrate everything in one voice, ignoring config/cast.yml.
 chunk-single slug voice:
