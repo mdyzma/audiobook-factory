@@ -322,6 +322,18 @@ speak and at what rate the audio comes back. If its dependencies conflict with
 the XTTS pins, it gets its own environment under `apps/` and its own module
 there; see `docs/DECISIONS.md`.
 
+**A scan calling a file `unchanged`, `revised` or `duplicate`.** `just scan`
+answers from the bytes, not the filename, because every wrong answer here
+overwrites work that took hours to render.
+
+The order the questions are asked in is the whole design. Identical bytes
+settle it outright: a book already imported reads as `unchanged` however many
+copies of it the folder holds and whatever they are called. Failing that, the
+path recorded in `original_source` is what separates a corrected copy of a book
+already here, which should replace it, from a different book that happens to
+share a filename, which must not. Anything left is new, and takes a numbered
+name if a different book already holds the one it wants.
+
 **A book that stops with `needs review` at ingestion.** Two things are now
 established from the file rather than assumed: the encoding of plain text, and
 the language of the book. Either can be genuinely undecidable, and guessing is

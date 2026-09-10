@@ -269,20 +269,33 @@ incompatible output. Interrupt and restart preserve only valid completed work.
 Deleting a fragment blocks export. QA states its language, coverage, input
 revision, and synthesis preset.
 
-## Slice D — Folder batches (FEAT-03)
+## Slice D — Folder batches (FEAT-03) — started
 
 Needs C's reliable single-book render first. Unattended batches over an
 unreliable renderer multiply the damage.
 
 | ID | Work | Size |
 |---|---|---|
-| D-11 | Folder scan. Non-recursive by default with explicit recursion, deterministic reviewable order, TXT and EPUB only, unsupported files reported rather than guessed. | M |
-| D-12 | Import and deduplication. Copy and hash on import, detect exact duplicates, assign stable book IDs, handle identical titles and basenames without overwriting. A re-scan distinguishes an unchanged input from a new source revision. Input files are never renamed or deleted. | M |
+| D-11 | Folder scan. Non-recursive by default with explicit recursion, deterministic reviewable order, TXT and EPUB only, unsupported files reported rather than guessed.  | M — **done** |
+| D-12 | Import and deduplication. Copy and hash on import, detect exact duplicates, assign stable book IDs, handle identical titles and basenames without overwriting. A re-scan distinguishes an unchanged input from a new source revision. Input files are never renamed or deleted.  | M — **part**: the scan classifies every file; importing the ready ones in one go is next |
 | D-13 | Durable queue in SQLite owned by Studio, at `data/studio/queue.db`. Atomic claims. Sources, manifests, and audio stay on disk. (ARCH-01 subset) | L |
 | D-14 | One GPU workload at a time, counting clone preparation and ASR. Reuse a loaded model where batch order allows; swapping models between books is acceptable. Depends on D-09. | M |
 | D-15 | Batch review. Filename, title, encoding, detected or overridden language, model, voice or cast, estimated duration, readiness. Bulk defaults with per-book overrides. | M |
 | D-16 | Pause, cancel, retry, and explicit continuation after a failure. An encoding, language, or model exception pauses that book only. Disk preflight before synthesis and before assembly. | M |
-| D-17 | Snapshot resolved language, model, cast, and settings per run so tomorrow's default cannot change a queued or resumed job. (CONF-01) | S |
+| D-17 | Snapshot resolved language, model, cast, and settings per run so tomorrow's default cannot change a queued or resumed job. (CONF-01)  | S — **done** in slice B: `book.json` carries the resolved model, its settings and the cast |
+
+**Started 2026-09-10 with the scan.** Classification is the part that can do
+damage, so it went first and the order of its questions is the design.
+Identical bytes settle it outright, so a book already here reads as
+`unchanged` however many copies the folder holds and whatever they are called.
+Failing that, the source path recorded at ingestion separates a corrected copy
+of a book already here from a different book that happens to share a filename.
+Anything left is new and takes a numbered name if a different book holds the
+one it wants.
+
+The first version got this wrong: slug disambiguation ran before
+classification, so a revised book looked new and would have been imported
+alongside the one it was meant to replace.
 
 **Exit evidence.** A folder holding Polish and English TXT and EPUB files, an
 ambiguous encoding, a duplicate, and two matching titles completes with separate
