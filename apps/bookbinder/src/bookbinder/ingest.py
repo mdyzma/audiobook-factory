@@ -358,29 +358,64 @@ def from_text(path: Path, strip_footnotes: bool, encoding: str = "") -> Extracti
     )
 
 
-@app.command()
-def main(
-    source: Path = typer.Argument(..., help="Path to .epub, .pdf or .txt"),
-    slug: str = typer.Option("", help="Output name; defaults to a slug of the title"),
-    language: str = typer.Option(
-        "", help="Set the book language instead of detecting it, e.g. pl or en"),
-    encoding: str = typer.Option(
-        "", help="Read plain text as this encoding instead of establishing it, "
-                 "e.g. cp1250. An EPUB declares its own and ignores this."),
-    title: str = typer.Option("", help="Override the title. Plain text carries no "
-                                       "metadata, so it otherwise comes from the filename"),
-    author: str = typer.Option("", help="Override the author; otherwise 'Unknown'"),
-    strip_front_matter: bool = typer.Option(True),
-    strip_footnotes: bool = typer.Option(True),
-    review: bool = typer.Option(
-        False, "--review", help="Report the decoding and language evidence and stop, "
-                                "without writing anything"),
-) -> None:
+@dataclass
+class Imported:
+    """The outcome of importing one book.
+
+    Returned rather than printed, so a folder of books can be imported in one
+    pass and each result reported together. `written` is false when the book
+    stopped for review or could not be read; `reasons` says why.
+    """
+
+    source: Path
+    slug: str = ""
+    title: str = ""
+    author: str = ""
+    language: str = ""
+    encoding: str = ""
+    chapters: int = 0
+    words: int = 0
+    written: bool = False
+    needs_review: bool = False
+    reasons: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    extraction: "Extraction | None" = None
+    decision: object = None
+
+    @property
+    def summary(self) -> str:
+        if self.written:
+            return (f"{self.chapters} chapters, {self.words} words, "
+                    f"{self.language}, read as {self.encoding}")
+        return "; ".join(self.reasons) or "not written"
+
+
+def import_book(
+    root: Path,
+    source: Path,
+    slug: str = "",
+    language: str = "",
+    encoding: str = "",
+    title: str = "",
+    author: str = "",
+    strip_front_matter: bool = True,
+    strip_footnotes: bool = True,
+    dry_run: bool = False,
+) -> Imported:
+    """Read one book into `data/book/<slug>/`, or say why it cannot be.
+
+    Never raises for a bad book: an unreadable file in a folder of twenty must
+    not stop the other nineteen. Everything that would have been a failure is
+    reported on the result instead. `dry_run` decides everything and writes
+    nothing, which is what `--review` uses.
+    """
     from bookbinder.decode import UndecodableSource
     from bookbinder import language as lang
 
+    result = Imported(source=source)
     if not source.exists():
-        raise typer.BadParameter(f"missing {source}")
+        result.reasons.append(f"missing {source}")
+        return result
 
     suffix = source.suffix.lower()
     try:
@@ -391,13 +426,17 @@ def main(
         else:
             found = from_text(source, strip_footnotes, encoding)
     except UndecodableSource as exc:
-        typer.echo(f"cannot read {source.name}: {exc}", err=True)
-        raise typer.Exit(code=1)
+        result.reasons.append(f"cannot read {source.name}: {exc}")
+        return result
+    except Exception as exc:      # a malformed EPUB must not stop a batch
+        result.reasons.append(f"cannot read {source.name}: {type(exc).__name__}: {exc}")
+        return result
 
+    result.extraction = found
     meta, chapters = found.meta, found.chapters
     if not chapters:
-        typer.echo("no readable text found", err=True)
-        raise typer.Exit(code=1)
+        result.reasons.append("no readable text found")
+        return result
 
     # These belong to ingestion rather than to a later hand-edit of book.json,
     # because chunking rebuilds book.json from chapters.json and would discard
@@ -414,25 +453,22 @@ def main(
                            override=language)
     meta["language"] = decision.language or meta.get("language") or ""
 
-    review_reasons = list(found.review_reasons)
-    review_reasons += decision.review_reasons
-    needs_review = found.needs_review or decision.needs_review
+    result.decision = decision
+    result.title = meta.get("title", "")
+    result.author = meta.get("author", "")
+    result.language = meta["language"]
+    result.encoding = found.encoding.get("encoding", "")
+    result.chapters = len(chapters)
+    result.words = sum(len(p.split()) for ch in chapters for p in ch["paragraphs"])
+    result.warnings = list(found.encoding.get("warnings", [])) + list(decision.warnings)
+    result.reasons = list(found.review_reasons) + list(decision.review_reasons)
+    result.needs_review = found.needs_review or decision.needs_review
 
-    for warning in found.encoding.get("warnings", []) + decision.warnings:
-        typer.echo(f"warning: {warning}", err=True)
-
-    if review or needs_review:
-        typer.echo(_review_report(source, found, decision, chapters))
-    if needs_review and not review:
-        typer.echo(
-            "not written: resolve the above with --encoding or --language, "
-            "or re-run with --review to inspect it.", err=True)
-        raise typer.Exit(code=2)
-    if review:
-        return
+    if result.needs_review or dry_run:
+        return result
 
     book_slug = slug or slugify(meta["title"])
-    root = project_root()
+    result.slug = book_slug
     staged = stage_source(root, book_slug, source)
 
     out_dir = root / "data" / "book" / book_slug
@@ -454,24 +490,73 @@ def main(
                     "samples": [vars(s) for s in decision.samples],
                     "warnings": decision.warnings,
                 },
-                "needs_review": needs_review,
-                "review_reasons": review_reasons,
+                "needs_review": result.needs_review,
+                "review_reasons": result.reasons,
             },
             "chapters": chapters,
         }, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    result.written = True
+    return result
 
-    words = sum(len(p.split()) for ch in chapters for p in ch["paragraphs"])
+
+@app.command()
+def main(
+    source: Path = typer.Argument(..., help="Path to .epub, .pdf or .txt"),
+    slug: str = typer.Option("", help="Output name; defaults to a slug of the title"),
+    language: str = typer.Option(
+        "", help="Set the book language instead of detecting it, e.g. pl or en"),
+    encoding: str = typer.Option(
+        "", help="Read plain text as this encoding instead of establishing it, "
+                 "e.g. cp1250. An EPUB declares its own and ignores this."),
+    title: str = typer.Option("", help="Override the title. Plain text carries no "
+                                       "metadata, so it otherwise comes from the filename"),
+    author: str = typer.Option("", help="Override the author; otherwise 'Unknown'"),
+    strip_front_matter: bool = typer.Option(True),
+    strip_footnotes: bool = typer.Option(True),
+    review: bool = typer.Option(
+        False, "--review", help="Report the decoding and language evidence and stop, "
+                                "without writing anything"),
+) -> None:
+    root = project_root()
+    result = import_book(
+        root, source, slug=slug, language=language, encoding=encoding,
+        title=title, author=author, strip_front_matter=strip_front_matter,
+        strip_footnotes=strip_footnotes, dry_run=review,
+    )
+
+    for warning in result.warnings:
+        typer.echo(f"warning: {warning}", err=True)
+
+    # Nothing was extracted at all: a missing file, an unreadable one, or a
+    # container with no text in it.
+    if result.extraction is None or not result.chapters:
+        for reason in result.reasons:
+            typer.echo(reason, err=True)
+        raise typer.Exit(code=1)
+
+    if review or result.needs_review:
+        typer.echo(_review_report(source, result.extraction, result.decision,
+                                  result.chapters, result.reasons))
+    if result.needs_review and not review:
+        typer.echo(
+            "not written: resolve the above with --encoding or --language, "
+            "or re-run with --review to inspect it.", err=True)
+        raise typer.Exit(code=2)
+    if review:
+        return
+
     typer.echo(
-        f"{meta['title']} - {meta['author']}\n"
-        f"{len(chapters)} chapters, {words} words, {meta['language']} "
-        f"({decision.method}), read as {found.encoding['encoding']}\n"
-        f"-> data/book/{book_slug}/chapters.json"
+        f"{result.title} - {result.author}\n"
+        f"{result.chapters} chapters, {result.words} words, {result.language} "
+        f"({getattr(result.decision, 'method', '')}), read as {result.encoding}\n"
+        f"-> data/book/{result.slug}/chapters.json"
     )
 
 
-def _review_report(source: Path, found: Extraction, decision, chapters: list[dict]) -> str:
+def _review_report(source: Path, found: Extraction, decision,
+                   chapter_count: int, reasons: list[str]) -> str:
     """What was decided and on what evidence, for a person to agree or not."""
     lines = [f"{source.name}", ""]
     enc = found.encoding
@@ -486,13 +571,11 @@ def _review_report(source: Path, found: Extraction, decision, chapters: list[dic
                      f"{sample.confidence} ({sample.chars} chars)")
     if decision.metadata_language:
         lines.append(f"  metadata   claims {decision.metadata_language}")
-    lines.append(f"  text       {len(chapters)} chapters, "
-                 f"{sum(len(p) for c in chapters for p in c['paragraphs'])} characters")
+    lines.append(f"  text       {chapter_count} chapters")
 
-    first = next((p for c in chapters for p in c["paragraphs"]), "")
+    first = next((p for c in found.chapters for p in c["paragraphs"]), "")
     if first:
         lines += ["", f"  first paragraph: {first[:200]}"]
-    reasons = list(found.review_reasons) + list(decision.review_reasons)
     if reasons:
         lines += ["", "  needs review:"] + [f"    - {r}" for r in reasons]
     return "\n".join(lines)
