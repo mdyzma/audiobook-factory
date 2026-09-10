@@ -302,7 +302,7 @@
       "type": "array"
     },
     "schema_version": {
-      "default": 4,
+      "default": 5,
       "title": "Schema Version",
       "type": "integer"
     },

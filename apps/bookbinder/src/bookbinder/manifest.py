@@ -24,9 +24,11 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 # extracted spelling and the substitutions behind each chunk's spoken text.
 # 4 added the resolved synthesis backend, which is what makes book.json the
 # request a narrator environment reads rather than a description of one.
+# 5 added each fragment's fingerprint, so reusing audio stops being a guess
+# based on a filename.
 # The set is versioned as a unit so a reader only has to check one number.
 # narrator and transcriber mirror this constant.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # XTTS-v2 silently truncates text past these per-language limits.
 # Source: Coqui TTS xtts.py char_limits.
@@ -54,6 +56,11 @@ NARRATOR_ROLE = "narrator"
 # its own file rather than a flag inside either of them. narrator mirrors the
 # name; it cannot import this module.
 DRY_RUN_MARKER = ".dry-run.json"
+
+# What each rendered wav was made from, one JSON line per fragment. narrator
+# appends to it as each fragment lands and mirrors the name; assembly reads it
+# to tell current audio from audio left over from an earlier model or text.
+FINGERPRINT_LEDGER = "fingerprints.jsonl"
 
 
 def char_limit(language: str) -> int:
@@ -89,6 +96,9 @@ def clear_dry_run(audio_dir: Path) -> int:
         wav.unlink()
         removed += 1
     (audio_dir / "rendered.jsonl").unlink(missing_ok=True)
+    # The ledger describes the silence being deleted, so it goes with it.
+    # Leaving it would let a later render believe fragments it cannot see.
+    (audio_dir / FINGERPRINT_LEDGER).unlink(missing_ok=True)
     marker.unlink()
     return removed
 
@@ -157,6 +167,15 @@ class Chunk(StrictModel):
     # Filled in by the narrator (or the dry-run renderer).
     audio_path: str | None = None
     duration_sec: float | None = Field(default=None, ge=0)
+    voice: str = Field(
+        default="",
+        description="The voice that actually rendered this fragment, which a "
+                    "--voice override makes different from the cast",
+    )
+    fingerprint: str = Field(
+        default="",
+        description="What the audio was rendered from; blank means it predates fingerprinting",
+    )
 
     @model_validator(mode="after")
     def _derive(self) -> "Chunk":

@@ -101,6 +101,12 @@
       "title": "Est Seconds",
       "type": "number"
     },
+    "fingerprint": {
+      "default": "",
+      "description": "What the audio was rendered from; blank means it predates fingerprinting",
+      "title": "Fingerprint",
+      "type": "string"
+    },
     "id": {
       "description": "Stable, sortable, filename-safe",
       "minLength": 1,
@@ -169,6 +175,12 @@
       "description": "Normalised, ready for the model",
       "minLength": 1,
       "title": "Text",
+      "type": "string"
+    },
+    "voice": {
+      "default": "",
+      "description": "The voice that actually rendered this fragment, which a --voice override makes different from the cast",
+      "title": "Voice",
       "type": "string"
     }
   },
