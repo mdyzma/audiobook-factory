@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
       - run: just --list
 
   check:
@@ -73,7 +73,7 @@ jobs:
 
       # The job runner starts every stage through a `just` recipe, so the one
       # test that drives a real job needs it on PATH.
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
         if: matrix.env == 'studio' 
 
       - uses: astral-sh/setup-uv@v7
