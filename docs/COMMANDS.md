@@ -154,6 +154,10 @@ backup scope, recovery and the storage layout.
 | `just catalog-runs <slug="">` | Lists historical and current audiobook runs. |
 | `just catalog-prepare <slug> <voice=""> <model="">` | Creates a new independent narration with frozen text, voice references, configuration and model selection; prints its run ID. |
 | `just catalog-stage <run> <action> <format="">` | Executes chunk, synth, dryrun, assemble or verify for that exact run. |
+| `just catalog-forget <run> <force="">` | Removes a run, its working directory, and the stored bytes only it was holding. Refuses while the queue still names it unless forced. |
+| `just catalog-forget-book <slug> <force="">` | Removes a book, every run of it, and its files. There is no undo. |
+| `just catalog-collapse` | Folds older runs' audio into the assets it duplicates. Safe to re-run; runs made now need no collapsing. |
+| `just catalog-sweep` | Deletes stored bytes nothing points at any more. |
 | `just catalog-backup <destination>` | Makes a consistent database snapshot and copies/checks every registered asset into a new directory. |
 | `just catalog-restore <source> <destination>` | Restores into a new directory and reconstructs execution files; never overwrites an existing library. |
 

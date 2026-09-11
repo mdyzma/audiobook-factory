@@ -371,6 +371,24 @@ catalog-prepare slug voice="" model="":
 catalog-stage run action format="":
     cd apps/studio && uv run python -m studio.catalog_cli stage {{quote(run)}} {{quote(action)}} --fmt {{quote(format)}}
 
+# Remove a run, its working directory, and the stored bytes only it held.
+catalog-forget run force="":
+    cd apps/studio && uv run python -m studio.catalog_cli forget {{quote(run)}} \
+      {{ if force != "" { "--force" } else { "" } }}
+
+# Remove a book, every run of it, and its files. There is no undo.
+catalog-forget-book slug force="":
+    cd apps/studio && uv run python -m studio.catalog_cli forget-book {{quote(slug)}} \
+      {{ if force != "" { "--force" } else { "" } }}
+
+# Fold older runs' audio into the assets they duplicate. Safe to re-run.
+catalog-collapse:
+    cd apps/studio && uv run python -m studio.catalog_cli collapse
+
+# Delete stored bytes nothing points at any more.
+catalog-sweep:
+    cd apps/studio && uv run python -m studio.catalog_cli sweep
+
 catalog-backup destination:
     cd apps/studio && uv run python -m studio.catalog_cli backup {{quote(absolute_path(destination))}}
 

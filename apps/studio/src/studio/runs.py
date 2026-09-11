@@ -190,6 +190,15 @@ def execute_stage(root: Path, run_id: str, stage: str, *, fmt: str = "", device:
     import fcntl
     catalog = Catalog(root)
     run_root = inside(root, catalog.run(run_id)["root_key"])
+    if not run_root.is_dir():
+        # Deleting a run folder is the obvious way to reclaim space, and it
+        # used to leave the book wedged: the row stayed, every stage failed
+        # opening a lock inside a directory that was gone, and the message said
+        # only that a path did not exist.
+        raise StorageError(
+            f"run {run_id} has no working directory at {run_root.relative_to(root)}; "
+            f"it was removed outside the catalog. Drop the run with "
+            f"`just catalog-forget {run_id}` and prepare a new one")
     with (run_root / ".execution.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

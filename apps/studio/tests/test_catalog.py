@@ -513,3 +513,207 @@ class TestTheJournalIsReconciledOnOpen:
 
         assert Database(library).check()["journal_mode"] == "wal"
 
+
+class TestTakingWorkBackOut:
+    """Comparing voices means rendering a book several times.
+
+    Every one of those runs used to be permanent, and a twenty-hour book is
+    gigabytes. Forgetting one has to remove its records, its directory and the
+    bytes only it was holding, while leaving alone anything a second run still
+    shares.
+    """
+
+    def _rendered(self, library, **kwargs):
+        slug = imported(library)
+        run = prepare_run(library, slug, voice="michal", **kwargs)
+        assert execute_stage(library, run["id"], "chunk") == 0
+        assert execute_stage(library, run["id"], "dryrun") == 0
+        assert execute_stage(library, run["id"], "assemble", fmt="wav") == 0
+        return run
+
+    def test_the_records_go(self, library):
+        from studio.reclaim import forget_run
+
+        run = self._rendered(library)
+        forget_run(library, run["id"])
+        catalog = Catalog(library)
+        assert catalog.rows("SELECT * FROM audiobook_runs WHERE id=?", (run["id"],)) == []
+        for table in ("render_fragments", "exports", "run_reports", "run_voices"):
+            assert catalog.rows(f"SELECT * FROM {table} WHERE run_id=?", (run["id"],)) == []
+
+    def test_the_directory_goes(self, library):
+        from studio.reclaim import forget_run
+
+        run = self._rendered(library)
+        base = inside(library, Catalog(library).run(run["id"])["root_key"])
+        assert base.is_dir()
+        assert forget_run(library, run["id"])["directory"]
+        assert not base.exists()
+
+    def test_the_bytes_go(self, library):
+        from studio.reclaim import forget_run
+
+        run = self._rendered(library)
+        before = sum(p.stat().st_size for p in (library / "data/assets").rglob("*.wav"))
+        result = forget_run(library, run["id"])
+        after = sum(p.stat().st_size for p in (library / "data/assets").rglob("*.wav"))
+        assert result["assets"]["removed"] > 0
+        assert after < before
+
+    def test_it_works_when_the_directory_is_already_gone(self, library):
+        # Deleting a run folder to reclaim space used to wedge the book: the
+        # row stayed and every stage failed on a missing lock file.
+        from studio.reclaim import forget_run
+
+        run = self._rendered(library)
+        shutil.rmtree(inside(library, Catalog(library).run(run["id"])["root_key"]))
+        forget_run(library, run["id"])
+        assert Catalog(library).rows("SELECT * FROM audiobook_runs WHERE id=?",
+                                     (run["id"],)) == []
+
+    def test_a_stage_on_a_missing_directory_says_what_to_do(self, library):
+        run = self._rendered(library)
+        shutil.rmtree(inside(library, Catalog(library).run(run["id"])["root_key"]))
+        with pytest.raises(StorageError, match="catalog-forget"):
+            execute_stage(library, run["id"], "assemble", fmt="wav")
+
+    def test_a_queued_run_is_refused(self, library):
+        from studio.queue import Queue
+        from studio.reclaim import forget_run
+
+        run = self._rendered(library)
+        Queue(library).add_plan("whatever", [("assemble", {})], run_id=run["id"])
+        with pytest.raises(StorageError, match="queued step"):
+            forget_run(library, run["id"])
+
+    def test_force_overrides_the_refusal(self, library):
+        from studio.queue import Queue
+        from studio.reclaim import forget_run
+
+        run = self._rendered(library)
+        Queue(library).add_plan("whatever", [("assemble", {})], run_id=run["id"])
+        assert forget_run(library, run["id"], force=True)["run"] == run["id"]
+
+    def test_an_unknown_run_says_so(self, library):
+        from studio.reclaim import forget_run
+
+        with pytest.raises(StorageError, match="no run"):
+            forget_run(library, "nosuchrun")
+
+
+class TestSharedBytesSurviveForgetting:
+    def test_an_asset_a_second_run_still_uses_is_kept(self, library):
+        """Two runs of one book share every fragment whose inputs did not change.
+
+        Content addressing is what makes that true, and it is also what makes a
+        careless sweep destructive: deleting a forgotten run's fragments would
+        take the surviving run's audio with them.
+        """
+        from studio.reclaim import forget_run, unreferenced
+
+        slug = imported(library)
+        first = prepare_run(library, slug, voice="michal", request_key="a")
+        assert execute_stage(library, first["id"], "chunk") == 0
+        assert execute_stage(library, first["id"], "dryrun") == 0
+        second = prepare_run(library, slug, voice="michal", request_key="b")
+        assert execute_stage(library, second["id"], "chunk") == 0
+        assert execute_stage(library, second["id"], "dryrun") == 0
+
+        catalog = Catalog(library)
+        shared = {r["asset_id"] for r in
+                  catalog.rows("SELECT asset_id FROM render_fragments WHERE run_id=?",
+                               (first["id"],))} & \
+                 {r["asset_id"] for r in
+                  catalog.rows("SELECT asset_id FROM render_fragments WHERE run_id=?",
+                               (second["id"],))}
+        assert shared, "the two runs should share fragments"
+
+        forget_run(library, first["id"])
+        after = Catalog(library)
+        for asset_id in shared:
+            assert after.asset_path(asset_id).is_file()
+        assert unreferenced(after) == []
+
+
+class TestRemovingABook:
+    """A book imported by mistake used to stay in the library forever."""
+
+    def test_it_goes_with_every_run_of_it(self, library):
+        from studio.reclaim import forget_book
+
+        slug = imported(library)
+        run = prepare_run(library, slug, voice="michal")
+        assert execute_stage(library, run["id"], "chunk") == 0
+        assert execute_stage(library, run["id"], "dryrun") == 0
+
+        result = forget_book(library, slug)
+        catalog = Catalog(library)
+        assert result["runs"] == 1
+        assert catalog.rows("SELECT * FROM books WHERE slug=?", (slug,)) == []
+        assert catalog.rows("SELECT * FROM audiobook_runs") == []
+
+    def test_its_text_and_plan_go_too(self, library):
+        from studio.reclaim import forget_book
+
+        slug = imported(library)
+        run = prepare_run(library, slug, voice="michal")
+        assert execute_stage(library, run["id"], "chunk") == 0
+        forget_book(library, slug)
+        catalog = Catalog(library)
+        for table in ("text_versions", "chapters", "chunk_plans", "chunks",
+                      "book_revisions"):
+            assert catalog.rows(f"SELECT * FROM {table}") == [], table
+
+    def test_the_files_go_so_reconcile_cannot_bring_it_back(self, library):
+        from studio.reclaim import forget_book
+
+        slug = imported(library)
+        forget_book(library, slug)
+        assert not (library / "data/book" / slug).exists()
+
+        catalog = Catalog(library)
+        catalog.reconcile()
+        assert catalog.rows("SELECT * FROM books WHERE slug=?", (slug,)) == []
+
+    def test_nothing_is_left_holding_bytes(self, library):
+        from studio.reclaim import forget_book, unreferenced
+
+        slug = imported(library)
+        run = prepare_run(library, slug, voice="michal")
+        assert execute_stage(library, run["id"], "chunk") == 0
+        assert execute_stage(library, run["id"], "dryrun") == 0
+        forget_book(library, slug)
+        assert unreferenced(Catalog(library)) == []
+
+    def test_another_book_is_untouched(self, library):
+        from studio.reclaim import forget_book
+
+        first = imported(library)
+        source = library / "data/raw/books/second.txt"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(
+            "# Rozdzial\n\n" + ("Morze falowalo pod stacja i wiatr nie ustawal. " * 30),
+            encoding="utf-8")
+        import_sources(library, [source], slug="second", language="pl")
+
+        forget_book(library, first)
+        assert [b["slug"] for b in Catalog(library).books()] == ["second"]
+
+    def test_the_summary_counts_what_each_run_freed(self, library):
+        # Every run sweeps as it goes, so a summary that reported only the
+        # final pass said zero reclaimed while the disk said otherwise.
+        from studio.reclaim import forget_book
+
+        slug = imported(library)
+        run = prepare_run(library, slug, voice="michal")
+        assert execute_stage(library, run["id"], "chunk") == 0
+        assert execute_stage(library, run["id"], "dryrun") == 0
+        result = forget_book(library, slug)
+        assert result["assets"]["removed"] > 0
+        assert result["assets"]["bytes_freed"] > 0
+
+    def test_an_unknown_book_says_so(self, library):
+        from studio.reclaim import forget_book
+
+        with pytest.raises(StorageError, match="no book"):
+            forget_book(library, "never-imported")

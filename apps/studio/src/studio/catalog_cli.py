@@ -26,6 +26,42 @@ def reconcile() -> None:
     typer.echo(encode(Catalog(project_root()).reconcile()))
 
 
+@app.command("forget")
+def forget(run: str, force: bool = typer.Option(False, help="Drop it even if the queue still names it")) -> None:
+    """Remove a run, its directory, and anything only it was keeping alive."""
+    from studio.reclaim import forget_run
+    try:
+        typer.echo(encode(forget_run(project_root(), run, force=force)))
+    except StorageError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1)
+
+
+@app.command("forget-book")
+def forget_book_cmd(slug: str, force: bool = typer.Option(False, help="Drop it even if the queue still names a run")) -> None:
+    """Remove a book, every run of it, and the stored bytes only it held."""
+    from studio.reclaim import forget_book
+    try:
+        typer.echo(encode(forget_book(project_root(), slug, force=force)))
+    except StorageError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1)
+
+
+@app.command("collapse")
+def collapse() -> None:
+    """Fold run files into the assets they duplicate, for runs made before linking."""
+    from studio.reclaim import collapse_runs
+    typer.echo(encode(collapse_runs(project_root())))
+
+
+@app.command("sweep")
+def sweep() -> None:
+    """Delete stored bytes nothing points at any more."""
+    from studio.reclaim import sweep_assets
+    typer.echo(encode(sweep_assets(project_root())))
+
+
 @app.command("check")
 def check() -> None:
     result = Database(project_root()).check()
