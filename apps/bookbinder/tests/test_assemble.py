@@ -553,3 +553,122 @@ class TestAWarningNamesWhereTheFilesAre:
         result = CliRunner().invoke(assemble.app, ["b"])
         assert "is dry-run silence" in result.output
         assert str(audio) in result.output
+
+
+class TestWhatAPlayerShows:
+    """The export is the only thing that survives the pipeline.
+
+    Everything else lives under `data/` and is read by this program alone. What
+    a listener sees on their phone is these tags and this picture.
+    """
+
+    def _picture(self, path):
+        import subprocess
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+             "-i", "color=c=navy:s=120x120:d=1", "-frames:v", "1", str(path)],
+            check=True)
+        return path
+
+    def _tags(self, path):
+        import json
+        import subprocess
+
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_format", "-show_streams",
+             "-of", "json", str(path)], capture_output=True, text=True, check=True)
+        return json.loads(out.stdout)
+
+    def test_the_narrator_is_named(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+
+        root, assemble = TestAssembleEndToEnd()._build(tmp_path, monkeypatch)
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(root))
+        assert CliRunner().invoke(assemble.app, ["b", "--fmt", "m4b"]).exit_code == 0
+
+        tags = self._tags(root / "data" / "out" / "b.m4b")["format"]["tags"]
+        # `composer` is where audiobook players look for the narrator.
+        assert tags.get("composer")
+
+    def test_a_cast_is_named_in_full(self):
+        # A book read by two people is read by two people.
+        from bookbinder import assemble
+
+        class Book:
+            voice = ""
+            cast = {"narrator": "michal", "dialogue": "ala"}
+
+        assert assemble.narrator_tag(Book()) == "ala, michal"
+
+    def test_one_voice_is_named_alone(self):
+        from bookbinder import assemble
+
+        class Book:
+            voice = "michal"
+            cast = {"narrator": "michal"}
+
+        assert assemble.narrator_tag(Book()) == "michal"
+
+    def test_a_book_with_nobody_named_gets_no_tag(self):
+        from bookbinder import assemble
+
+        class Book:
+            voice = ""
+            cast = {}
+
+        assert assemble.narrator_tag(Book()) == ""
+
+    def test_the_cover_reaches_the_file(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+
+        root, assemble = TestAssembleEndToEnd()._build(tmp_path, monkeypatch)
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(root))
+        self._picture(root / "data" / "book" / "b" / "cover.png")
+
+        assert CliRunner().invoke(assemble.app, ["b", "--fmt", "m4b"]).exit_code == 0
+        streams = self._tags(root / "data" / "out" / "b.m4b")["streams"]
+        pictures = [s for s in streams
+                    if s.get("disposition", {}).get("attached_pic")]
+        assert len(pictures) == 1
+
+    def test_adding_a_cover_does_not_change_the_audio(self, tmp_path, monkeypatch):
+        # A third input, an explicit stream mapping and a video codec are three
+        # ways to end up exporting something other than the book. The duration
+        # is the cheapest thing that would notice.
+        from typer.testing import CliRunner
+
+        root, assemble = TestAssembleEndToEnd()._build(tmp_path, monkeypatch)
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(root))
+        without = CliRunner().invoke(assemble.app, ["b", "--fmt", "m4b"])
+        assert without.exit_code == 0
+        plain = float(self._tags(root / "data" / "out" / "b.m4b")["format"]["duration"])
+
+        self._picture(root / "data" / "book" / "b" / "cover.png")
+        assert CliRunner().invoke(assemble.app, ["b", "--fmt", "m4b"]).exit_code == 0
+        illustrated = float(
+            self._tags(root / "data" / "out" / "b.m4b")["format"]["duration"])
+
+        assert illustrated == pytest.approx(plain, abs=0.2)
+
+    def test_a_wav_export_has_nowhere_to_put_a_picture(self, tmp_path, monkeypatch):
+        # And asking ffmpeg to try produces a file that is not a wav.
+        from typer.testing import CliRunner
+
+        root, assemble = TestAssembleEndToEnd()._build(tmp_path, monkeypatch)
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(root))
+        self._picture(root / "data" / "book" / "b" / "cover.png")
+
+        assert CliRunner().invoke(assemble.app, ["b", "--fmt", "wav"]).exit_code == 0
+        assert (root / "data" / "out" / "b.wav").is_file()
+
+    def test_a_supplied_cover_is_used(self, tmp_path):
+        # For a plain text book that never had one.
+        from bookbinder.assemble import cover_for
+
+        book_dir = tmp_path / "book"
+        assert cover_for(book_dir) is None
+        self._picture(book_dir / "cover.jpg")
+        found = cover_for(book_dir)
+        assert found is not None and found.name == "cover.jpg"

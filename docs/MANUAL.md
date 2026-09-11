@@ -305,6 +305,11 @@ exactly `http://127.0.0.1:8765`.
 before it starts, and refuses rather than filling the disk in the middle of the
 night. Free some space and try again; nothing already made is lost.
 
+**The cover picture is missing or wrong.** If the book was an `.epub` its own
+cover is used. To change it, or to add one to a plain text book, put a picture
+named `cover.jpg` or `cover.png` in the book's folder under `data/book/`, then
+make the audiobook file again. Nothing else needs redoing.
+
 **One character is quieter than the narrator.** Each voice is measured when it
 is made, and the program evens them out. If a voice was made before that
 existed, or you re-recorded it, measure it again by typing `just level` and the

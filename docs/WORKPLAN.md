@@ -420,13 +420,41 @@ workflow. Sized 2026-09-11 against what is already there.
 | E-1 | Pronunciation editor over A-7's dictionary. `speech.load_dictionary` already reads `data/book/<slug>/pronunciation.yml` and chunking already applies it; what is missing is a way to edit it without a text editor, and a way to hear the result before re-chunking a book. (FEAT-01 P1) | M |
 | E-2 | Richer auditions with recorded settings. `just voice` renders one fixed sentence at temperature 0.7 and nothing records what produced it. Audition a voice on a passage from the book, at the settings that will actually be used, and keep what was heard. (FEAT-07 remainder) | M |
 | E-3 | **Done 2026-09-11.** Loudness matching and clipping control across voices. Nothing exists: `loudnorm` in `config/pipeline.toml` cleans the input recording at clone time and has no bearing on output. A cast whose dialogue voice sits several dB below its narrator is the most audible defect a multi-voice book has. Mastering presets stay optional and separate. (FEAT-11 narrow) | L |
-| E-4 | Chapter, title, voice and cover metadata in exports. Assembly already writes title, artist, album and chapter marks. Missing: the narrator as a tag, and cover art, which most EPUBs carry and nothing currently extracts. (FEAT-04 metadata) | S |
+| E-4 | **Done 2026-09-11.** Chapter, title, voice and cover metadata in exports. Assembly already writes title, artist, album and chapter marks. Missing: the narrator as a tag, and cover art, which most EPUBs carry and nothing currently extracts. (FEAT-04 metadata) | S |
 
 **Order.** E-3 first, because it is the one a listener hears and the only one
 with nothing behind it. Then E-4, which is small and finishes the export. E-1
 and E-2 are both about judging a voice before committing hours to it, and
 sharing that shape they are better done together, after the audio itself is
 right.
+
+**E-4 done 2026-09-11.** The export is the only thing that survives the
+pipeline: everything else lives under `data/` and is read by this program
+alone. What a listener sees on their phone is now the narrator and the cover as
+well as the title, author and chapter marks that were already there.
+
+The narrator goes in `composer`, which is where audiobook players look for it;
+there is no dedicated tag and that is the one the shops settled on. A cast is
+named in full rather than reduced to its narrator, because a book read by two
+people is read by two people.
+
+Covers are lifted out of the EPUB at import and left beside the text under a
+plain name, so a person can replace one they dislike or supply one for a plain
+text book that never had any. Three ways an EPUB declares a cover, tried in
+order of how definite they are, and each is now tested on its own.
+
+That mattered: the EPUB 2 lookup was reading the wrong element the whole time,
+because ebooklib files `<meta name="cover">` under the OPF namespace as `meta`
+rather than as `cover`. The filename fallback answered instead and the test
+passed. It only showed up when the fallback was removed to check the test bit.
+
+The explicit stream mapping on the ffmpeg call turned out to be defensive
+rather than load-bearing; ffmpeg picks correctly without it. The comment says
+so now instead of claiming a bug it prevents.
+
+Not verified on a real EPUB, because every book in this library is plain text.
+The three declaration styles are each tested against a constructed file, and
+the embedding is a real ffmpeg round-trip read back with ffprobe.
 
 **E-3 done 2026-09-11.** A voice is measured from its audition when it is
 cloned, in EBU R128 integrated loudness, and the correction that brings it to

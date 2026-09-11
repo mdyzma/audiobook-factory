@@ -250,6 +250,39 @@ def rendered_sample_rate(audio_dir: Path, fallback: int) -> int:
     return fallback
 
 
+# Formats whose container carries a picture. A wav has nowhere to put one.
+COVER_FORMATS = ("m4b", "mp3")
+
+COVER_SUFFIXES = (".jpg", ".png", ".webp")
+
+
+def cover_for(book_dir: Path) -> Path | None:
+    """The picture to put on the exported file, if there is one.
+
+    Written by ingest from the EPUB's own cover, and named plainly so that a
+    person can drop one in for a plain text book that never had any, or replace
+    one they dislike. Whatever is here wins; nothing is generated.
+    """
+    for suffix in COVER_SUFFIXES:
+        candidate = book_dir / f"cover{suffix}"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def narrator_tag(book) -> str:
+    """Who reads it, for the tag players label as the narrator.
+
+    A cast is named in full rather than reduced to its narrator: a book read by
+    two people is read by two people, and the export is the only place that
+    survives the pipeline.
+    """
+    if getattr(book, "voice", ""):
+        return book.voice
+    distinct = sorted({v for v in (getattr(book, "cast", None) or {}).values() if v})
+    return ", ".join(distinct)
+
+
 def concat_line(path: Path) -> str:
     """One entry for an ffmpeg concat list.
 
@@ -400,6 +433,11 @@ def main(
             f"genre=Audiobook",
             f"language={metadata_value(book.language)}",
         ]
+        # `composer` is where audiobook players look for the narrator. There is
+        # no dedicated tag for it, and this is the one the shops settled on.
+        reader = narrator_tag(book)
+        if reader:
+            meta_lines.append(f"composer={metadata_value(reader)}")
         for i, (_, title, start) in enumerate(chapter_marks):
             end = chapter_marks[i + 1][2] if i + 1 < len(chapter_marks) else clock
             meta_lines += [
@@ -419,10 +457,25 @@ def main(
         # staged `.part` on its way to being renamed into place.
         container = {"m4b": "mp4", "mp3": "mp3", "wav": "wav"}[fmt]
 
+        cover = cover_for(book_dir) if fmt in COVER_FORMATS else None
+
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
             "-f", "concat", "-safe", "0", "-i", str(list_path),
-            "-i", str(meta_path), "-map_metadata", "1", "-map_chapters", "1",
+            "-i", str(meta_path),
+        ]
+        if cover is not None:
+            cmd += ["-i", str(cover)]
+        cmd += ["-map_metadata", "1", "-map_chapters", "1"]
+        if cover is not None:
+            # Mapped explicitly rather than left to ffmpeg's stream selection.
+            # Its defaults happen to be right here, because the only audio is
+            # input 0 and the only video is input 2, but they are defaults
+            # about "best" streams rather than a statement of what this file
+            # is meant to contain. Saying it outright costs two arguments.
+            cmd += ["-map", "0:a", "-map", "2:v", "-c:v", "copy",
+                    "-disposition:v", "attached_pic"]
+        cmd += [
             "-ar", str(output_rate), "-ac", str(channels), *codec,
             "-f", container,
         ]
