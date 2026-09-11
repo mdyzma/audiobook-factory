@@ -45,3 +45,8 @@ reportMissingTypeStubs = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+# Keep a test's scratch directory only when it failed, which is the only time
+# anybody looks in one. The catalog and archival tests build whole small
+# libraries and render audio into them, so a passing run was leaving tens of
+# megabytes behind, three runs deep, for nothing.
+tmp_path_retention_policy = "failed"

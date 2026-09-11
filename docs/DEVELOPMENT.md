@@ -160,6 +160,22 @@ assembly tests generate tones and assert chapter timestamps, because a mark
 landing at the wrong second is the failure that actually matters and a mock
 would hide it.
 
+**Scratch directories are kept only for failures.** Every environment sets
+`tmp_path_retention_policy = "failed"`. Tests that build a whole small library
+and render audio into it are the ones worth having, and they are also the ones
+that leave tens of megabytes behind; pytest's default keeps three runs of that
+whether they passed or not. A failed test still has its directory, which is the
+only time anybody opens one, and the path is in the failure output.
+
+If a run is interrupted, its directory survives. `$TMPDIR/pytest-of-<user>/` is
+where they live, and removing the whole thing is safe. One run in this project
+left a `pytest-of-*` directory in the repository root instead, because it ran
+without `TMPDIR` set. It is gitignored, and safe to delete if you find one.
+
+`just check` is about a minute on an M1, roughly half of it pyright across the
+four environments. Two of them running at once take much longer than twice as
+long, so if it seems to have hung, check you have not started a second.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on pushes to `main` and on pull requests.
