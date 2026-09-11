@@ -74,6 +74,21 @@
       "title": "Chunks Total",
       "type": "integer"
     },
+    "clipped_samples": {
+      "default": 0,
+      "description": "Samples the correction pushed past full scale and had to clamp",
+      "minimum": 0,
+      "title": "Clipped Samples",
+      "type": "integer"
+    },
+    "clipped_voices": {
+      "description": "Voices whose correction is too large for their loudest passages",
+      "items": {
+        "type": "string"
+      },
+      "title": "Clipped Voices",
+      "type": "array"
+    },
     "device": {
       "default": "",
       "title": "Device",
@@ -107,6 +122,14 @@
       "title": "Finished At",
       "type": "string"
     },
+    "gains_db": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "description": "voice -> level correction applied, from its profile",
+      "title": "Gains Db",
+      "type": "object"
+    },
     "model": {
       "default": "",
       "description": "Registry id, with revision where pinned",
@@ -132,7 +155,7 @@
       "type": "integer"
     },
     "schema_version": {
-      "default": 6,
+      "default": 7,
       "title": "Schema Version",
       "type": "integer"
     },

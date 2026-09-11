@@ -410,15 +410,60 @@ ambiguous encoding, a duplicate, and two matching titles completes with separate
 outputs per book. Restart during synthesis and re-scan afterwards produce no
 duplicate renders, no overwritten sources, and no lost progress.
 
-## Slice E — Listening polish
+## Slice E — Listening polish — started
 
 Only after D. Each item reduces manual correction rather than enabling the
-workflow.
+workflow. Sized 2026-09-11 against what is already there.
 
-- E-1 Pronunciation editor over A-7's dictionary. (FEAT-01 P1)
-- E-2 Richer auditions with recorded settings. (FEAT-07 remainder)
-- E-3 Loudness matching and clipping control across voices. Mastering presets stay optional and separate. (FEAT-11 narrow)
-- E-4 Chapter, title, voice, and cover metadata in exports. (FEAT-04 metadata)
+| ID | Work | Size |
+|---|---|---|
+| E-1 | Pronunciation editor over A-7's dictionary. `speech.load_dictionary` already reads `data/book/<slug>/pronunciation.yml` and chunking already applies it; what is missing is a way to edit it without a text editor, and a way to hear the result before re-chunking a book. (FEAT-01 P1) | M |
+| E-2 | Richer auditions with recorded settings. `just voice` renders one fixed sentence at temperature 0.7 and nothing records what produced it. Audition a voice on a passage from the book, at the settings that will actually be used, and keep what was heard. (FEAT-07 remainder) | M |
+| E-3 | **Done 2026-09-11.** Loudness matching and clipping control across voices. Nothing exists: `loudnorm` in `config/pipeline.toml` cleans the input recording at clone time and has no bearing on output. A cast whose dialogue voice sits several dB below its narrator is the most audible defect a multi-voice book has. Mastering presets stay optional and separate. (FEAT-11 narrow) | L |
+| E-4 | Chapter, title, voice and cover metadata in exports. Assembly already writes title, artist, album and chapter marks. Missing: the narrator as a tag, and cover art, which most EPUBs carry and nothing currently extracts. (FEAT-04 metadata) | S |
+
+**Order.** E-3 first, because it is the one a listener hears and the only one
+with nothing behind it. Then E-4, which is small and finishes the export. E-1
+and E-2 are both about judging a voice before committing hours to it, and
+sharing that shape they are better done together, after the audio itself is
+right.
+
+**E-3 done 2026-09-11.** A voice is measured from its audition when it is
+cloned, in EBU R128 integrated loudness, and the correction that brings it to
+the configured target is written into its profile. The narrator applies it while
+rendering; nothing else has to know.
+
+The true-peak ceiling is a constraint rather than a preference, so a voice that
+is quiet on average but peaks near full scale comes *down* even though that
+takes it further from the loudness target. Saying so turned out to matter: the
+first version of the report claimed the target had been reached whether or not
+the ceiling had let it. It now says where the voice actually lands, and warns
+that such a voice will sit below the rest of the cast.
+
+Two of the first tests asserted the wrong numbers, both because I reasoned about
+the target and forgot the headroom. The code was right and the expectations were
+not, which is the good version of that discovery.
+
+Clipping is counted rather than hidden. The gain is chosen so the audition stays
+under the ceiling, but a louder passage in the book can still reach the top, and
+a voice that clips is one whose correction is too large. The run report carries
+the gains applied and any clipping, because a warning on stderr scrolls past
+during a twenty-hour render.
+
+**Where the loudness correction belongs.** Not at assembly. Adjusting levels
+between voices has to happen before the fragments are concatenated, and doing
+it there means writing adjusted copies of a book's audio into a temporary
+directory: several gigabytes of transient disk for a long book, every time it
+is exported.
+
+It belongs at the voice. A voice is cloned once, and the audition rendered at
+that moment is the model's own output for it, so measuring the audition gives a
+per-voice gain that costs nothing to apply during synthesis. Recorded in the
+voice profile, carried into the fragment fingerprint, so a level correction is
+reproducible and resume stays honest about what was rendered with what.
+
+A voice with no measured level gets no gain and no fingerprint change, so books
+already rendered are not invalidated by this landing.
 
 ## Cross-cutting
 

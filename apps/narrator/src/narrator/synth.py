@@ -36,7 +36,7 @@ app = typer.Typer(add_completion=False)
 # narrator cannot import bookbinder (different environments, incompatible
 # numpy), so the report shape is mirrored here. It is validated on the
 # bookbinder side; docs/schemas/render_report_v6.json is the contract.
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # Mirrors bookbinder.manifest.DRY_RUN_MARKER. A dry run leaves silence at
 # exactly the paths a real render writes, and resume skips any fragment that
@@ -55,6 +55,42 @@ PROGRESS_INTERVAL_SEC = 0.5
 # fragment, appended as it lands rather than written at the end, so a render
 # killed at hour six leaves the first six hours reusable.
 FINGERPRINTS = "fingerprints.jsonl"
+
+
+def voice_gain(root: Path, voice: str) -> float:
+    """The level correction recorded for this voice, in decibels.
+
+    Measured from the voice's audition by `just level` and written into its
+    profile. Read as a plain number rather than measured here: the narrator
+    renders, it does not decide what a voice should sound like, and the profile
+    is already hashed into the fragment fingerprint so applying it cannot
+    silently disagree with what the assembler expects.
+    """
+    path = root / "data" / "voices" / f"{voice}.json"
+    if not path.is_file():
+        return 0.0
+    try:
+        return float(json.loads(path.read_text(encoding="utf-8")).get("gain_db") or 0.0)
+    except (OSError, ValueError):
+        return 0.0
+
+
+def apply_gain(wav, gain_db: float):
+    """Scale a fragment, and say whether it had to be clipped to fit.
+
+    The gain is chosen so the voice's audition stays under the true-peak
+    ceiling, but a louder passage in the book can still reach the top. Clipping
+    is the last resort rather than the plan, and it is counted so the run can
+    say it happened: a voice that clips is one whose correction is too large,
+    and silently distorting it would be the worst of both.
+    """
+    import numpy as np
+
+    if abs(gain_db) < 0.05:
+        return wav, 0
+    scaled = np.asarray(wav, dtype="float32") * (10.0 ** (gain_db / 20.0))
+    over = int(np.count_nonzero(np.abs(scaled) > 1.0))
+    return (np.clip(scaled, -1.0, 1.0) if over else scaled), over
 
 
 def discard_dry_run(out_dir: Path) -> int:
@@ -217,6 +253,9 @@ def main(
         return cast.get(chunk.get("role", "narrator")) or cast.get("narrator") or ""
 
     voices = sorted({voice_for(c) for c in chunks})
+    gains = {name: voice_gain(root, name) for name in voices if name}
+    clipped_samples = 0
+    clipped_voices: list[str] = []
     if not all(voices):
         raise typer.BadParameter(
             f"no voice for some chunks; `just chunk {slug}` records the cast, "
@@ -415,6 +454,11 @@ def main(
         # it, so writing through the name in place would rewrite the stored
         # copy underneath. A rename replaces the directory entry and leaves the
         # old inode alone.
+        wav, over = apply_gain(wav, gains.get(chunk_voice, 0.0))
+        clipped_samples += over
+        if over and chunk_voice not in clipped_voices:
+            clipped_voices.append(chunk_voice)
+
         staged = wav_path.with_name(f".{wav_path.name}.part")
         try:
             sf.write(staged, wav, rate)
@@ -472,6 +516,11 @@ def main(
         "sample_rate": rendered_rate,
         "device": dev,
         "dry_run": False,
+        # What levelling was applied, and whether it cost anything. A warning
+        # on stderr scrolls past during a twenty-hour render; this does not.
+        "gains_db": {name: gain for name, gain in gains.items() if gain},
+        "clipped_samples": clipped_samples,
+        "clipped_voices": clipped_voices,
         "started_at": started_at,
         "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "elapsed_sec": round(elapsed, 3),
@@ -498,6 +547,18 @@ def main(
         f"in {elapsed / 60:.1f} min ({audio_seconds / elapsed:.1f}x realtime)\n"
         f"-> {manifest_path}\n-> {report_path}"
     )
+    levelled = {name: gain for name, gain in gains.items() if gain}
+    if levelled:
+        typer.echo("levelled: " + ", ".join(
+            f"{name} {gain:+.1f} dB" for name, gain in sorted(levelled.items())))
+    if clipped_samples:
+        typer.echo(
+            f"warning: {clipped_samples} sample(s) clipped on "
+            f"{', '.join(clipped_voices)}. Their level correction is too large "
+            f"for their loudest passages; re-run `just level` on them, or set a "
+            f"smaller one with `just level <voice> <dB>`.",
+            err=True,
+        )
     if failures:
         typer.echo(f"{len(failures)} chunks failed; see {report_path}", err=True)
         raise typer.Exit(code=1)

@@ -151,6 +151,9 @@ voice input name language="pl":
     just clean {{quote(input)}} {{quote(name)}}
     just label {{quote(name)}} auto {{quote(language)}}
     just clone {{quote(name)}}
+    # Measured from the audition the clone just made, so every voice in a cast
+    # lands on one level rather than whichever the model happened to produce.
+    just level {{quote(name)}}
 
 # ----------------------------------------- stages 2-3: text preparation ----
 
@@ -217,6 +220,12 @@ dryrun slug strict="":
 # 5. Assemble the selected audiobook run.
 assemble slug format="":
     cd apps/studio && uv run python -m studio.catalog_cli process {{quote(slug)}} assemble --fmt {{quote(format)}}
+
+# Measure a voice's audition and record the level correction in its profile.
+# Re-levelling a voice makes audio already rendered with it out of date.
+level voice gain="":
+    cd apps/bookbinder && uv run python -m bookbinder.loudness {{quote(voice)}} \
+      {{ if gain != "" { "--gain=" + quote(gain) } else { "" } }}
 
 # Is there room for this? Runs on its own, and ahead of synth and assemble.
 preflight slug stage="synth" format="":

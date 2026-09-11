@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validat
 # per-role controls through to the renderer.
 # The set is versioned as a unit so a reader only has to check one number.
 # narrator and transcriber mirror this constant.
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # XTTS-v2 silently truncates text past these per-language limits.
 # Source: Coqui TTS xtts.py char_limits.
@@ -480,6 +480,21 @@ class RenderReport(ReportModel):
     )
     device: str = ""
     dry_run: bool = False
+    # What levelling was applied while rendering, and what it cost. A cast
+    # whose voices sit several dB apart is the most audible defect a book can
+    # have, so the correction that fixed it belongs in the record of the run.
+    gains_db: dict[str, float] = Field(
+        default_factory=dict,
+        description="voice -> level correction applied, from its profile",
+    )
+    clipped_samples: int = Field(
+        default=0, ge=0,
+        description="Samples the correction pushed past full scale and had to clamp",
+    )
+    clipped_voices: list[str] = Field(
+        default_factory=list,
+        description="Voices whose correction is too large for their loudest passages",
+    )
     started_at: str = ""
     finished_at: str = ""
     elapsed_sec: float = Field(default=0.0, ge=0)

@@ -43,6 +43,15 @@ top_p = 0.85
 speed = 1.0
 retries = 2                  # re-roll a chunk if QA rejects it
 
+[loudness]
+# Stage 4 output levelling, so a cast does not change volume mid-sentence.
+# EBU R128 integrated loudness; Audible asks for -18 to -23 LUFS with a true
+# peak no higher than -3 dBTP. Measured from a voice's audition by `just level`
+# and applied while rendering.
+target_lufs = -20.0
+peak_ceiling_dbtp = -3.0     # a gain that reaches the target by clipping has not
+max_gain_db = 12.0           # beyond this a voice is wrong, not quiet
+
 [assemble]
 format = "m4b"               # m4b (chaptered) | mp3 | wav
 bitrate = "64k"

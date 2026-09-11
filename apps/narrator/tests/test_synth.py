@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
+from narrator import synth
 from narrator.synth import DRY_RUN_MARKER, discard_dry_run
 
 
@@ -212,3 +215,86 @@ class TestFailureClassification:
 
         for exc in (ValueError("x"), RuntimeError("CUDA"), FileNotFoundError("y")):
             assert classify_failure(exc) in {"fragment", "voice", "model"}
+
+
+class TestLevellingAVoiceWhileItRenders:
+    """The narrator applies a correction; it does not decide one.
+
+    The number comes from the voice's profile, which is hashed into every
+    fragment fingerprint, so the assembler derives the same thing from the same
+    file and the two cannot disagree about loudness without disagreeing about
+    identity first.
+    """
+
+    def _profile(self, tmp_path, **fields):
+        path = tmp_path / "data" / "voices" / "michal.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(
+            {"name": "michal", "language": "pl", "reference_wavs": [], **fields}),
+            encoding="utf-8")
+        return tmp_path
+
+    def test_it_reads_the_correction_from_the_profile(self, tmp_path):
+        root = self._profile(tmp_path, gain_db=-1.4)
+        assert synth.voice_gain(root, "michal") == -1.4
+
+    def test_a_voice_never_levelled_gets_no_correction(self, tmp_path):
+        # Which is what keeps books rendered before this landing valid.
+        root = self._profile(tmp_path)
+        assert synth.voice_gain(root, "michal") == 0.0
+
+    def test_a_missing_profile_is_not_an_error(self, tmp_path):
+        assert synth.voice_gain(tmp_path, "nobody") == 0.0
+
+    def test_a_damaged_profile_is_not_an_error(self, tmp_path):
+        path = tmp_path / "data" / "voices" / "michal.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{ not json", encoding="utf-8")
+        assert synth.voice_gain(tmp_path, "michal") == 0.0
+
+    def test_six_decibels_up_is_twice_the_amplitude(self):
+        import numpy as np
+
+        wav = np.full(100, 0.1, dtype="float32")
+        louder, clipped = synth.apply_gain(wav, 6.0)
+        assert float(louder[0]) == pytest.approx(0.2, abs=0.002)
+        assert clipped == 0
+
+    def test_six_decibels_down_is_half(self):
+        import numpy as np
+
+        quieter, _ = synth.apply_gain(np.full(100, 0.4, dtype="float32"), -6.0)
+        assert float(quieter[0]) == pytest.approx(0.2, abs=0.002)
+
+    def test_no_correction_leaves_the_samples_alone(self):
+        import numpy as np
+
+        wav = np.full(100, 0.3, dtype="float32")
+        same, clipped = synth.apply_gain(wav, 0.0)
+        assert same is wav and clipped == 0
+
+    def test_two_voices_end_up_matched(self):
+        """What the whole feature is for, on actual samples."""
+        import numpy as np
+
+        narrator, _ = synth.apply_gain(np.full(10, 0.5, dtype="float32"), -6.0)
+        dialogue, _ = synth.apply_gain(np.full(10, 0.125, dtype="float32"), 6.0)
+        assert float(narrator[0]) == pytest.approx(float(dialogue[0]), abs=0.005)
+
+    def test_clipping_is_counted_rather_than_hidden(self):
+        # A voice whose correction is too large for its loudest passage. The
+        # clamp is the last resort; the count is how anyone finds out.
+        import numpy as np
+
+        wav = np.array([0.9, 0.2, -0.95], dtype="float32")
+        clamped, clipped = synth.apply_gain(wav, 6.0)
+        assert clipped == 2
+        assert float(np.max(np.abs(clamped))) <= 1.0
+
+    def test_nothing_is_clamped_when_nothing_overflows(self):
+        import numpy as np
+
+        wav = np.array([0.1, -0.2], dtype="float32")
+        scaled, clipped = synth.apply_gain(wav, 6.0)
+        assert clipped == 0
+        assert float(np.max(np.abs(scaled))) == pytest.approx(0.4, abs=0.002)

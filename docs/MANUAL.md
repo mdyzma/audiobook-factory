@@ -305,6 +305,12 @@ exactly `http://127.0.0.1:8765`.
 before it starts, and refuses rather than filling the disk in the middle of the
 night. Free some space and try again; nothing already made is lost.
 
+**One character is quieter than the narrator.** Each voice is measured when it
+is made, and the program evens them out. If a voice was made before that
+existed, or you re-recorded it, measure it again by typing `just level` and the
+voice's name. Anything already read in that voice will need making again,
+because it was read at the old volume.
+
 **It says the graphics card is busy.** Only one thing can use it at a time.
 Making the audiobook, creating a voice and checking a reading all use it, so
 the second one you start is asked to wait. Nothing is lost: wait for the first

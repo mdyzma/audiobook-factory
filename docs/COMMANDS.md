@@ -45,8 +45,9 @@ pass `""` for the ones between.
 | `just clean <input> <voice>` | Denoises and normalises a recording to 24 kHz mono. |
 | `just label <voice> <device="auto"> <language="pl">` | Cuts the sample on WhisperX alignment boundaries and transcribes each piece. |
 | `just clone <voice> <device="auto">` | Derives speaker latents and renders an audition clip to judge the clone. |
+| `just level <voice> <gain="">` | Measures the audition and records a level correction in the voice profile, so every voice in a cast lands on one loudness. Run by `just voice`; run it again after re-cloning. Give a number in dB to set one by hand. Re-levelling makes audio already rendered with that voice out of date. |
 | `just train <voice> <language="pl"> <epochs="10"> <batch="3"> <accum="84">` | Optional full fine-tune. CUDA only. `batch * accum` is the effective batch size; keep it near 250. |
-| `just voice <input> <name> <language="pl">` | Stage 1 end to end: probe, clean, label, clone. Stops before the model download if the recording cannot work. The dashboard's **Create voice** button runs this. |
+| `just voice <input> <name> <language="pl">` | Stage 1 end to end: probe, clean, label, clone, level. Stops before the model download if the recording cannot work. The dashboard's **Create voice** button runs this. |
 
 ## Stages 2 and 3: prepare the text
 
