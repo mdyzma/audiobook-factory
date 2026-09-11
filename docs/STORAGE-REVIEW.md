@@ -95,7 +95,7 @@ a database with foreign keys and immutability triggers.
 **Do:** add `catalog-forget <run>` and an asset sweep before this is used in
 anger.
 
-### 5. Coverage is thinnest where the risk is highest
+### 5. Coverage is thinnest where the risk is highest — FIXED
 
 79% across the new modules, but not evenly:
 
@@ -109,7 +109,7 @@ anger.
 `legacy.py` is the one to fix: it is the only code that touches hours of audio
 nobody can render again.
 
-### 6. Studio is now on the critical path for every stage
+### 6. Studio is now on the critical path for every stage — DOCUMENTED
 
 `just synth` no longer runs the narrator; it runs Studio, which orchestrates.
 Dependency isolation is preserved, but Studio is now a single point of failure
@@ -181,14 +181,36 @@ Integrity clean afterwards, still WAL. The probe book this review created was
 then removed with `catalog-forget-book`, leaving the original four books and
 their three legacy runs.
 
-## Still open, in the order I would take them
+**Archival.** `legacy.py` went from 23% to 100%. The tests build a genuine
+pre-catalog library rather than a hand-written one: a book is imported,
+chunked, rendered and assembled through the pipeline, the results are moved to
+where a pre-catalog installation kept them, and the catalog's record of the run
+is dropped. What is left is what `just catalog-migrate` finds on somebody's
+machine. Writing them turned up that archival only works after the book has
+been registered, which is why `reconcile` does the two in that order.
 
-1. Tests on `legacy.py`, which is the only code touching audio nobody can
-   render again.
-2. The HANDOFF-GPU note, now that Studio is on the critical path for every
-   stage.
-3. The dry-run message still names `data/audio/<slug>/` when the file is under
-   the run root.
+They pin the parts that matter for audio nobody can render again: the fragments
+and the finished file come across, the run says outright that its provenance is
+uncertain rather than inventing a model and voice, archiving twice does not make
+two runs, audio that no longer matches the text is refused, and a refusal leaves
+every original file where it was. Archival also links rather than copies now,
+like every other path into a run root.
+
+**The handoff.** `docs/HANDOFF-GPU.md` has a section saying Studio is on the
+path for every stage, that `just setup-studio` is therefore not optional, and
+that output lives under `data/runs/<id>/` rather than `data/audio/<slug>/`. It
+also says to carry `data/audiobook.db` and `data/assets/` together, and to
+prefer `just catalog-backup` over copying a live database.
+
+**The misleading path.** Both the dry-run notice and the assembly warning now
+name the directory they actually read, absolutely, matching the lines around
+them. A test pins it, and putting the hard-coded path back fails it.
+
+## Nothing open from this review
+
+The remaining work is on the roadmap rather than here: slice E, and the
+comparison of synthesis models for Polish and English that the storage work was
+always meant to serve rather than delay.
 
 ## A note on what removing a run directory does
 

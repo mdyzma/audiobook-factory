@@ -30,6 +30,38 @@ in a real cloned voice on Apple Silicon.
 
 356 tests, pyright and schema checks all pass, and CI is green on every commit.
 
+## Studio is on the path for every stage now
+
+This changed after the handoff was first written, and it matters here more than
+anywhere, because this machine is the one where things get run from a terminal.
+
+`just synth` no longer invokes the narrator. It invokes Studio, which resolves
+which run the work belongs to, materialises that run's own data root, and
+executes the stage inside it. Same for chunk, dryrun, assemble, verify and
+ingest. The isolation is intact and nothing changed about the dependency
+split: no pipeline package imports the database, and the stages still read and
+write the same manifests. What changed is that `apps/studio` has to be set up
+before any of them will run.
+
+Three consequences for this box.
+
+- **`just setup-studio` is not optional.** A broken Studio environment now
+  stops every stage, not just the dashboard. `just setup` covers it.
+- **Output paths are inside the run, not `data/audio/<slug>/`.** A stage runs
+  with its own data root, so a message naming a directory is naming one under
+  `data/runs/<run id>/`. `just catalog-runs <slug>` lists them.
+- **The library is a database as well as files.** `data/audiobook.db` holds
+  which text, model and voice produced which audiobook. Carry it across with
+  the data, and see "Data worth carrying across" below.
+
+If you would rather drive the stages directly while debugging CUDA, the
+underlying commands still exist: `cd apps/narrator && uv run python -m
+narrator.synth <slug>` works against a data root you point
+`AUDIOBOOK_FACTORY_ROOT` at. Results produced that way are outside the catalog
+until `just catalog-reconcile` picks them up.
+
+---
+
 ## The one job that needs this machine
 
 `apps/narrator/src/narrator/train.py` implements XTTS-v2 fine-tuning. Its API surface
@@ -149,18 +181,25 @@ ffmpeg -f dshow -i audio="Microphone (Realtek)" -ar 48000 -ac 1 -t 240 data/raw/
 ## What to do first, in order
 
 1. `just setup` then `just doctor`. Confirm numpy is 1.x in narrator and 2.x in
-   transcriber. If narrator shows numpy 2.x, stop and read DECISIONS.md.
+   transcriber. If narrator shows numpy 2.x, stop and read DECISIONS.md. Studio
+   is set up by the same command, and every stage now needs it.
 2. Swap in cu128 wheels as above, and verify `get_device_capability` is `(12, 0)`.
 3. `just check` for schemas, types and tests. Should take seconds.
-4. `just check-narrator` to prove XTTS still loads after the torch swap.
-5. Re-run something known good before attempting anything new:
+4. `just catalog-migrate` if you carried an existing `data/` across without its
+   database, then `just catalog-check`. It reports the SQLite version Python
+   actually loaded, which is worth reading: a runtime predating the WAL-reset
+   fix is named there.
+5. `just check-narrator` to prove XTTS still loads after the torch swap.
+6. Re-run something known good before attempting anything new:
    ```bash
    bin/audiobook -v data/raw/voices/michal.wav -b data/raw/books/test-book.txt --dry-run
    ```
-6. Then a real render, and compare the realtime factor in
-   `data/audio/<slug>/report.json` against the 0.4x measured on the M1. On this
-   card expect it to be far above 1.0. If it is not, CUDA is not being used.
-7. Only then attempt `just train`.
+7. Then a real render, and compare the realtime factor in that run's
+   `report.json` against the 0.4x measured on the M1. `just catalog-runs <slug>`
+   gives the run id and `data/runs/<id>/data/audio/<slug>/report.json` is the
+   file. On this card expect it to be far above 1.0. If it is not, CUDA is not
+   being used.
+8. Only then attempt `just train`.
 
 ---
 
@@ -184,6 +223,22 @@ not comfortably faster than realtime, something is wrong with the CUDA setup.
 - `data/raw/voices/michal.wav` — the original 103 s recording
 - `data/datasets/michal/` — 18 labelled segments, the fine-tuning input
 - `data/voices/michal.json` and `data/voices/michal/` — the cloned voice
+- `data/audiobook.db` and `data/assets/` — the catalog and the bytes it names.
+  These two belong together: the database says which text, model and voice made
+  a given audiobook, and the assets are what it points at. Copying one without
+  the other leaves records naming files that are not there. `just catalog-check`
+  will say so.
+
+Prefer `just catalog-backup <destination>` over copying by hand. It takes a
+consistent snapshot of the database together with every asset it references,
+and `just catalog-restore` puts it back. Copying a live database file while
+Studio is running is the one way to get a torn one.
+
+If you carry `data/` across without its database, `just catalog-migrate`
+rebuilds the catalog from the files and archives the existing audio as
+historical runs. Those runs are honest about what they cannot know: a render
+made before any of this existed cannot say which model or voice revision
+produced it, and the run records that rather than inventing one.
 
 Model weights are not in the repo. XTTS-v2 downloads on first use, about 1.7 GB.
 
