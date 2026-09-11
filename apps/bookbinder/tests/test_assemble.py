@@ -531,3 +531,25 @@ class TestSampleRateFollowsTheFragments:
         result = CliRunner().invoke(assemble.app, ["b"])
         assert result.exit_code == 0, result.output
         assert probe_duration(root / "data" / "out" / "b.m4b") == pytest.approx(5.0, abs=0.3)
+
+
+class TestAWarningNamesWhereTheFilesAre:
+    """A stage may be running against a data root that is not the project's.
+
+    Under the catalog every run gets its own, so a message that hard-codes
+    `data/audio/<slug>/` sends the reader to a directory the file is not in.
+    """
+
+    def test_the_dry_run_warning_names_the_directory_it_read(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+
+        from bookbinder.manifest import mark_dry_run
+
+        root, assemble = TestAssembleEndToEnd()._build(tmp_path, monkeypatch)
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(root))
+        audio = root / "data" / "audio" / "b"
+        mark_dry_run(audio, "b", 2)
+
+        result = CliRunner().invoke(assemble.app, ["b"])
+        assert "is dry-run silence" in result.output
+        assert str(audio) in result.output

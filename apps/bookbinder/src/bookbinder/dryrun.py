@@ -164,7 +164,10 @@ def main(
         f"{report.audio_sec / 60:.1f} min of silence in {report.elapsed_sec:.1f} s\n"
         f"cast: " + (", ".join(f"{r}->{v}" for r, v in book.cast.items()) or "none") + "\n"
         f"-> {report_path}\n"
-        f"data/audio/{slug}/ now holds silence. `just synth {slug}` discards it "
+        # The directory actually written, not a path relative to a root the
+        # reader has to guess. Under the catalog a stage runs with its own data
+        # root, so `data/audio/<slug>/` named a place the file was not.
+        f"{out_dir} now holds silence. `just synth {slug}` discards it "
         f"and renders for real."
     )
     for role, voice in missing.items():

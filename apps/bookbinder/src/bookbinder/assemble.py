@@ -302,7 +302,9 @@ def main(
     dry = is_dry_run_audio(audio_dir)
     if dry:
         typer.echo(
-            f"warning: data/audio/{slug}/ is dry-run silence, so this file will "
+            # Named absolutely: a stage run under the catalog has its own data
+            # root, and a relative path points somewhere the reader does not have.
+            f"warning: {audio_dir} is dry-run silence, so this file will "
             f"be silent. Run `just synth {slug}` for real audio.",
             err=True,
         )
