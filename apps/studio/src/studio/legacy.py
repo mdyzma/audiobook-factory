@@ -3,7 +3,15 @@ from __future__ import annotations
 
 import shutil
 
-from studio.catalog import Catalog, digest, encode, identity, read_json, read_lines
+from studio.catalog import (
+    Catalog,
+    digest,
+    encode,
+    identity,
+    place,
+    read_json,
+    read_lines,
+)
 from studio.database import StorageError, now
 
 
@@ -42,7 +50,10 @@ def archive_audio(catalog: Catalog, slug: str) -> str | None:
     for path_key, asset in source_assets.items():
         target = base / path_key
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(catalog.asset_path(asset), target)
+        # Linked, not copied, for the same reason every other run root is: the
+        # archived audio is already in the store and a second copy of a
+        # twenty-hour book is gigabytes for nothing.
+        place(catalog.asset_path(asset), target)
     for filename in ("rendered.jsonl", "report.json", "progress.json", "qa_report.json", ".dry-run.json"):
         if (audio / filename).is_file():
             target = base / "data/audio" / slug / filename

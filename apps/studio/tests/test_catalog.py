@@ -717,3 +717,160 @@ class TestRemovingABook:
 
         with pytest.raises(StorageError, match="no book"):
             forget_book(library, "never-imported")
+
+
+def pre_catalog(library) -> str:
+    """A library as it looked before the catalog: audio in the classic tree.
+
+    Built from real artifacts rather than hand-written ones. A book is imported,
+    chunked, rendered and assembled through the pipeline, the results are moved
+    to where a pre-catalog installation kept them, and the catalog's record of
+    the run is dropped. What is left is exactly what `just catalog-migrate`
+    finds on somebody's machine: books and audio on disk, and nothing in the
+    database that knows how they were made.
+    """
+    from studio.reclaim import forget_run
+
+    slug = imported(library)
+    run = prepare_run(library, slug, voice="michal")
+    assert execute_stage(library, run["id"], "chunk") == 0
+    assert execute_stage(library, run["id"], "dryrun") == 0
+    assert execute_stage(library, run["id"], "assemble", fmt="wav") == 0
+
+    base = inside(library, Catalog(library).run(run["id"])["root_key"])
+    for relative in ("data/book", "data/audio", "data/out"):
+        source = base / relative
+        if not source.is_dir():
+            continue
+        for item in source.iterdir():
+            target = library / relative / item.name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                shutil.rmtree(target) if target.is_dir() else target.unlink()
+            shutil.copytree(item, target) if item.is_dir() else shutil.copy2(item, target)
+
+    forget_run(library, run["id"])
+    # Registration comes first in the real migration too: reconcile registers
+    # each book from the classic tree, which is what gives it a current chunk
+    # plan, and only then archives the audio sitting beside it.
+    Catalog(library).register_book(slug)
+    return slug
+
+
+class TestArchivingWhatWasAlreadyRendered:
+    """The only code that touches audio nobody can produce again.
+
+    Everything else in the catalog can be rebuilt by running a stage a second
+    time. This cannot: a twenty-hour render made before any of this existed is
+    hours of a graphics card that nobody is going to spend twice. It has to
+    bring that audio across, refuse rather than guess when it cannot, and leave
+    the original files alone either way.
+    """
+
+    def test_the_audio_is_brought_across(self, library):
+        from studio.legacy import archive_audio
+
+        slug = pre_catalog(library)
+        catalog = Catalog(library)
+        run_id = archive_audio(catalog, slug)
+
+        assert run_id
+        assert Catalog(library).run(run_id)["status"] == "legacy"
+        assert Catalog(library).rows(
+            "SELECT * FROM render_fragments WHERE run_id=?", (run_id,))
+
+    def test_the_finished_file_comes_too(self, library):
+        from studio.legacy import archive_audio
+
+        slug = pre_catalog(library)
+        run_id = archive_audio(Catalog(library), slug)
+        assert Catalog(library).rows("SELECT * FROM exports WHERE run_id=?", (run_id,))
+
+    def test_it_says_the_provenance_is_uncertain(self, library):
+        # A run made before any of this was recorded cannot say which model or
+        # which voice revision produced it, and inventing one would be worse
+        # than admitting it.
+        from studio.legacy import archive_audio
+
+        slug = pre_catalog(library)
+        run_id = archive_audio(Catalog(library), slug)
+        assert run_id
+        assert "provenance" in Catalog(library).run(run_id)["error"]
+
+    def test_archiving_twice_does_not_make_two_runs(self, library):
+        # Migration is documented as safe to repeat, and reconcile calls this.
+        from studio.legacy import archive_audio
+
+        slug = pre_catalog(library)
+        first = archive_audio(Catalog(library), slug)
+        second = archive_audio(Catalog(library), slug)
+        assert first == second
+        assert len(Catalog(library).rows("SELECT * FROM audiobook_runs")) == 1
+
+    def test_a_book_with_no_audio_is_left_alone(self, library):
+        from studio.legacy import archive_audio
+
+        slug = imported(library)
+        assert archive_audio(Catalog(library), slug) is None
+
+    def test_a_book_waiting_to_be_chunked_is_skipped(self, library):
+        from studio.legacy import archive_audio
+
+        slug = pre_catalog(library)
+        (library / "data/book" / slug / ".needs-chunking").write_text("", encoding="utf-8")
+        assert archive_audio(Catalog(library), slug) is None
+
+    def test_audio_that_does_not_match_the_text_is_refused(self, library):
+        """The case where guessing would be silently wrong.
+
+        Audio rendered from text that has since changed is not this book's
+        audio. Attaching it anyway would produce an audiobook that reads
+        sentences the book no longer contains.
+        """
+        from studio.legacy import archive_audio
+
+        slug = pre_catalog(library)
+        rendered = library / "data/audio" / slug / "rendered.jsonl"
+        rows = [json.loads(line) for line in rendered.read_text().splitlines() if line.strip()]
+        rows[0]["text"] = "Something this book never said."
+        rendered.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+        with pytest.raises(StorageError, match="does not match the current text"):
+            archive_audio(Catalog(library), slug)
+
+    def test_a_refusal_keeps_the_original_files(self, library):
+        from studio.legacy import archive_audio
+
+        slug = pre_catalog(library)
+        rendered = library / "data/audio" / slug / "rendered.jsonl"
+        rows = [json.loads(line) for line in rendered.read_text().splitlines() if line.strip()]
+        before = sorted(p.name for p in (library / "data/audio" / slug).iterdir())
+        rows[0]["text"] = "Something this book never said."
+        rendered.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+        with pytest.raises(StorageError):
+            archive_audio(Catalog(library), slug)
+        assert sorted(p.name for p in (library / "data/audio" / slug).iterdir()) == before
+
+    def test_migration_picks_it_up_on_its_own(self, library):
+        # This is how it actually runs: `just catalog-migrate` reconciles, and
+        # reconcile archives whatever audio it finds.
+        slug = pre_catalog(library)
+        Catalog(library).reconcile()
+        runs = Catalog(library).runs(slug)
+        assert [r["status"] for r in runs] == ["legacy"]
+
+    def test_the_archived_audio_is_not_a_second_copy(self, library):
+        from studio.legacy import archive_audio
+
+        slug = pre_catalog(library)
+        catalog = Catalog(library)
+        run_id = archive_audio(catalog, slug)
+        assert run_id
+        row = Catalog(library).one(
+            "SELECT * FROM render_fragments WHERE run_id=? LIMIT 1", (run_id,))
+        stored = Catalog(library).asset_path(row["asset_id"])
+        base = inside(library, Catalog(library).run(run_id)["root_key"])
+        copies = sorted(base.glob("data/audio/*/*.wav"))
+        assert copies
+        assert any(p.stat().st_ino == stored.stat().st_ino for p in copies)
