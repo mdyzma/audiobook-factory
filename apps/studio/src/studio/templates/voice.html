@@ -56,4 +56,80 @@
 </div>
 {% endif %}
 
+
+<h2>Hear it on a book</h2>
+<div class="card">
+  <p class="meta" style="margin:0 0 .8rem">
+    The clip above says one fixed sentence. This reads a passage from a book you
+    have here, at the settings that book will actually be narrated with, so what
+    you hear is what you would get.
+  </p>
+  <div class="actions">
+    <select id="aud-book">
+      <option value="">a fixed sentence</option>
+      {% for slug in books %}<option value="{{ slug }}">{{ slug }}</option>{% endfor %}
+    </select>
+    <select id="aud-role">
+      <option value="">narration</option>
+      <option value="dialogue">dialogue</option>
+    </select>
+    <button onclick="auditionRun(this)">Read me some</button>
+  </div>
+  <div id="aud-note" class="note"></div>
+  <div id="aud-list"></div>
+</div>
+
+<script>
+async function auditionLoad() {
+  const list = document.getElementById('aud-list');
+  list.innerHTML = '';
+  let records = [];
+  try {
+    records = await (await api('/api/voices/{{ voice.name }}/auditions')).json();
+  } catch (e) { return; }
+  if (!records.length) {
+    list.innerHTML = '<p class="meta">Nothing rendered yet.</p>';
+    return;
+  }
+  for (const r of records) {
+    const box = document.createElement('div');
+    box.style.marginTop = '.9rem';
+    const bits = [];
+    if (r.book) bits.push(r.book + (r.chapter ? ' · ' + r.chapter : ''));
+    if (r.role) bits.push(r.role);
+    if (r.model) bits.push(r.model);
+    if (r.gain_db) bits.push((r.gain_db > 0 ? '+' : '') + r.gain_db + ' dB');
+    const settings = Object.entries(r.settings || {})
+      .map(([k, v]) => k + '=' + v).join(', ');
+    if (settings) bits.push(settings);
+    box.innerHTML =
+      '<div class="meta">' + bits.join(' · ') + '</div>' +
+      '<div class="meta">' + (r.text || '').slice(0, 180) + '</div>' +
+      '<audio controls preload="none" src="/audio/audition/{{ voice.name }}/' +
+      r.key + '"></audio>';
+    list.appendChild(box);
+  }
+}
+
+async function auditionRun(button) {
+  const note = document.getElementById('aud-note');
+  note.textContent = 'Rendering. It takes its turn on the graphics card.';
+  button.disabled = true;
+  try {
+    await api('/api/jobs', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: 'audition', args: {
+        voice: '{{ voice.name }}',
+        slug: document.getElementById('aud-book').value,
+        role: document.getElementById('aud-role').value,
+      }}),
+    });
+    location.reload();
+  } catch (e) { note.textContent = e.message; button.disabled = false; }
+}
+
+auditionLoad();
+</script>
+
 {% endblock %}

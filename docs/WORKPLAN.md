@@ -410,15 +410,15 @@ ambiguous encoding, a duplicate, and two matching titles completes with separate
 outputs per book. Restart during synthesis and re-scan afterwards produce no
 duplicate renders, no overwritten sources, and no lost progress.
 
-## Slice E — Listening polish — started
+## Slice E — Listening polish — done
 
 Only after D. Each item reduces manual correction rather than enabling the
 workflow. Sized 2026-09-11 against what is already there.
 
 | ID | Work | Size |
 |---|---|---|
-| E-1 | Pronunciation editor over A-7's dictionary. `speech.load_dictionary` already reads `data/book/<slug>/pronunciation.yml` and chunking already applies it; what is missing is a way to edit it without a text editor, and a way to hear the result before re-chunking a book. (FEAT-01 P1) | M |
-| E-2 | Richer auditions with recorded settings. `just voice` renders one fixed sentence at temperature 0.7 and nothing records what produced it. Audition a voice on a passage from the book, at the settings that will actually be used, and keep what was heard. (FEAT-07 remainder) | M |
+| E-1 | **Done 2026-09-11.** Pronunciation editor over A-7's dictionary. `speech.load_dictionary` already reads `data/book/<slug>/pronunciation.yml` and chunking already applies it; what is missing is a way to edit it without a text editor, and a way to hear the result before re-chunking a book. (FEAT-01 P1) | M |
+| E-2 | **Done 2026-09-11.** Richer auditions with recorded settings. `just voice` renders one fixed sentence at temperature 0.7 and nothing records what produced it. Audition a voice on a passage from the book, at the settings that will actually be used, and keep what was heard. (FEAT-07 remainder) | M |
 | E-3 | **Done 2026-09-11.** Loudness matching and clipping control across voices. Nothing exists: `loudnorm` in `config/pipeline.toml` cleans the input recording at clone time and has no bearing on output. A cast whose dialogue voice sits several dB below its narrator is the most audible defect a multi-voice book has. Mastering presets stay optional and separate. (FEAT-11 narrow) | L |
 | E-4 | **Done 2026-09-11.** Chapter, title, voice and cover metadata in exports. Assembly already writes title, artist, album and chapter marks. Missing: the narrator as a tag, and cover art, which most EPUBs carry and nothing currently extracts. (FEAT-04 metadata) | S |
 
@@ -427,6 +427,32 @@ with nothing behind it. Then E-4, which is small and finishes the export. E-1
 and E-2 are both about judging a voice before committing hours to it, and
 sharing that shape they are better done together, after the audio itself is
 right.
+
+**E-1 and E-2 done 2026-09-11, together, because they turned out to be one
+thing.** Both ask the same question: is this worth spending a night of the
+machine on. Both answer it by rendering a short sample and keeping what
+produced it, so there is one mechanism rather than two.
+
+Previewing a pronunciation is free, and that is the whole argument for it. The
+substitution is pure text, so every passage a proposed rule would change can be
+shown instantly, with no model and no re-chunking. Deciding whether a fix is
+worth re-splitting several thousand fragments for now costs nothing. Rules that
+would do nothing are refused outright, because a rule written the same as it is
+spoken is a mistake somebody makes once and then hunts for.
+
+Auditions now read a passage from the book, chosen from the middle rather than
+the start, preferring one long enough to carry a sentence boundary and matching
+the role being judged, so a dialogue voice is heard saying dialogue. The
+settings come from `book.json`, through the same backend synthesis uses, so
+what is heard is what would be made. Everything that shaped a sample is written
+beside it, and samples are named by that, so two settings are two files rather
+than one overwriting the other, and asking twice costs nothing.
+
+The audition made while cloning is deliberately left where it is: `just level`
+measures it, and moving it would change every voice's correction.
+
+Adding an action that loads a model made the pinned GPU set fail, which is the
+test doing its job. Auditions queue behind a render like everything else.
 
 **E-4 done 2026-09-11.** The export is the only thing that survives the
 pipeline: everything else lives under `data/` and is read by this program

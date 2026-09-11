@@ -227,6 +227,12 @@ pronounce slug written="" spoken="":
     cd apps/bookbinder && uv run python -m bookbinder.pronounce {{quote(slug)}} \
       {{quote(written)}} {{quote(spoken)}}
 
+# Hear a voice on a book's own prose, at the settings that book will use.
+audition voice book="" role="" text="":
+    cd apps/narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.audition \
+      {{quote(voice)}} --book {{quote(book)}} --role {{quote(role)}} \
+      --text {{quote(text)}}
+
 # Measure a voice's audition and record the level correction in its profile.
 # Re-levelling a voice makes audio already rendered with it out of date.
 level voice gain="":

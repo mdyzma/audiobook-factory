@@ -571,3 +571,41 @@ class TestSayingAWordDifferently:
     def test_the_editor_is_on_the_book_page(self, client):
         assert "How this book says" in client.get("/book/solaris").text
 
+
+class TestHearingAVoiceOnABook:
+    def test_a_voice_with_no_samples_yet(self, client):
+        assert client.get("/api/voices/michal/auditions").json() == []
+
+    def test_a_rendered_sample_is_listed_with_what_made_it(self, client, project):
+        folder = project / "data" / "voices" / "michal" / "auditions"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "abc123.wav").write_bytes(b"RIFFfake")
+        (folder / "abc123.json").write_text(json.dumps({
+            "voice": "michal", "text": "Ocean falował.", "language": "pl",
+            "settings": {"temperature": 0.7}, "model": "xtts-v2",
+            "book": "solaris", "created_at": "2026-09-11T10:00:00+00:00",
+        }), encoding="utf-8")
+
+        listed = client.get("/api/voices/michal/auditions").json()
+        assert listed[0]["key"] == "abc123"
+        assert listed[0]["settings"] == {"temperature": 0.7}
+        assert listed[0]["book"] == "solaris"
+
+    def test_the_sample_can_be_played(self, client, project):
+        folder = project / "data" / "voices" / "michal" / "auditions"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "abc123.wav").write_bytes(b"RIFFfake")
+        (folder / "abc123.json").write_text("{}", encoding="utf-8")
+        assert client.get("/audio/audition/michal/abc123").status_code == 200
+
+    def test_a_sample_that_is_not_there(self, client):
+        assert client.get("/audio/audition/michal/nothing").status_code == 404
+
+    def test_a_damaged_record_does_not_break_the_list(self, client, project):
+        folder = project / "data" / "voices" / "michal" / "auditions"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "bad.json").write_text("{ not json", encoding="utf-8")
+        assert client.get("/api/voices/michal/auditions").json() == []
+
+    def test_the_control_is_on_the_voice_page(self, client):
+        assert "Hear it on a book" in client.get("/voice/michal").text

@@ -75,6 +75,11 @@ ACTIONS: dict[str, dict] = {
                  "lock_key": "voice", "scope": "voice", "gpu": True},
     "label":    {"recipe": "label",    "args": ["voice"],           "locks": False,
                  "lock_key": "voice", "scope": "voice", "gpu": True},
+    # Seconds of audio, but it loads a model to make them, so it queues behind
+    # a render like everything else that wants the device.
+    "audition": {"recipe": "audition", "args": ["voice", "slug", "role"],
+                 "locks": False, "lock_key": "voice", "scope": "voice",
+                 "gpu": True, "optional": ("slug", "role")},
 }
 
 # `space` names the disk estimate to run before starting. A render that fills
@@ -409,6 +414,12 @@ class JobRunner:
                 continue
             if name == "voice" and action == "synth" and not value:
                 clean[name] = ""       # use the cast recorded in book.json
+                continue
+            # Arguments an action is happy to be given nothing for. Without
+            # this they fall through to the name check, which rejects "" and
+            # would refuse an audition that simply did not name a book.
+            if not value and name in (spec.get("optional") or ()):
+                clean[name] = ""
                 continue
             if name == "chunks":
                 # A comma-separated list, each item validated on its own: this

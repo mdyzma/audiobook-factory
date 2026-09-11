@@ -197,6 +197,9 @@ def voice_page(request: Request, name: str):
         "voice": voice,
         "jobs": jobs[:10],
         "active": next((j for j in jobs if j.running), None),
+        # Only books with fragments: a passage to read is the whole point, and
+        # offering one that has not been split yet is offering a failure.
+        "books": [b.slug for b in data.list_books(root()) if b.chunk_count],
     })
 
 
@@ -620,6 +623,30 @@ def api_save_pronunciation(slug: str, payload: dict = Body(...)):
     path = _pronounce(save, root(), name, clean)
     return {"path": str(path.relative_to(root())),
             **_preview_payload(_pronounce(preview, root(), name, clean))}
+
+
+@app.get("/api/voices/{name}/auditions")
+def api_auditions(name: str):
+    """Every sample rendered for this voice, and what produced each one."""
+    voice = safe(name)
+    folder = root() / "data" / "voices" / voice / "auditions"
+    out = []
+    for record in sorted(folder.glob("*.json")) if folder.is_dir() else []:
+        try:
+            out.append({"key": record.stem,
+                        **json.loads(record.read_text(encoding="utf-8"))})
+        except (OSError, ValueError):
+            continue
+    return sorted(out, key=lambda r: r.get("created_at", ""), reverse=True)
+
+
+@app.get("/audio/audition/{name}/{key}")
+def audition_sample(name: str, key: str):
+    """One rendered sample, for the player on the voice page."""
+    path = (root() / "data" / "voices" / safe(name) / "auditions" / f"{safe(key)}.wav")
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="no such audition")
+    return FileResponse(path, media_type="audio/wav")
 
 
 @app.post("/api/upload/{kind}")

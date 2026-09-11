@@ -311,6 +311,12 @@ a word**. Type the name as it is written, then how it should sound, and press
 changing anything. If it looks right, press **Save**, then make the chapters
 again and re-do the reading.
 
+**You want to hear a voice before using it.** Open the voice's page and find
+**Hear it on a book**. Pick one of your books and press **Read me some**. It
+reads a real passage from that book, in that voice, exactly as the finished
+audiobook would. Each sample is kept with a note of what made it, so you can
+compare two.
+
 **The cover picture is missing or wrong.** If the book was an `.epub` its own
 cover is used. To change it, or to add one to a plain text book, put a picture
 named `cover.jpg` or `cover.png` in the book's folder under `data/book/`, then

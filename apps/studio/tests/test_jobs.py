@@ -184,6 +184,18 @@ class TestLocking:
         assert store.lock_path(lock_name("book", "solaris")) != \
             store.lock_path(lock_name("voice", "solaris"))
 
+    def test_an_audition_without_a_book_is_allowed(self, project):
+        # It falls back to a fixed sentence, so naming no book is a choice
+        # rather than a mistake. Left to the name check it would be refused.
+        clean = JobRunner(project).validate(
+            "audition", {"voice": "michal", "slug": "", "role": ""})
+        assert clean == {"voice": "michal", "slug": "", "role": ""}
+
+    def test_an_audition_still_refuses_an_unsafe_book(self, project):
+        with pytest.raises(JobError, match="invalid slug"):
+            JobRunner(project).validate(
+                "audition", {"voice": "michal", "slug": "../etc", "role": ""})
+
     def test_non_rendering_actions_do_not_lock(self):
         assert ACTIONS["assemble"]["locks"] is False
         assert ACTIONS["verify"]["locks"] is False
@@ -432,7 +444,14 @@ class TestOneGpuWorkloadAtATime:
 
     def test_transcription_and_cloning_count_as_gpu_work(self):
         # The whole point: leaving ASR out is how two models end up loaded.
-        assert GPU_ACTIONS == {"voice", "clone", "label", "synth", "resynth", "verify"}
+        # Pinned as a set rather than checked one by one, so a new action that
+        # loads a model has to say so here before it can run beside a render.
+        assert GPU_ACTIONS == {"voice", "clone", "label", "synth", "resynth",
+                               "verify", "audition"}
+
+    def test_an_audition_takes_its_turn_on_the_device(self):
+        # Seconds of audio, but a model load to make them.
+        assert ACTIONS["audition"]["gpu"] is True
 
     def test_work_that_loads_no_model_is_not_gated(self):
         for action in ("chunk", "ingest", "assemble", "dryrun"):
