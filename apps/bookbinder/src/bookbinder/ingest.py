@@ -7,6 +7,7 @@ Output: data/book/<slug>/chapters.json, an ordered list of
 
 from __future__ import annotations
 
+from bookbinder.manifest import publish
 from bookbinder.paths import project_root
 
 import json
@@ -63,6 +64,10 @@ class Extraction:
     encoding: dict = field(default_factory=dict)
     needs_review: bool = False
     review_reasons: list[str] = field(default_factory=list)
+    # The book's own cover art, as bytes and a suffix, when it carries one.
+    # Kept beside the text rather than embedded in it: what wants a picture is
+    # the exported file, hours later and in a different environment.
+    cover: "tuple[bytes, str] | None" = None
 
 # Headings that mark front/back matter we do not want narrated.
 SKIP_TITLES = re.compile(
@@ -145,6 +150,58 @@ def is_navigation(item) -> bool:
 BLOCK_TAGS = ["p", "blockquote", "li"]
 
 
+# What a cover can be called when nothing declares one. Checked last, and only
+# against image items, so a chapter named "cover.xhtml" cannot be mistaken for
+# the picture.
+COVER_NAMES = re.compile(r"(^|/)cover[^/]*$", re.IGNORECASE)
+
+COVER_SUFFIXES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+
+
+def cover_image(book, ebooklib) -> "tuple[bytes, str] | None":
+    """The book's cover, if it declares one, as bytes and a file suffix.
+
+    Three ways an EPUB says which image is the cover, tried in the order of how
+    definite they are. EPUB 3 marks the manifest item; EPUB 2 points at it from
+    a meta element; and a great many files do neither and simply call it
+    `cover.jpg`. Guessing by name is last because it is a guess.
+    """
+    candidates = []
+
+    for item in book.get_items():
+        if "cover-image" in (getattr(item, "properties", None) or []):
+            candidates.append(item)
+
+    # EPUB 2 writes `<meta name="cover" content="<item id>"/>`, which ebooklib
+    # files under the OPF namespace as `meta` rather than as `cover`. Asking
+    # for the latter finds nothing, and the fallback by filename then covers
+    # for it silently, which is how this was wrong and still passing.
+    for _value, attributes in book.get_metadata("OPF", "meta") or []:
+        attributes = attributes or {}
+        if attributes.get("name") != "cover":
+            continue
+        declared = book.get_item_with_id(attributes.get("content", ""))
+        if declared is not None:
+            candidates.append(declared)
+
+    try:
+        candidates.extend(book.get_items_of_type(ebooklib.ITEM_COVER))
+    except Exception:      # older ebooklib without the type
+        pass
+
+    for item in book.get_items_of_type(ebooklib.ITEM_IMAGE):
+        if COVER_NAMES.search(item.get_name() or ""):
+            candidates.append(item)
+
+    for item in candidates:
+        content = item.get_content()
+        media = (getattr(item, "media_type", "") or "").lower()
+        suffix = COVER_SUFFIXES.get(media) or Path(item.get_name() or "").suffix.lower()
+        if content and suffix in (".jpg", ".jpeg", ".png", ".webp"):
+            return content, ".jpg" if suffix == ".jpeg" else suffix
+    return None
+
+
 def spine_documents(book, ebooklib) -> list:
     """Content documents in reading order.
 
@@ -219,6 +276,12 @@ def from_epub(
         "author": (book.get_metadata("DC", "creator") or [("Unknown",)])[0][0],
         "language": (book.get_metadata("DC", "language") or [("",)])[0][0],
     }
+    try:
+        cover = cover_image(book, ebooklib)
+    except Exception:
+        # A malformed cover declaration is not a reason to refuse a book that
+        # otherwise reads perfectly well.
+        cover = None
 
     warnings: list[str] = []
     if encoding:
@@ -284,6 +347,7 @@ def from_epub(
         },
         needs_review=bool(suspicious),
         review_reasons=review_reasons,
+        cover=cover,
     )
 
 
@@ -373,6 +437,7 @@ class Imported:
     author: str = ""
     language: str = ""
     encoding: str = ""
+    cover: str = ""
     chapters: int = 0
     words: int = 0
     written: bool = False
@@ -473,6 +538,15 @@ def import_book(
 
     out_dir = root / "data" / "book" / book_slug
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Kept under its own name so a person can replace it, or supply one for a
+    # plain text book that never had any. Assembly looks for whatever is here.
+    if found.cover:
+        content, suffix = found.cover
+        for stale in out_dir.glob("cover.*"):
+            stale.unlink()
+        publish(out_dir / f"cover{suffix}", lambda p: p.write_bytes(content))
+        result.cover = f"data/book/{book_slug}/cover{suffix}"
     (out_dir / "chapters.json").write_text(
         json.dumps({
             "meta": meta | {

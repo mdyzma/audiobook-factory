@@ -500,3 +500,101 @@ class TestSourceStaging:
         _src, meta = self._ingest(tmp_path, monkeypatch)
         staged_dir = (tmp_path / meta["source_file"]).parent
         assert [p.name for p in staged_dir.iterdir()] == ["solaris.txt"]
+
+
+class TestTheBooksOwnCover:
+    """Most EPUBs carry one and nothing was taking it.
+
+    The picture matters only at the very end, in a player, so it is lifted out
+    at import and left beside the text under a plain name that a person can
+    replace or supply for a book that never had one.
+    """
+
+    PNG = bytes.fromhex(
+        "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753"
+        "de0000000c4944415408d763f8cfc000000301010018dd8db00000000049454e"
+        "44ae426082")
+
+    def _book(self, tmp_path, declare="epub3", name="cover.png"):
+        from ebooklib import epub
+
+        book = epub.EpubBook()
+        book.set_identifier("t"); book.set_title("Solaris"); book.set_language("pl")
+        book.add_author("Lem")
+        chapter = epub.EpubHtml(title="Przybysz", file_name="c1.xhtml", lang="pl")
+        chapter.content = (
+            "<h1>Przybysz</h1><p>Zszedłem po drabince do kabiny i zamknąłem "
+            "właz za sobą. Ocean falował pod stacją nieprzerwanie.</p>")
+        book.add_item(chapter)
+
+        image = epub.EpubItem(uid="cover-img", file_name=name,
+                              media_type="image/png", content=self.PNG)
+        book.add_item(image)
+        if declare == "epub3":
+            # ebooklib annotates properties more narrowly than it accepts.
+            image.properties = ["cover-image"]  # type: ignore[attr-defined]
+        elif declare == "epub2":
+            book.add_metadata(None, "meta", "", {"name": "cover",
+                                                 "content": "cover-img"})
+
+        book.toc = (chapter,)  # type: ignore[assignment]
+        book.add_item(epub.EpubNcx()); book.add_item(epub.EpubNav())
+        book.spine = ["nav", chapter]
+        path = tmp_path / "b.epub"
+        epub.write_epub(str(path), book)
+        return path
+
+    def test_an_epub3_cover_is_found(self, tmp_path):
+        from bookbinder.ingest import from_epub
+
+        found = from_epub(self._book(tmp_path, name="art.png"), True, True)
+        assert found.cover is not None
+        assert found.cover[0] == self.PNG and found.cover[1] == ".png"
+
+    def test_an_epub2_cover_is_found(self, tmp_path):
+        # Named `art.png` on purpose, so only the declaration can find it. The
+        # first version of this test let the filename fallback answer, and the
+        # EPUB 2 lookup underneath it was reading the wrong element the whole
+        # time: ebooklib files that meta under the OPF namespace as `meta`.
+        from bookbinder.ingest import from_epub
+
+        found = from_epub(self._book(tmp_path, declare="epub2", name="art.png"),
+                          True, True)
+        assert found.cover is not None and found.cover[0] == self.PNG
+
+    def test_an_undeclared_cover_is_found_by_name(self, tmp_path):
+        # A great many EPUBs declare nothing and simply call it cover.png.
+        from bookbinder.ingest import from_epub
+
+        found = from_epub(self._book(tmp_path, declare="none"), True, True)
+        assert found.cover is not None and found.cover[0] == self.PNG
+
+    def test_an_image_that_is_not_a_cover_is_left_alone(self, tmp_path):
+        from bookbinder.ingest import from_epub
+
+        found = from_epub(self._book(tmp_path, declare="none",
+                                     name="illustration.png"), True, True)
+        assert found.cover is None
+
+    def test_it_lands_beside_the_text(self, tmp_path, monkeypatch):
+        from bookbinder.ingest import import_book
+
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(tmp_path))
+        result = import_book(tmp_path, self._book(tmp_path), slug="solaris",
+                             language="pl")
+        assert result.written, result.reasons
+        cover = tmp_path / "data" / "book" / "solaris" / "cover.png"
+        assert cover.is_file() and cover.read_bytes() == self.PNG
+        assert result.cover.endswith("cover.png")
+
+    def test_a_book_without_one_is_not_a_problem(self, tmp_path, monkeypatch):
+        from bookbinder.ingest import import_book
+
+        monkeypatch.setenv("AUDIOBOOK_FACTORY_ROOT", str(tmp_path))
+        source = tmp_path / "plain.txt"
+        source.write_text(
+            "# Rozdział\n\n" + "Ocean falował pod stacją nieprzerwanie. " * 30,
+            encoding="utf-8")
+        result = import_book(tmp_path, source, slug="plain", language="pl")
+        assert result.written and result.cover == ""
+        assert not list((tmp_path / "data" / "book" / "plain").glob("cover.*"))
