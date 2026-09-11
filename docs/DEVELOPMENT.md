@@ -192,6 +192,18 @@ transcriber are roughly 4 GB each, and those jobs delete the image's unused
 toolchains before syncing to make room. `bookbinder` needs none of that and
 also installs ffmpeg, since its assembly tests shell out to it for real.
 
+**`studio` is the exception to one environment per runner.** Its catalog tests
+prepare a real run and execute real stages against it, and a run executes each
+stage in the environment that owns it. Chunking, dry runs and assembly all live
+in bookbinder, so that environment is synced on studio's runner too, along with
+ffmpeg and `just`. Without them the stages fail on a missing interpreter and a
+missing recipe, and every test that drives one fails with them.
+
+That is worth knowing because it is invisible locally: `just check` passes on a
+machine where all four environments are already set up, so this class of
+breakage only ever shows in CI. Check it after pushing anything that runs a
+stage from another environment.
+
 `locks` gates the matrix, so a stale lock fails in seconds rather than after
 ten minutes of installing torch. uv's cache is keyed per environment on its own
 `uv.lock`.

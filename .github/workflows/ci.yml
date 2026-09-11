@@ -63,11 +63,18 @@ jobs:
                       /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
           df -h /
 
+      # Studio needs it too: its catalog tests run real pipeline stages, and
+      # a dry run makes its silence with ffmpeg.
       - name: Install ffmpeg
-        if: matrix.env == 'bookbinder'
+        if: matrix.env == 'bookbinder' || matrix.env == 'studio'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ffmpeg
+
+      # The job runner starts every stage through a `just` recipe, so the one
+      # test that drives a real job needs it on PATH.
+      - uses: extractions/setup-just@v3
+        if: matrix.env == 'studio' 
 
       - uses: astral-sh/setup-uv@v7
         with:
@@ -76,6 +83,17 @@ jobs:
 
       - name: Sync ${{ matrix.env }}
         working-directory: apps/${{ matrix.env }}
+        run: uv sync --frozen
+
+      # A run materialises its own data root and executes the real stages
+      # against it, each in the environment that owns it. Studio's catalog
+      # tests exercise chunk, dry run and assembly, which all live in
+      # bookbinder, so that environment has to exist for them to run at all.
+      # Without it every one of them fails on a missing interpreter, which is
+      # what kept CI red while `just check` passed locally.
+      - name: Sync bookbinder, which studio's tests execute
+        if: matrix.env == 'studio'
+        working-directory: apps/bookbinder
         run: uv sync --frozen
 
       # Each environment is type-checked against its own dependencies. That is
