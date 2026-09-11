@@ -26,8 +26,32 @@ def database_path(root: Path) -> Path:
     return root / "data" / "audiobook.db"
 
 
-def wal_safe(version: tuple[int, ...]) -> bool:
-    return version >= (3, 51, 3) or (3, 50, 7) <= version < (3, 51, 0) or (3, 44, 6) <= version < (3, 45, 0)
+# SQLite carries a documented WAL-reset race that a concurrent writer and
+# checkpointer can hit; the fix landed in 3.51.3 and was backported to 3.44.6
+# and 3.50.7. See https://www.sqlite.org/wal.html#walresetbug
+def wal_fix_present(version: tuple[int, ...]) -> bool:
+    return (version >= (3, 51, 3)
+            or (3, 50, 7) <= version < (3, 51, 0)
+            or (3, 44, 6) <= version < (3, 45, 0))
+
+
+def journal_warning(version: tuple[int, ...]) -> str:
+    """What to tell someone whose SQLite predates the WAL-reset fix.
+
+    This reports rather than decides. Dropping to rollback journaling to dodge
+    the race costs the property the queue is built on: under DELETE a reader
+    holds a lock the writer waits behind, so opening a page queues up behind a
+    claim and a claim queues behind a page. Trading a rare race for constant
+    contention is the worse deal on a single-user machine, and doing it
+    silently is worse still. WAL stays; the runtime gets named.
+    """
+    if wal_fix_present(version):
+        return ""
+    return (f"SQLite {'.'.join(str(n) for n in version)} predates the WAL-reset "
+            f"fix (3.44.6, 3.50.7 or 3.51.3). The catalog still uses WAL, which "
+            f"is what the queue needs. Update the Python that Studio loads if "
+            f"you run several writers at once; `just catalog-check` reports the "
+            f"version actually in use.")
 
 
 class Database:
@@ -42,11 +66,6 @@ class Database:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
             if version > VERSION:
                 raise StorageError(f"database version {version} is newer than supported {VERSION}")
-            if version and not wal_safe(sqlite3.sqlite_version_info) and conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal":
-                try:
-                    conn.execute("PRAGMA journal_mode=DELETE")
-                except sqlite3.OperationalError as exc:
-                    raise StorageError("close other database users before switching this SQLite runtime to safe rollback journaling") from exc
             if version == 0:
                 # Schema and version commit together, including concurrent first opens.
                 conn.execute("BEGIN IMMEDIATE")
@@ -64,11 +83,13 @@ class Database:
                                      "BEGIN SELECT RAISE(ABORT, 'versioned records are immutable'); END")
                     conn.execute(f"PRAGMA user_version={VERSION}")
                 conn.commit()
-        # Journal mode is configured once for a new database, not on page reads.
-        if version == 0:
-            with self.connect() as conn:
-                mode = "WAL" if wal_safe(sqlite3.sqlite_version_info) else "DELETE"
-                conn.execute(f"PRAGMA journal_mode={mode}")
+        # Reconciled on open rather than only at creation, so a database left
+        # in another mode by an older build is corrected rather than carried
+        # forward silently. Reading the current mode is cheap; the write only
+        # happens when it actually differs.
+        with self.connect() as conn:
+            if conn.execute("PRAGMA journal_mode").fetchone()[0] != "wal":
+                conn.execute("PRAGMA journal_mode=WAL")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -101,6 +122,8 @@ class Database:
                     "journal_mode": conn.execute("PRAGMA journal_mode").fetchone()[0],
                     "schema_version": conn.execute("PRAGMA user_version").fetchone()[0],
                     "integrity": integrity, "foreign_key_errors": foreign,
+                    "wal_fix_present": wal_fix_present(sqlite3.sqlite_version_info),
+                    "warning": journal_warning(sqlite3.sqlite_version_info),
                     "ok": integrity == ["ok"] and not foreign}
 
 

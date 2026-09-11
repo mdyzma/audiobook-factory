@@ -11,7 +11,13 @@ from pathlib import Path
 import pytest
 
 from studio.catalog import Catalog, encode, inside
-from studio.database import Database, StorageError, migrate_queue, wal_safe
+from studio.database import (
+    Database,
+    StorageError,
+    journal_warning,
+    migrate_queue,
+    wal_fix_present,
+)
 from studio.imports import import_sources, import_folder
 from studio.queue import Queue, SCHEMA as LEGACY_SCHEMA
 from studio.runs import execute_stage, prepare_run
@@ -45,7 +51,13 @@ def imported(root: Path, text: str = "Zażółć gęślą jaźń. Ocean falował
 def test_schema_constraints_and_runtime_mode(project):
     db = Database(project)
     assert db.check()["ok"]
-    assert db.check()["journal_mode"] == ("wal" if wal_safe(sqlite3.sqlite_version_info) else "delete")
+    # WAL unconditionally: the queue is built on readers not blocking the
+    # writer, and rollback journaling trades a rare race for constant
+    # contention. An unfixed runtime is named, not worked around.
+    report = db.check()
+    assert report["journal_mode"] == "wal"
+    assert report["wal_fix_present"] == wal_fix_present(sqlite3.sqlite_version_info)
+    assert bool(report["warning"]) is not report["wal_fix_present"]
     with db.write() as conn, pytest.raises(sqlite3.IntegrityError):
         conn.execute("INSERT INTO book_revisions VALUES ('bad','missing',NULL,'fp','','','now')")
     assert Database(project).check()["schema_version"] == 1
@@ -409,4 +421,18 @@ def test_backup_restore_through_symlinked_parent(library, tmp_path):
     assert backup(library, link / "backup")["ok"]
     assert restore(link / "backup", link / "restored")["ok"]
     assert len(Catalog(actual / "restored").books()) == 1
+
+
+class TestTheJournalIsReconciledOnOpen:
+    def test_a_database_left_in_rollback_mode_is_corrected(self, library):
+        import sqlite3 as sqlite
+
+        db = Database(library)
+        with db.connect() as conn:
+            conn.execute("PRAGMA journal_mode=DELETE")
+        raw = sqlite.connect(db.path)
+        assert raw.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+        raw.close()
+
+        assert Database(library).check()["journal_mode"] == "wal"
 
