@@ -516,3 +516,58 @@ class TestTheDrainSwitch:
 
         monkeypatch.setenv(NO_DRAIN, value)
         assert not draining()
+
+
+class TestSayingAWordDifferently:
+    """The dashboard half of the pronunciation dictionary.
+
+    The manual is written for somebody who does not use a terminal, so a fix
+    that requires editing YAML by hand is not a fix they have.
+    """
+
+    def test_a_book_starts_with_nothing(self, client):
+        out = client.get("/api/books/solaris/pronunciation").json()
+        assert out["entries"] == {} and out["total"] == 0
+
+    def test_previewing_shows_the_passage_both_ways(self, client, project):
+        out = client.post("/api/books/solaris/pronunciation/preview",
+                          json={"entries": {"Ocean": "O-ce-an"}}).json()
+        assert out["counts"]["Ocean"] == 1
+        first = out["occurrences"][0]
+        assert "Ocean" in first["source"] and "O-ce-an" in first["spoken"]
+
+    def test_previewing_saves_nothing(self, client, project):
+        client.post("/api/books/solaris/pronunciation/preview",
+                    json={"entries": {"Ocean": "O-ce-an"}})
+        assert not (project / "data/book/solaris/pronunciation.yml").exists()
+
+    def test_saving_writes_the_file(self, client, project):
+        out = client.post("/api/books/solaris/pronunciation",
+                          json={"entries": {"Ocean": "O-ce-an"}})
+        assert out.status_code == 200
+        assert (project / "data/book/solaris/pronunciation.yml").is_file()
+        assert client.get("/api/books/solaris/pronunciation").json()["entries"] == \
+            {"Ocean": "O-ce-an"}
+
+    def test_a_rule_that_would_do_nothing_is_refused(self, client):
+        r = client.post("/api/books/solaris/pronunciation",
+                        json={"entries": {"Ocean": "Ocean"}})
+        assert r.status_code == 400 and "change nothing" in r.json()["detail"]
+
+    def test_a_rule_matching_nothing_is_saved_but_called_out(self, client):
+        # It may be a name that only appears later, so this is a warning
+        # rather than a refusal.
+        out = client.post("/api/books/solaris/pronunciation",
+                          json={"entries": {"Snaut": "Snałt"}}).json()
+        assert out["unused"] == ["Snaut"]
+
+    def test_the_payload_has_to_be_a_dictionary(self, client):
+        r = client.post("/api/books/solaris/pronunciation", json={"entries": "no"})
+        assert r.status_code == 400
+
+    def test_an_unsafe_book_name_is_refused(self, client):
+        assert client.get("/api/books/..%2Fetc/pronunciation").status_code in (400, 404)
+
+    def test_the_editor_is_on_the_book_page(self, client):
+        assert "How this book says" in client.get("/book/solaris").text
+

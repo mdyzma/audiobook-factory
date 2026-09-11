@@ -561,6 +561,67 @@ def api_queue_book(slug: str, what: str):
     return {"slug": name, "changed": _queued(calls[what], name)}
 
 
+# --- how a book says a word --------------------------------------------------
+
+def _pronounce(fn, *args, **kwargs):
+    from bookbinder.pronounce import DictionaryError
+
+    try:
+        return fn(*args, **kwargs)
+    except DictionaryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+def _preview_payload(found) -> dict:
+    return {
+        "entries": found.entries,
+        "counts": found.counts,
+        "unused": found.unused,
+        "total": found.total,
+        "occurrences": [vars(o) for o in found.occurrences],
+    }
+
+
+@app.get("/api/books/{slug}/pronunciation")
+def api_get_pronunciation(slug: str):
+    """The book's dictionary, and what it currently changes."""
+    from bookbinder.pronounce import preview
+
+    name = safe(slug)
+    return _preview_payload(_pronounce(preview, root(), name))
+
+
+@app.post("/api/books/{slug}/pronunciation/preview")
+def api_preview_pronunciation(slug: str, payload: dict = Body(...)):
+    """What a proposed dictionary would do, without saving anything.
+
+    Free, because the substitution is pure text. This is what makes deciding
+    whether a fix is worth re-chunking a book cost nothing.
+    """
+    from bookbinder.pronounce import preview
+
+    entries = payload.get("entries")
+    if not isinstance(entries, dict):
+        raise HTTPException(status_code=400, detail="expected {'entries': {...}}")
+    return _preview_payload(
+        _pronounce(preview, root(), safe(slug), {str(k): str(v) for k, v in entries.items()}))
+
+
+@app.post("/api/books/{slug}/pronunciation")
+def api_save_pronunciation(slug: str, payload: dict = Body(...)):
+    """Replace the dictionary. Takes effect when the book is split again."""
+    from bookbinder.pronounce import preview, save
+
+    entries = payload.get("entries")
+    if not isinstance(entries, dict):
+        raise HTTPException(status_code=400, detail="expected {'entries': {...}}")
+    name = safe(slug)
+    clean = {str(k): str(v) for k, v in entries.items()}
+    path = _pronounce(save, root(), name, clean)
+    return {"path": str(path.relative_to(root())),
+            **_preview_payload(_pronounce(preview, root(), name, clean))}
+
+
 @app.post("/api/upload/{kind}")
 async def api_upload(kind: str, file: UploadFile = File(...)):
     if kind not in ("voice", "book"):

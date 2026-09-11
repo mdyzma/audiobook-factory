@@ -305,6 +305,12 @@ exactly `http://127.0.0.1:8765`.
 before it starts, and refuses rather than filling the disk in the middle of the
 night. Free some space and try again; nothing already made is lost.
 
+**A name is read wrongly.** Open the book's page and find **How this book says
+a word**. Type the name as it is written, then how it should sound, and press
+**Check it**. It shows you every place in the book that would change, without
+changing anything. If it looks right, press **Save**, then make the chapters
+again and re-do the reading.
+
 **The cover picture is missing or wrong.** If the book was an `.epub` its own
 cover is used. To change it, or to add one to a plain text book, put a picture
 named `cover.jpg` or `cover.png` in the book's folder under `data/book/`, then

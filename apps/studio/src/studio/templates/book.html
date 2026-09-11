@@ -168,6 +168,31 @@
 </div>
 {% endif %}
 
+<h2>How this book says a word</h2>
+<div class="card">
+  <p class="meta" style="margin:0 0 .8rem">
+    A name the model reads wrongly is fixed here once. Checking costs nothing:
+    it shows every passage a rule would change before anything is saved.
+  </p>
+  <table id="say-table">
+    <tr><th>written</th><th>spoken</th><th>in the book</th><th></th></tr>
+  </table>
+  <div class="actions" style="margin-top:.8rem">
+    <input id="say-written" type="text" placeholder="as it is written"
+           style="font:inherit; font-size:.85rem; padding:.35rem .5rem;
+                  border:1px solid var(--line); border-radius:6px;
+                  background:var(--panel); color:var(--ink)">
+    <input id="say-spoken" type="text" placeholder="as it should sound"
+           style="font:inherit; font-size:.85rem; padding:.35rem .5rem;
+                  border:1px solid var(--line); border-radius:6px;
+                  background:var(--panel); color:var(--ink)">
+    <button onclick="sayAdd(this)">Check it</button>
+    <button onclick="sayApply(this)">Save</button>
+  </div>
+  <div id="say-note" class="note"></div>
+  <div id="say-preview"></div>
+</div>
+
 {% if book.qa %}
 <h2>Quality check</h2>
 <div class="card">
@@ -249,4 +274,101 @@ async function setRole(slug, sourceRef, role, el) {
   </table>
 </section>
 {% endif %}
+<script>
+// The dictionary as it stands, plus anything typed but not yet saved. Kept
+// here so "Check it" can show what a rule would do without writing it down.
+let sayEntries = {};
+
+function sayRender(preview) {
+  const table = document.getElementById('say-table');
+  table.innerHTML = '<tr><th>written</th><th>spoken</th><th>in the book</th><th></th></tr>';
+  const counts = preview.counts || {};
+  for (const [written, spoken] of Object.entries(sayEntries)) {
+    const row = table.insertRow();
+    row.insertCell().textContent = written;
+    row.insertCell().textContent = spoken;
+    const n = counts[written];
+    row.insertCell().textContent =
+      n === undefined ? '—' : (n ? n + ' place(s)' : 'nothing matches');
+    const cell = row.insertCell();
+    const drop = document.createElement('button');
+    drop.textContent = 'Remove';
+    drop.className = 'danger';
+    drop.onclick = () => { delete sayEntries[written]; sayCheck(); };
+    cell.appendChild(drop);
+  }
+
+  const out = document.getElementById('say-preview');
+  out.innerHTML = '';
+  for (const o of (preview.occurrences || [])) {
+    const box = document.createElement('div');
+    box.className = 'meta';
+    box.style.marginTop = '.6rem';
+    box.innerHTML = '<strong>' + o.chapter + '</strong>' +
+      '<div>was: ' + o.source + '</div><div>now: ' + o.spoken + '</div>';
+    out.appendChild(box);
+  }
+  if (preview.total) {
+    const tail = document.createElement('p');
+    tail.className = 'meta';
+    tail.textContent = preview.total + ' change(s). Save, then split the book ' +
+      'again for them to take effect.';
+    out.appendChild(tail);
+  }
+}
+
+async function sayLoad() {
+  try {
+    const preview = await (await api('/api/books/{{ book.slug }}/pronunciation')).json();
+    sayEntries = Object.assign({}, preview.entries);
+    sayRender(preview);
+  } catch (e) {}
+}
+
+async function sayCheck(button) {
+  const note = document.getElementById('say-note');
+  note.textContent = '';
+  if (button) button.disabled = true;
+  try {
+    const preview = await (await api(
+      '/api/books/{{ book.slug }}/pronunciation/preview', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({entries: sayEntries}),
+      })).json();
+    sayRender(preview);
+  } catch (e) { note.textContent = e.message; }
+  if (button) button.disabled = false;
+}
+
+function sayAdd(button) {
+  const written = document.getElementById('say-written').value.trim();
+  const spoken = document.getElementById('say-spoken').value.trim();
+  const note = document.getElementById('say-note');
+  if (!written || !spoken) { note.textContent = 'Both boxes, please.'; return; }
+  sayEntries[written] = spoken;
+  document.getElementById('say-written').value = '';
+  document.getElementById('say-spoken').value = '';
+  sayCheck(button);
+}
+
+async function sayApply(button) {
+  const note = document.getElementById('say-note');
+  note.textContent = '';
+  button.disabled = true;
+  try {
+    const preview = await (await api('/api/books/{{ book.slug }}/pronunciation', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({entries: sayEntries}),
+    })).json();
+    sayRender(preview);
+    note.textContent = 'Saved. Split the book again for it to take effect.';
+  } catch (e) { note.textContent = e.message; }
+  button.disabled = false;
+}
+
+sayLoad();
+</script>
+
 {% endblock %}

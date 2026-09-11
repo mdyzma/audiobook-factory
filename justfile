@@ -221,6 +221,12 @@ dryrun slug strict="":
 assemble slug format="":
     cd apps/studio && uv run python -m studio.catalog_cli process {{quote(slug)}} assemble --fmt {{quote(format)}}
 
+# How this book says a word. With no arguments, show the dictionary and what it
+# changes. With a word and its spoken form, add it. With a word alone, remove it.
+pronounce slug written="" spoken="":
+    cd apps/bookbinder && uv run python -m bookbinder.pronounce {{quote(slug)}} \
+      {{quote(written)}} {{quote(spoken)}}
+
 # Measure a voice's audition and record the level correction in its profile.
 # Re-levelling a voice makes audio already rendered with it out of date.
 level voice gain="":
