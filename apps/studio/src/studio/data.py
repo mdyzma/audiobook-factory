@@ -304,21 +304,69 @@ def imported_meta(book_dir: Path) -> "BookMeta | None":
         # The chapters themselves are not carried: this stands in for a book
         # that has no fragments yet, and claiming chapter counts from a
         # different file would be inventing a shape that is not there.
-        return BookMeta.model_validate(dict(meta) | {"chapters": []})
+        metadata = dict(meta) | {"chapters": []}
+        if not metadata.get("language") and metadata.get("needs_review"):
+            metadata["language"] = "und"
+        return BookMeta.model_validate(metadata)
     except Exception:
         # Same reasoning as `_load`: a half-written file greys out one card
         # rather than taking the dashboard down.
         return None
 
 
-def get_book(root: Path, slug: str) -> BookView | None:
+def artifact_root(root: Path, slug: str) -> Path:
+    """Selected narration of the current text, with legacy files as fallback."""
+    from studio.database import database_path
+    if database_path(root).is_file():
+        from studio.catalog import Catalog
+        rows = Catalog(root).rows(
+            "SELECT r.root_key FROM audiobook_runs r JOIN books b ON b.id=r.book_id "
+            "WHERE b.slug=? AND r.text_version_id=b.current_text_id ORDER BY r.created_at DESC LIMIT 1", (slug,))
+        if rows:
+            candidate = contained(root, root / rows[0]["root_key"])
+            if (candidate / "data/book" / slug / "book.json").is_file():
+                return candidate
+    return root
+
+
+def catalog_meta(root: Path, slug: str, selected_root: Path) -> BookMeta | None:
+    from studio.database import database_path
+    if not database_path(root).is_file():
+        return None
+    from studio.catalog import Catalog
+    catalog = Catalog(root)
+    books = catalog.rows("SELECT * FROM books WHERE slug=?", (slug,))
+    if not books:
+        return None
+    book = books[0]
+    plan_id = book["current_plan_id"]
+    if selected_root != root:
+        runs = catalog.rows("SELECT plan_id FROM audiobook_runs WHERE root_key=?", (selected_root.relative_to(root).as_posix(),))
+        if runs:
+            plan_id = runs[0]["plan_id"]
+    if plan_id:
+        return BookMeta.model_validate_json(catalog.one("SELECT meta_json FROM chunk_plans WHERE id=?", (plan_id,))["meta_json"])
+    raw = json.loads(catalog.one("SELECT snapshot_json FROM text_versions WHERE id=?", (book["current_text_id"],))["snapshot_json"])["meta"]
+    raw = dict(raw) | {"chapters": [], "chunk_count": 0}
+    if not raw.get("language") and raw.get("needs_review"):
+        raw["language"] = "und"
+    return BookMeta.model_validate(raw)
+
+
+def get_book(root: Path, slug: str, *, include_qa: bool = True) -> BookView | None:
     check_name(slug)
+    selected = artifact_root(root, slug)
+    saved_meta = catalog_meta(root, slug, selected)
+    root = selected
     book_dir = root / "data" / "book" / slug
-    if not book_dir.is_dir():
+    if not book_dir.is_dir() and saved_meta is None:
         return None
 
-    meta = _load(book_dir / "book.json", BookMeta) or imported_meta(book_dir)
+    meta = saved_meta or (None if (book_dir / ".needs-chunking").exists() else _load(book_dir / "book.json", BookMeta)) or imported_meta(book_dir)
     audio_dir = root / "data" / "audio" / slug
+    needs_chunking = (book_dir / ".needs-chunking").exists()
+    if needs_chunking:
+        audio_dir = book_dir / ".no-current-audio"
     view = BookView(
         slug=slug,
         title=meta.title if meta else slug,
@@ -331,8 +379,8 @@ def get_book(root: Path, slug: str) -> BookView | None:
         meta=meta,
         report=_load(audio_dir / "report.json", RenderReport),
         progress=_load(audio_dir / "progress.json", RenderProgress),
-        qa=_load(audio_dir / "qa_report.json", QaReport),
-        outputs=find_outputs(root, slug),
+        qa=_load(audio_dir / "qa_report.json", QaReport) if include_qa else None,
+        outputs=[] if needs_chunking else find_outputs(root, slug),
         dry_run_audio=is_dry_run_audio(audio_dir),
         rendered_fingerprint=rendered_fingerprint(audio_dir),
     )
@@ -340,13 +388,19 @@ def get_book(root: Path, slug: str) -> BookView | None:
 
 
 def list_books(root: Path) -> list[BookView]:
+    from studio.database import database_path
+    if database_path(root).is_file():
+        from studio.catalog import Catalog
+        catalogued = Catalog(root).books()
+        if catalogued:
+            return [view for row in catalogued if (view := get_book(root, row["slug"], include_qa=False)) is not None]
     books_root = root / "data" / "book"
     if not books_root.is_dir():
         return []
     views = []
     for d in sorted(books_root.iterdir()):
         if d.is_dir() and SAFE_NAME.match(d.name):
-            view = get_book(root, d.name)
+            view = get_book(root, d.name, include_qa=False)
             if view:
                 views.append(view)
     return views
@@ -361,6 +415,7 @@ def load_chunks(root: Path, slug: str, limit: int = 0) -> list[Chunk]:
     filled in, so use it once a render has produced one.
     """
     check_name(slug)
+    root = artifact_root(root, slug)
     rendered = root / "data" / "audio" / slug / "rendered.jsonl"
     path = rendered if rendered.exists() else root / "data" / "book" / slug / "chunks.jsonl"
     if not path.exists():
@@ -377,6 +432,7 @@ def rendered_audio(root: Path, slug: str, chunk_id: str) -> Path | None:
     """The wav for one fragment, if it has been rendered."""
     check_name(slug)
     check_name(chunk_id)
+    root = artifact_root(root, slug)
     path = root / "data" / "audio" / slug / f"{chunk_id}.wav"
     if not path.is_file() or not _inside(root, path):
         return None
@@ -385,6 +441,7 @@ def rendered_audio(root: Path, slug: str, chunk_id: str) -> Path | None:
 
 def output_file(root: Path, slug: str, filename: str) -> Path | None:
     check_name(slug)
+    root = artifact_root(root, slug)
     if Path(filename).name != filename or Path(filename).suffix not in AUDIO_SUFFIXES:
         raise UnsafeName(f"unsafe output name: {filename!r}")
     path = root / "data" / "out" / filename

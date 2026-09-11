@@ -1,6 +1,11 @@
 # Runbook
 
-Everyday tasks, in the order you actually hit them. Every block below is real
+For the current versioned library, migrate once with `just catalog-migrate`
+while Studio/workers are stopped. New outputs live inside their own run folders;
+use the dashboard’s history downloads. Backup and recovery are documented in
+[STORAGE-OPERATIONS.md](STORAGE-OPERATIONS.md).
+
+Everyday tasks, in the order you actually hit them. The historical transcripts below are real
 output from a real run on an M1, not an illustration.
 
 There are no screenshots: this is a command-line tool, so the terminal

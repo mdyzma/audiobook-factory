@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from studio.jobs import GPU_ACTIONS, ORPHANED, JobError, JobRunner, ResourceBusy
-from studio.queue import RUNNING, Item, Queue, QueueError
+from studio.queue import CLAIMED, RUNNING, Item, Queue, QueueError
 
 # How long between ticks when nothing happened. Short enough that finishing one
 # fragment-render and starting the next feels immediate, long enough that an
@@ -77,14 +77,50 @@ class Worker:
     def settle(self) -> int:
         """Match running queue entries to what their jobs actually did."""
         settled = 0
+        for item in self.queue.items(status=CLAIMED):
+            if item.run_id and self._settle_attempt(item):
+                settled += 1
         for item in self.queue.items(status=RUNNING):
             if self._settle_one(item):
                 settled += 1
         return settled
 
+    def _settle_attempt(self, item: Item) -> bool:
+        from studio.catalog import Catalog
+        from studio.jobs import _alive
+        catalog = Catalog(self.root)
+        attempts = catalog.rows("SELECT * FROM job_attempts WHERE queue_id=? ORDER BY started_at DESC LIMIT 1", (item.id,))
+        if not attempts:
+            return False
+        attempt = attempts[0]
+        if attempt["status"] in ("done", "failed", "interrupted", "cancelled"):
+            self._try(self.queue.finish, item.id, attempt["status"] == "done", attempt["error"])
+            return True
+        job = self.runner.store.load(attempt["job_id"]) if attempt["job_id"] else None
+        if job and job.running or attempt["pid"] and _alive(attempt["pid"]):
+            if item.status == CLAIMED:
+                self._try(self.queue.start, item.id, attempt["job_id"] or attempt["id"])
+            return False
+        if attempt["status"] == "running" and attempt["pid"]:
+            reason = "the stage process disappeared; retry to resume its completed fragments"
+            with catalog.db.write() as conn:
+                conn.execute("UPDATE job_attempts SET status='interrupted',error=? WHERE id=?", (reason, attempt["id"]))
+                conn.execute("UPDATE audiobook_runs SET status='failed',error=? WHERE id=?", (reason, item.run_id))
+            self._try(self.queue.finish, item.id, False, reason)
+            return True
+        return False
+
     def _settle_one(self, item: Item) -> bool:
+        if item.run_id and self._settle_attempt(item):
+            return True
         job = self.runner.store.load(item.job_id) if item.job_id else None
         if job is None:
+            if item.run_id:
+                from studio.catalog import Catalog
+                from studio.jobs import _alive
+                active = Catalog(self.root).rows("SELECT pid FROM job_attempts WHERE queue_id=? AND status='running'", (item.id,))
+                if any(row["pid"] and _alive(row["pid"]) for row in active):
+                    return False
             # The record was pruned, or never written. Nothing observed the
             # work, so the honest thing is to offer it again rather than to
             # call it done or failed on no evidence.
@@ -106,7 +142,7 @@ class Worker:
                                            f"the job {job.status}"))
         return True
 
-    def _try(self, call, *args) -> None:
+    def _try(self, call, *args, **kwargs) -> None:
         """Queue transitions race with a person clicking in the dashboard.
 
         Someone cancelling a book between this worker reading an item and
@@ -114,7 +150,7 @@ class Worker:
         decision simply wins.
         """
         try:
-            call(*args)
+            call(*args, **kwargs)
         except QueueError:
             pass
 
@@ -125,27 +161,46 @@ class Worker:
         anything was held back for the device."""
         busy = self.runner.device_busy()
         skip = tuple(sorted(GPU_ACTIONS)) if busy else ()
-        item = self.queue.claim(self.name, skip_actions=skip)
+        import uuid
+        item = self.queue.claim(f"{self.name}:{uuid.uuid4().hex}", skip_actions=skip)
         if item is None:
             return "", bool(busy)
 
         args = dict(item.args)
         args.setdefault("slug", item.slug)
         try:
-            job = self.runner.start(item.action, args)
+            if item.run_id:
+                from studio.catalog import Catalog, identity
+                from studio.database import now
+                attempt = identity()
+                with Catalog(self.root).db.write() as conn:
+                    conn.execute("INSERT INTO job_attempts(id,run_id,queue_id,stage,job_id,status,started_at) "
+                                 "VALUES (?,?,?,?,?,?,?)",
+                                 (attempt, item.run_id, item.id, item.action, attempt, "launching", now()))
+                job = self.runner.start(item.action, args, run_id=item.run_id, attempt_id=attempt)
+            else:
+                job = self.runner.start(item.action, args)
         except ResourceBusy as exc:
             # Something else has the book, the voice or the device: a matter of
             # timing, not a fault. Put it back and let the next tick have it.
-            self._try(self.queue.release, item.id, str(exc))
+            self._try(self.queue.release, item.id, str(exc), claim=item.claim)
+            self._failed_launch(item, str(exc))
             return "", bool(busy)
         except JobError as exc:
             # A bad argument, or no room on the disk. This needs a person, and
             # the book stops here until one arrives.
-            self._try(self.queue.finish, item.id, False, str(exc))
+            self._try(self.queue.finish, item.id, False, str(exc), claim=item.claim)
+            self._failed_launch(item, str(exc))
             return "", bool(busy)
 
-        self._try(self.queue.start, item.id, job.id)
+        self._try(self.queue.start, item.id, job.id, claim=item.claim)
         return item.label, bool(busy)
+
+    def _failed_launch(self, item: Item, reason: str) -> None:
+        if item.run_id:
+            from studio.catalog import Catalog
+            with Catalog(self.root).db.write() as conn:
+                conn.execute("UPDATE job_attempts SET status='not_started',error=? WHERE queue_id=? AND status='launching'", (reason, item.id))
 
     def tick(self) -> Tick:
         settled = self.settle()

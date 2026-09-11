@@ -236,4 +236,17 @@ async function setRole(slug, sourceRef, role, el) {
 }
 </script>
 
+{% if history %}
+<section class="card">
+  <h2>Audiobook versions</h2>
+  <p>Earlier narrations stay available when you change the text, model, or voice.</p>
+  <table>
+    <thead><tr><th>Created</th><th>Model</th><th>Voices</th><th>Status</th><th>Download</th></tr></thead>
+    <tbody>{% for run in history %}
+      <tr><td>{{ run.created_at[:19] }}</td><td>{{ run.model }}</td><td>{{ run.voices }}</td><td>{{ run.status }}</td>
+        <td>{% for output in run.exports %}<a href="/api/catalog/exports/{{ output.id }}">{{ output.format|upper }}</a> {% endfor %}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+</section>
+{% endif %}
 {% endblock %}

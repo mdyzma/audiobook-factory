@@ -184,9 +184,11 @@ Use **mp3** if you want a single file that plays anywhere.
 The finished audiobook appears in the **Audiobook** section of the book's page,
 with a play button.
 
-The file itself is in the project folder under `data/out/`, named after the
-label you chose, for example `data/out/solaris.m4b`. Copy it to your phone or
-into your music app like any other audio file.
+Use the download links in the book’s narration history to keep any finished
+version. Each narration has its own folder under `data/runs/`, so a new voice
+or model does not overwrite a previous audiobook. Older files under `data/out/`
+remain available as historical versions. Copy the download to your phone or
+music app like any other audio file.
 
 ---
 
@@ -366,3 +368,21 @@ committing to a whole book.
 
 **m4b** — an audiobook file that remembers chapters. **mp3** plays anywhere but
 has less reliable chapter support.
+
+
+## Keeping your library safe
+
+The library now saves books, text and language decisions, voices, narration
+settings and progress in a local SQLite database. Original imported files and
+voice references are preserved as separate files alongside it.
+
+The Batch page keeps recent import results. If a file needs attention, choose
+its correct language or text encoding and import it again. Earlier text versions
+remain recorded. Polish and English can have different default models; each
+narration remembers the model chosen when it was prepared.
+
+Before updating an existing installation, stop the control panel and run
+`just catalog-migrate` once. For a backup, use
+`just catalog-backup /path/to/a/new-backup-folder`. Copy that backup to another
+drive for protection against disk failure. Detailed recovery instructions are in
+[STORAGE-OPERATIONS.md](STORAGE-OPERATIONS.md).

@@ -135,6 +135,7 @@ label voice device="auto" language="pl":
 clone voice device="auto":
     cd apps/narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.clone {{quote(voice)}} \
       --device {{quote(device)}}
+    cd apps/studio && uv run python -m studio.catalog_cli voice {{quote(voice)}}
 
 # Optional full fine-tune, CUDA only. batch x accum is the effective batch size.
 train voice language="pl" epochs="10" batch="3" accum="84":
@@ -164,19 +165,15 @@ scan folder recursive="":
 # language cannot be settled pauses on its own and the rest carry on; `language`
 # and `encoding` apply to the whole pass, for a folder you already know about.
 import-folder folder language="" encoding="" recursive="":
-    cd apps/bookbinder && uv run python -m bookbinder.library \
-      {{quote(absolute_path(folder))}} --import \
-      {{quote("--language=" + language)}} {{quote("--encoding=" + encoding)}} \
+    cd apps/studio && uv run python -m studio.catalog_cli import-folder \
+      {{quote(absolute_path(folder))}} --language {{quote(language)}} --encoding {{quote(encoding)}} \
       {{ if recursive != "" { "--recursive" } else { "" } }}
 
 # 2. Parse an ebook into normalised chapters.
 ingest source slug="" language="" title="" author="" encoding="":
-    # absolute_path so this works from anywhere and with absolute inputs; the
-    # recipe cds into bookbinder, which would otherwise break a relative path.
-    cd apps/bookbinder && uv run python -m bookbinder.ingest {{quote(absolute_path(source))}} \
-      --slug {{quote(slug)}} --language {{quote(language)}} \
-      --title {{quote(title)}} --author {{quote(author)}} \
-      --encoding {{quote(encoding)}}
+    cd apps/studio && uv run python -m studio.catalog_cli import-file {{quote(absolute_path(source))}} \
+      --slug {{quote(slug)}} --language {{quote(language)}} --title {{quote(title)}} \
+      --author {{quote(author)}} --encoding {{quote(encoding)}}
 
 # What ingestion would decide about a file, and on what evidence, without
 # writing anything. Use it when a book stops for review.
@@ -186,7 +183,7 @@ inspect source encoding="":
 
 # 3. Split chapters into fragments, assigning a cast role to each.
 chunk slug voice="" model="":
-    cd apps/bookbinder && uv run python -m bookbinder.chunk {{quote(slug)}} \
+    cd apps/studio && uv run python -m studio.catalog_cli process {{quote(slug)}} chunk \
       --voice {{quote(voice)}} --model {{quote(model)}}
 
 # The synthesis backends this project knows about, and which one narrates each
@@ -196,37 +193,30 @@ models:
 
 # As above but narrate everything in one voice, ignoring config/cast.yml.
 chunk-single slug voice:
-    cd apps/bookbinder && uv run python -m bookbinder.chunk {{quote(slug)}} \
-      --voice {{quote(voice)}} --single-voice
+    cd apps/studio && uv run python -m studio.catalog_cli process {{quote(slug)}} chunk --voice {{quote(voice)}} --single-voice
 
 # ------------------------------------------------ stages 4-5: the audio ----
 
 # 4. Render every fragment. Resumable: re-run to continue after a crash.
 synth slug voice device="auto":
-    just preflight {{quote(slug)}} synth
-    cd apps/narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.synth {{quote(slug)}} \
+    cd apps/studio && uv run python -m studio.catalog_cli process {{quote(slug)}} synth \
       --voice {{quote(voice)}} --device {{quote(device)}}
 
 # Re-render named fragments, e.g. after a quality check flagged them.
 resynth slug chunks:
-    cd apps/narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.synth {{quote(slug)}} \
-      --voice "" --only {{quote(chunks)}}
+    cd apps/studio && uv run python -m studio.catalog_cli process {{quote(slug)}} synth --only {{quote(chunks)}}
 
 # Render the first 20 fragments only, to sanity-check the voice.
 preview slug voice:
-    cd apps/narrator && COQUI_TOS_AGREED=1 uv run python -m narrator.synth {{quote(slug)}} \
-      --voice {{quote(voice)}} --limit 20
+    cd apps/studio && uv run python -m studio.catalog_cli process {{quote(slug)}} synth --voice {{quote(voice)}} --limit 20
 
 # Render to silence at the right durations: structure without models.
 dryrun slug strict="":
-    cd apps/bookbinder && uv run python -m bookbinder.dryrun {{quote(slug)}} \
-      {{ if strict != "" { "--strict" } else { "" } }}
+    cd apps/studio && uv run python -m studio.catalog_cli process {{quote(slug)}} dryrun {{ if strict != "" { "--strict" } else { "" } }}
 
-# 5. Mux fragments, pauses and chapter marks into the finished audiobook.
+# 5. Assemble the selected audiobook run.
 assemble slug format="":
-    just preflight {{quote(slug)}} assemble {{quote(format)}}
-    cd apps/bookbinder && uv run python -m bookbinder.assemble {{quote(slug)}} \
-      --fmt {{quote(format)}}
+    cd apps/studio && uv run python -m studio.catalog_cli process {{quote(slug)}} assemble --fmt {{quote(format)}}
 
 # Is there room for this? Runs on its own, and ahead of synth and assemble.
 preflight slug stage="synth" format="":
@@ -235,26 +225,17 @@ preflight slug stage="synth" format="":
 
 # 6. Optional: re-transcribe the rendered audio and compare it to the source.
 verify slug sample="0":
-    cd apps/transcriber && uv run python -m transcriber.verify {{quote(slug)}} \
-      {{ if sample != "0" { "--sample " + quote(sample) } else { "" } }}
+    cd apps/studio && uv run python -m studio.catalog_cli process {{quote(slug)}} verify --sample {{quote(sample)}}
 
 # Live progress of a running render. Safe to run from another terminal.
 progress slug:
-    cd apps/bookbinder && uv run python -m bookbinder.progress {{quote(slug)}}
+    cd apps/studio && uv run python -m studio.catalog_cli progress {{quote(slug)}}
 
-# Follow a render until it finishes.
 watch slug interval="5":
-    #!/usr/bin/env bash
-    while true; do
-        clear
-        just progress {{quote(slug)}} || break
-        grep -q '"running": false' {{quote("data/audio/" + slug + "/progress.json")}} && break
-        sleep {{quote(interval)}}
-    done
+    cd apps/studio && uv run python -m studio.catalog_cli progress {{quote(slug)}} --watch --interval {{quote(interval)}}
 
-# Show the report from the last finished render.
 report slug:
-    @cat {{quote("data/audio/" + slug + "/report.json")}}
+    cd apps/studio && uv run python -m studio.catalog_cli progress {{quote(slug)}} --report
 
 # ----------------------------------------------------------- full runs ----
 
@@ -367,3 +348,31 @@ docker-ui:
 
 docker-down:
     docker compose --profile cpu --profile gpu down
+
+# Versioned library and execution records.
+catalog-migrate:
+    cd apps/studio && uv run python -m studio.catalog_cli migrate
+
+catalog-reconcile:
+    cd apps/studio && uv run python -m studio.catalog_cli reconcile
+
+catalog-check:
+    cd apps/studio && uv run python -m studio.catalog_cli check
+
+catalog-books:
+    cd apps/studio && uv run python -m studio.catalog_cli books
+
+catalog-runs slug="":
+    cd apps/studio && uv run python -m studio.catalog_cli runs --slug {{quote(slug)}}
+
+catalog-prepare slug voice="" model="":
+    cd apps/studio && uv run python -m studio.catalog_cli prepare {{quote(slug)}} --voice {{quote(voice)}} --model {{quote(model)}}
+
+catalog-stage run action format="":
+    cd apps/studio && uv run python -m studio.catalog_cli stage {{quote(run)}} {{quote(action)}} --fmt {{quote(format)}}
+
+catalog-backup destination:
+    cd apps/studio && uv run python -m studio.catalog_cli backup {{quote(absolute_path(destination))}}
+
+catalog-restore source destination:
+    cd apps/studio && uv run python -m studio.catalog_cli restore {{quote(absolute_path(source))}} {{quote(absolute_path(destination))}}

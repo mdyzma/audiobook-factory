@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import json
+import shutil
+from pathlib import Path
 
 import pytest
 
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
+    (tmp_path / "config").mkdir()
+    shutil.copy2(Path(__file__).resolve().parents[3] / "config/models.toml", tmp_path / "config/models.toml")
     (tmp_path / "data" / "voices" / "michal").mkdir(parents=True)
     (tmp_path / "data" / "datasets" / "michal").mkdir(parents=True)
     (tmp_path / "data" / "book" / "solaris").mkdir(parents=True)

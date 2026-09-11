@@ -194,5 +194,6 @@ if [[ $VERIFY -eq 1 && $DRY_RUN -eq 0 ]]; then
     just verify "$SLUG" || true
 fi
 
-cp "data/out/$SLUG.$FORMAT" "$OUT_FILE"
+RESULT=$(cd apps/studio && uv run python -m studio.catalog_cli output "$SLUG" --fmt "$FORMAT")
+cp "$RESULT" "$OUT_FILE"
 printf '\n\033[1mDone.\033[0m %s\n' "$OUT_FILE"

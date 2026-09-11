@@ -328,7 +328,7 @@ class JobStore:
             return None
         job_id = path.read_text(encoding="utf-8").strip()
         job = self.load(job_id) if job_id else None
-        if job and job.running:
+        if job and (job.running or (job.status == "reserved" and _alive(job.pid))):
             return job_id
         # Stale lock: the holder is gone.
         path.unlink(missing_ok=True)
@@ -490,19 +490,27 @@ class JobRunner:
         except NotEnoughSpace as exc:
             raise JobError(str(exc)) from exc
 
-    def start(self, action: str, args: dict[str, str]) -> Job:
+    def start(self, action: str, args: dict[str, str], *, run_id: str = "", attempt_id: str = "") -> Job:
         spec = ACTIONS[action] if action in ACTIONS else None
         clean = self.validate(action, args)
         assert spec is not None
-        self.check_space(action, clean)
+        if not run_id:
+            self.check_space(action, clean)
 
         job = Job(
-            id=uuid.uuid4().hex[:12],
+            id=attempt_id or uuid.uuid4().hex[:12],
             action=action,
             args=clean,
             started_at=_now(),
             command=["just", spec["recipe"], *[clean[a] for a in spec["args"]]],
         )
+        if run_id:
+            from studio.catalog import Catalog
+            run = Catalog(self.root).run(run_id)
+            if run["slug"] != clean.get("slug"):
+                raise JobError("the audiobook run belongs to a different book")
+            checkout = Path(__file__).resolve().parents[4]
+            job.command = ["just", "--justfile", str(checkout / "justfile"), "catalog-stage", run_id, action, clean.get("format", "")]
 
         # No two jobs on one book, whether or not either takes the render lock.
         # Chunking during a render rewrites the manifest under it, assembling
@@ -520,6 +528,9 @@ class JobRunner:
         # lock when the second is refused, or a book stays locked by a job that
         # never started.
         taken: list[str] = []
+        if run_id:
+            job.status, job.pid = "reserved", os.getpid()
+            self.store.save(job)
         try:
             if spec["locks"]:
                 # Most actions lock the book they render; creating a voice locks
@@ -532,6 +543,9 @@ class JobRunner:
         except JobError:
             for name in taken:
                 self.store.release_lock(name, job.id)
+            if run_id:
+                job.status = "failed"
+                self.store.save(job)
             raise
         job.locks_held = taken
 
@@ -556,13 +570,14 @@ class JobRunner:
                     # Its own process group, so closing the browser, or this
                     # server exiting, does not take a twelve-hour render with it.
                     start_new_session=True,
-                    env=_child_env(),
+                    env=_child_env() | {"AUDIOBOOK_FACTORY_ROOT": str(self.root), "AF_ATTEMPT_ID": job.id},
                 )
         except OSError as exc:
             self.store.release(job)
             raise JobError(f"could not start: {exc}") from exc
 
         job.pid = process.pid
+        job.status = "running"
         self.store.save(job)
         return job
 
@@ -578,6 +593,13 @@ class JobRunner:
             os.killpg(os.getpgid(job.pid), signal.SIGTERM)
         except (ProcessLookupError, PermissionError):
             pass
+        if (self.root / "data/audiobook.db").exists():
+            from studio.catalog import Catalog
+            with Catalog(self.root).db.write() as conn:
+                conn.execute("UPDATE audiobook_runs SET status='cancelled',updated_at=? WHERE id IN "
+                             "(SELECT run_id FROM job_attempts WHERE job_id=? OR id=?)", (_now(), job.id, job.id))
+                conn.execute("UPDATE job_attempts SET status='cancelled',error='cancelled by user',finished_at=? "
+                             "WHERE (job_id=? OR id=?) AND status IN ('running','launching')", (_now(), job.id, job.id))
         job.status = "cancelled"
         job.finished_at = _now()
         self.store.save(job)

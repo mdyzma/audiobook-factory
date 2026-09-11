@@ -13,6 +13,8 @@ import asyncio
 import contextlib
 import os
 from pathlib import Path
+import json
+from dataclasses import asdict
 
 from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
@@ -129,8 +131,20 @@ def book_page(request: Request, slug: str):
     if book is None:
         raise HTTPException(status_code=404, detail=f"no book '{slug}'")
     jobs = [j for j in runner().jobs() if j.slug == slug]
+    from studio.catalog import Catalog
+    from studio.database import database_path
+    history = []
+    if database_path(root()).exists():
+        catalog = Catalog(root())
+        for run in catalog.runs(slug):
+            settings = json.loads(run["snapshot_json"])
+            history.append({"id": run["id"], "status": run["status"], "created_at": run["created_at"],
+                            "model": settings["model"].get("id") or "Unknown model",
+                            "voices": ", ".join(sorted(set(settings["cast"].values()))),
+                            "exports": catalog.rows("SELECT id,format FROM exports WHERE run_id=? ORDER BY created_at", (run["id"],))})
     return TEMPLATES.TemplateResponse(request, "book.html", {
         "book": book,
+        "history": history,
         "overrides": authoring.get_roles(root(), slug),
         "roles": sorted({*book.cast, *authoring.read_cast(root())}),
         "jobs": jobs[:10],
@@ -383,9 +397,14 @@ def _queued(fn, *args, **kwargs):
 @app.get("/batch", response_class=HTMLResponse)
 def batch_page(request: Request):
     """Review a batch before committing a day of the machine to it."""
+    from studio.catalog import Catalog
+    recent_imports = Catalog(root()).rows("SELECT source_path,status,details_json FROM import_items ORDER BY rowid DESC LIMIT 50")
+    for item in recent_imports:
+        item["details"] = json.loads(item["details_json"])
     queue = _queue()
     return TEMPLATES.TemplateResponse(request, "batch.html", {
         "rows": batching.review(root()),
+        "recent_imports": recent_imports,
         "items": queue.items(),
         "ready": {item.id for item in queue.ready()},
         "counts": queue.summary(),
@@ -396,6 +415,62 @@ def batch_page(request: Request):
         "steps": batching.STEPS,
         "default_steps": batching.DEFAULT_STEPS,
     })
+
+
+@app.get("/api/catalog/books")
+def api_catalog_books():
+    from studio.catalog import Catalog
+    return Catalog(root()).books()
+
+
+@app.get("/api/catalog/imports")
+def api_catalog_imports():
+    from studio.catalog import Catalog
+    return Catalog(root()).rows("SELECT * FROM import_items ORDER BY rowid DESC")
+
+
+@app.get("/api/catalog/runs")
+def api_catalog_runs(slug: str = ""):
+    from studio.catalog import Catalog
+    return Catalog(root()).runs(slug)
+
+
+@app.post("/api/catalog/runs")
+def api_catalog_prepare(payload: dict = Body(...)):
+    from studio.runs import prepare_run
+    try:
+        return prepare_run(root(), safe(str(payload.get("slug") or "")),
+                           voice=str(payload.get("voice") or ""), model=str(payload.get("model") or ""),
+                           request_key=str(payload.get("request_key") or ""))
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/catalog/runs/{run_id}/queue")
+def api_catalog_queue(run_id: str, payload: dict = Body(default={})):
+    from studio.catalog import Catalog
+    try:
+        run = Catalog(root()).run(run_id)
+        steps = batching.chosen_steps(payload.get("steps") or ["synth", "assemble"])
+        if not run["plan_id"] and "chunk" not in steps:
+            steps.insert(0, "chunk")
+        items = Queue(root()).add_plan(run["slug"], [(stage, {"format": str(payload.get("format") or "")}
+                                      if stage == "assemble" else {}) for stage in steps], run_id=run_id)
+        return {"run_id": run_id, "items": [asdict(item) for item in items]}
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/catalog/exports/{export_id}")
+def api_catalog_export(export_id: str):
+    from studio.catalog import Catalog
+    try:
+        catalog = Catalog(root())
+        export = catalog.one("SELECT * FROM exports WHERE id=?", (export_id,))
+        path = catalog.asset_path(export["asset_id"])
+        return FileResponse(path, filename=f"audiobook.{export['format']}")
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/batch/books")
@@ -421,7 +496,7 @@ def api_batch_scan(payload: dict = Body(...)):
 @app.post("/api/batch/import")
 def api_batch_import(payload: dict = Body(...)):
     """Import a folder, with one language and encoding for the whole pass."""
-    from bookbinder.library import import_folder, import_report
+    from studio.imports import import_folder
 
     folder = Path(str(payload.get("folder") or "")).expanduser()
     try:
@@ -433,8 +508,7 @@ def api_batch_import(payload: dict = Body(...)):
         )
     except (NotADirectoryError, OSError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return {"text": import_report(result), "imported": len(result.imported),
-            "paused": len(result.paused)}
+    return result
 
 
 @app.post("/api/batch/queue")

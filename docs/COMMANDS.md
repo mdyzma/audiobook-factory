@@ -80,9 +80,9 @@ dashboard beside a `just drain`, so only one of them takes work.
 
 ## Queue
 
-The work waiting to happen, kept in `data/.studio/queue.db` so it survives the
+The work waiting to happen, kept in `data/audiobook.db` so it survives the
 browser closing and the server restarting. One entry is one stage of one book;
-stages of the same book run in order, and a step that is not `done` holds back
+stages of the same audiobook run execute in order, and a step that is not `done` holds back
 everything behind it.
 
 | Command | What it does |
@@ -136,3 +136,30 @@ with `nvidia-container-toolkit`, since macOS has no GPU passthrough.
 | `just docker-smoke [slug] [source]` | Ingest, chunk, silence and assemble entirely in containers. No GPU, no models. |
 | `just docker-ui` | The dashboard in a container on `127.0.0.1:8765`. Read-only there: `just` is absent, so the run buttons do nothing. |
 | `just docker-down` | Stops everything. |
+
+
+## Library catalog and independent narrations
+
+Run `just catalog-migrate` once for an existing library, with Studio and workers
+stopped. It preserves the old queue and registers existing files. Fresh libraries
+initialize automatically. See [STORAGE-OPERATIONS.md](STORAGE-OPERATIONS.md) for
+backup scope, recovery and the storage layout.
+
+| Command | What it does |
+|---|---|
+| `just catalog-migrate` | Migrates the legacy queue and registers books, voices and historical audio. |
+| `just catalog-reconcile` | Registers changes made through older file-based tools; safe to repeat. |
+| `just catalog-check` | Checks database integrity, foreign keys and runtime journal mode. |
+| `just catalog-books` | Lists catalog books and their current text/plan versions. |
+| `just catalog-runs <slug="">` | Lists historical and current audiobook runs. |
+| `just catalog-prepare <slug> <voice=""> <model="">` | Creates a new independent narration with frozen text, voice references, configuration and model selection; prints its run ID. |
+| `just catalog-stage <run> <action> <format="">` | Executes chunk, synth, dryrun, assemble or verify for that exact run. |
+| `just catalog-backup <destination>` | Makes a consistent database snapshot and copies/checks every registered asset into a new directory. |
+| `just catalog-restore <source> <destination>` | Restores into a new directory and reconstructs execution files; never overwrites an existing library. |
+
+The ordinary ingest/import-folder/chunk/synth/dryrun/assemble/verify recipes now
+use the catalog. `chunk` resolves the current language preset and reuses an
+identical prepared request. Subsequent stages resume the latest compatible run.
+Use `catalog-prepare` when you want another narration of the same text, or want
+to explicitly choose another installed model. A prepared run retains its choices
+when global settings or a voice's reference files change.

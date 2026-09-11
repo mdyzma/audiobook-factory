@@ -261,6 +261,14 @@ def queue_books(
             plan.append((step, args))
 
         if plan:
-            queue.add_plan(slug, plan, batch=batch)
+            from studio.runs import prepare_run
+            from studio.database import StorageError
+            try:
+                run = prepare_run(root, slug, voice=mine.get("voice", voice),
+                                  model=mine.get("model", ""), reuse=True)
+                queue.add_plan(slug, plan, batch=batch, run_id=run["id"])
+            except (StorageError, OSError) as exc:
+                result.skipped[slug] = str(exc)
+                continue
             result.queued.extend(f"{slug}/{step}" for step, _args in plan)
     return result

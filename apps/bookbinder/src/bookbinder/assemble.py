@@ -140,7 +140,7 @@ def stale_fragments(
             model=book.model.identity,
             voice=voice,
             voice_revision=revisions[voice],
-            settings=dict(book.model.settings),
+            settings=dict(book.model.settings) | book.cast_settings.get(current.get("role") or "narrator", {}),
         )
         if recorded != expected:
             stale.append(chunk["id"])

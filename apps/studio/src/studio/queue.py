@@ -11,9 +11,9 @@ it too. Splitting that into a read and a write loses the race, and writing a
 correct lock protocol around files is more machinery than a queue deserves.
 SQLite's write transaction already is one.
 
-**The database holds intent, not content.** Sources, manifests, fragments and
-audio all stay where they are. Delete this file and nothing rendered is lost;
-what is lost is the plan for what to render next.
+The queue shares data/audiobook.db with the versioned library catalog. Binary
+assets remain files; metadata and run history live in SQL. Back up the database
+and its referenced assets together; the catalog is not a disposable cache.
 
 **Steps, not books.** One item is one stage of one book. That is what lets a
 failed chapter split hold back only that book's synthesis, and what gives the
@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
+
+from studio.database import Database, database_path
 
 # Bumped when the table shape changes. Independent of the manifest schema
 # version: the queue is Studio's own bookkeeping and no other environment
@@ -109,13 +111,8 @@ class QueueError(RuntimeError):
 
 
 def queue_path(root: Path) -> Path:
-    """Beside the jobs and locks, not in a second directory of its own.
-
-    The workplan wrote this as `data/studio/queue.db`; `data/.studio/` is where
-    Studio's bookkeeping already lives, and two studio directories, one hidden
-    and one not, would be worse than the name.
-    """
-    return root / "data" / ".studio" / "queue.db"
+    """Queue and catalog share the application database."""
+    return database_path(root)
 
 
 def _now() -> str:
@@ -145,6 +142,7 @@ class Item:
     created_at: str = ""
     updated_at: str = ""
     note: str = ""
+    run_id: str = ""
 
     @property
     def open(self) -> bool:
@@ -171,7 +169,7 @@ def _item(row: sqlite3.Row) -> Item:
         position=row["position"], batch=row["batch"], status=row["status"],
         claim=row["claim"], claimed_at=row["claimed_at"], job_id=row["job_id"],
         attempts=row["attempts"], created_at=row["created_at"],
-        updated_at=row["updated_at"], note=row["note"],
+        updated_at=row["updated_at"], note=row["note"], run_id=row["run_id"] or "",
     )
 
 
@@ -202,7 +200,8 @@ class Queue:
         conn.execute(f"PRAGMA busy_timeout = {int(self.busy_timeout_ms)}")
         # Readers do not block the writer, so listing the queue never waits on
         # a claim, and the page stays responsive mid-batch.
-        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA synchronous = EXTRA")
         return conn
 
     @contextmanager
@@ -230,23 +229,7 @@ class Queue:
             conn.close()
 
     def _prepare(self) -> None:
-        """Create the tables once, and take no write lock afterwards.
-
-        Studio builds one of these per request, so this runs constantly. An
-        unconditional `INSERT OR IGNORE` would open a write transaction every
-        time and queue up behind whatever claim is in flight, which turns
-        opening a page into a wait on a lock it has no business wanting.
-        """
-        conn = self._connect()
-        try:
-            if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
-                            "AND name = 'items'").fetchone() is not None:
-                return
-            conn.executescript(SCHEMA)
-            conn.execute("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)",
-                         ("schema_version", str(SCHEMA_VERSION)))
-        finally:
-            conn.close()
+        Database(self.root)
 
     @property
     def schema_version(self) -> int:
@@ -279,7 +262,7 @@ class Queue:
         return self.require(item_id)
 
     def add_plan(self, slug: str, steps: list[tuple[str, dict[str, str]]],
-                 batch: str = "") -> list[Item]:
+                 batch: str = "", run_id: str = "") -> list[Item]:
         """Queue a whole book at once.
 
         In one transaction, so a batch review that queues twenty books either
@@ -289,6 +272,10 @@ class Queue:
         now = _now()
         ids: list[int] = []
         with self._write() as conn:
+            if run_id:
+                existing = conn.execute("SELECT * FROM items WHERE run_id=? ORDER BY position", (run_id,)).fetchall()
+                if existing:
+                    return [_item(row) for row in existing]
             row = conn.execute(
                 "SELECT COALESCE(MAX(position), -1) + 1 AS next FROM items "
                 "WHERE slug = ?", (slug,)).fetchone()
@@ -296,9 +283,9 @@ class Queue:
             for offset, (action, args) in enumerate(steps):
                 cursor = conn.execute(
                     "INSERT INTO items (slug, action, args, position, batch, "
-                    "status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "status, created_at, updated_at, run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (slug, action, json.dumps(args or {}, sort_keys=True),
-                     position + offset, batch, PENDING, now, now))
+                     position + offset, batch, PENDING, now, now, run_id or None))
                 ids.append(int(cursor.lastrowid or 0))
         return [self.require(i) for i in ids]
 
@@ -370,30 +357,30 @@ class Queue:
             (PENDING, now, "the worker that claimed this never started it",
              CLAIMED, cutoff))
 
-    def start(self, item_id: int, job_id: str) -> Item:
+    def start(self, item_id: int, job_id: str, claim: str = "") -> Item:
         """Record that the claimed item now has a process behind it."""
         with self._write() as conn:
             changed = conn.execute(
                 "UPDATE items SET status = ?, job_id = ?, updated_at = ? "
-                "WHERE id = ? AND status = ?",
-                (RUNNING, job_id, _now(), item_id, CLAIMED)).rowcount
+                "WHERE id = ? AND status = ? AND (? = '' OR claim = ?)",
+                (RUNNING, job_id, _now(), item_id, CLAIMED, claim, claim)).rowcount
         if not changed:
             raise QueueError(f"item {item_id} is not claimed, so it cannot start")
         return self.require(item_id)
 
-    def finish(self, item_id: int, ok: bool, note: str = "") -> Item:
+    def finish(self, item_id: int, ok: bool, note: str = "", claim: str = "") -> Item:
         """Settle an item its worker has seen through."""
         status = DONE if ok else FAILED
         with self._write() as conn:
             changed = conn.execute(
                 "UPDATE items SET status = ?, claim = '', claimed_at = '', "
-                "note = ?, updated_at = ? WHERE id = ? AND status IN (?, ?)",
-                (status, note, _now(), item_id, CLAIMED, RUNNING)).rowcount
+                "note = ?, updated_at = ? WHERE id = ? AND status IN (?, ?) AND (? = '' OR claim = ?)",
+                (status, note, _now(), item_id, CLAIMED, RUNNING, claim, claim)).rowcount
         if not changed:
             raise QueueError(f"item {item_id} is not running, so it cannot finish")
         return self.require(item_id)
 
-    def release(self, item_id: int, note: str = "") -> Item:
+    def release(self, item_id: int, note: str = "", claim: str = "") -> Item:
         """Put a claimed or running item back in the queue.
 
         For the case a clock cannot judge: the caller has looked at the job
@@ -403,8 +390,8 @@ class Queue:
         with self._write() as conn:
             changed = conn.execute(
                 "UPDATE items SET status = ?, claim = '', claimed_at = '', "
-                "job_id = '', note = ?, updated_at = ? WHERE id = ? AND status IN (?, ?)",
-                (PENDING, note, _now(), item_id, CLAIMED, RUNNING)).rowcount
+                "job_id = '', note = ?, updated_at = ? WHERE id = ? AND status IN (?, ?) AND (? = '' OR claim = ?)",
+                (PENDING, note, _now(), item_id, CLAIMED, RUNNING, claim, claim)).rowcount
         if not changed:
             raise QueueError(f"item {item_id} is not held by anyone")
         return self.require(item_id)

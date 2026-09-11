@@ -319,6 +319,26 @@ class TestRefusesStaleAudio:
         root, assemble, runner = self._build(tmp_path, monkeypatch)
         assert runner.invoke(assemble.app, ["b"]).exit_code == 0
 
+    def test_per_role_speed_matches_render_and_detects_changes(self, tmp_path, monkeypatch):
+        from bookbinder.fingerprint import fragment_fingerprint, voice_revision
+        root, assemble, runner = self._build(tmp_path, monkeypatch)
+        book_json = root / "data/book/b/book.json"
+        book = json.loads(book_json.read_text())
+        path, rows = TestAssembleEndToEnd._rendered(root)
+        roles = {row.get("role", "narrator") for row in rows}
+        book["cast_settings"] = {role: {"speed": 0.88} for role in roles}
+        book_json.write_text(json.dumps(book))
+        for row in rows:
+            row["fingerprint"] = fragment_fingerprint(
+                text=row["text"], language=row["language"], model="xtts-v2",
+                voice="v", voice_revision=voice_revision(root, "v"),
+                settings={"temperature": 0.7, "speed": 0.88})
+        TestAssembleEndToEnd._rewrite(path, rows)
+        assert runner.invoke(assemble.app, ["b"]).exit_code == 0
+        book["cast_settings"] = {role: {"speed": 0.95} for role in roles}
+        book_json.write_text(json.dumps(book))
+        assert runner.invoke(assemble.app, ["b"]).exit_code != 0
+
     def test_edited_text_blocks_export(self, tmp_path, monkeypatch):
         # A correction re-chunked without re-rendering: same ids, same files.
         root, assemble, runner = self._build(tmp_path, monkeypatch)

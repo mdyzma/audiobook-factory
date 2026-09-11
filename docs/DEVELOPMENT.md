@@ -384,3 +384,31 @@ to, and verifying reads audio mid-write. Wait for the running job or cancel it.
 - Audio is 24 kHz mono 16-bit PCM everywhere.
 - Commit messages stay brief, and carry no `Co-Authored-By` trailer.
 - `uv.lock` is committed. Regenerate it with `just relock`, never by hand.
+
+
+## Versioned storage
+
+Studio owns `data/audiobook.db` through `database.py`, `catalog.py` and the versioned
+SQL schema. The queue uses the same database. Sources and media are addressed by
+SHA-256 under `data/assets/`; binary audio is not stored in database columns.
+`runs.py` snapshots execution inputs under `data/runs/<id>/` and invokes the
+existing isolated environments against that root. Manifest schemas remain the
+boundary between environments. References to `data/audio/<slug>` in the stage
+examples above are relative to the selected run root when invoked via `just`.
+
+Do not delete the catalog as a cache. Immutable text/voice/model/plan records and
+run history are authoritative. Current authoring manifests are compatibility
+files; direct use of older module entry points requires `just catalog-reconcile`.
+Back up SQL and referenced assets together; see [STORAGE-OPERATIONS.md](STORAGE-OPERATIONS.md).
+
+Schema version 1 is created atomically and future versions are refused. Add
+ordered, transactional migrations when introducing later schema versions.
+Connections enforce foreign keys and short write transactions. The pinned
+Python runtime currently bundles SQLite 3.46.0, so this installation uses DELETE
+journaling with synchronous EXTRA. WAL is enabled only on versions containing
+the WAL-reset fix (3.51.3+, 3.50.7 backport or 3.44.6 backport). No ML dependency
+or interpreter pin changed for this feature.
+
+Storage tests exercise source bytes, language/model selection, revision isolation,
+concurrent submission, queue recovery, partial audio, backup tampering and
+restoration. They run without downloading or loading synthesis model weights.

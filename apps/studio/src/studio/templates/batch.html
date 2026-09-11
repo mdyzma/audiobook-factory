@@ -31,6 +31,18 @@
   <pre class="log" id="scan-out" hidden></pre>
 </div>
 
+{% if recent_imports %}
+<details class="card" style="margin-top:1rem">
+  <summary>Recent file imports</summary>
+  <p class="meta">Import results are saved even when a file could not be read. To correct an encoding or language decision, choose it above and import the folder again.</p>
+  {% for item in recent_imports %}
+  <p><strong>{{ item.status }}</strong> · {{ item.source_path }}
+    {% if item.details.reasons %}<br><span class="meta">{{ item.details.reasons | join('; ') }}</span>{% endif %}
+  </p>
+  {% endfor %}
+</details>
+{% endif %}
+
 <h2>Books here</h2>
 {% if not rows %}
   <div class="empty">Nothing imported yet.</div>

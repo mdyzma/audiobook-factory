@@ -53,6 +53,10 @@ def write_book(root, slug, **fields):
 
 @pytest.fixture
 def two_books(project):
+    # A chosen voice is now snapshotted, so it must exist in the library.
+    profile = json.loads((project / "data/voices/michal.json").read_text())
+    profile["name"] = "ala"
+    (project / "data/voices/ala.json").write_text(json.dumps(profile))
     write_book(project, "eden")
     write_book(project, "solaris")
     return project
