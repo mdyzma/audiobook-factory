@@ -12,7 +12,16 @@ from pathlib import Path
 from bookbinder.models import RegistryError, load_registry
 from bookbinder.manifest import publish_text
 
-from studio.catalog import Catalog, digest, encode, identity, inside, read_json, read_lines
+from studio.catalog import (
+    Catalog,
+    digest,
+    encode,
+    identity,
+    inside,
+    place,
+    read_json,
+    read_lines,
+)
 from studio.database import StorageError, now
 
 STAGES = ("chunk", "synth", "dryrun", "assemble", "verify")
@@ -110,7 +119,7 @@ def prepare_run(root: Path, slug: str, *, voice: str = "", model: str = "",
         if revision["source_asset_id"] and meta.get("source_file"):
             destination = inside(staged, meta["source_file"])
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(catalog.asset_path(revision["source_asset_id"]), destination)
+            place(catalog.asset_path(revision["source_asset_id"]), destination)
         for name, revision_id in revisions.items():
             revision = catalog.one("SELECT profile_json FROM voice_revisions WHERE id=?", (revision_id,))
             profile_path = staged / "data/voices" / f"{name}.json"
@@ -120,7 +129,7 @@ def prepare_run(root: Path, slug: str, *, voice: str = "", model: str = "",
                 if ref["asset_id"]:
                     target = inside(staged, ref["path"])
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(catalog.asset_path(ref["asset_id"]), target)
+                    place(catalog.asset_path(ref["asset_id"]), target)
         staged.rename(run_root)
         model_id = catalog.model(selected)
         stamp = now()

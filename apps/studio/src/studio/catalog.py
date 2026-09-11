@@ -33,6 +33,55 @@ def read_lines(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.is_file() else []
 
 
+def relink(source: Path, stored: Path) -> bool:
+    """Point `source` at the same bytes as `stored`, instead of a second copy.
+
+    A rendered fragment lands in the run's own data root and is then published
+    to the asset store, which left two identical files on disk for every
+    fragment ever produced. A twenty-hour book is several gigabytes of them,
+    and comparing two voices doubles that again, so the duplicate is not a
+    rounding error.
+
+    A hard link is the right tool because both live under `data/` on one
+    filesystem and the content is immutable by construction: the asset's name
+    is the hash of its bytes. Every stage that writes one of these names
+    publishes by renaming into place, which replaces the directory entry and
+    leaves the shared inode alone, so nothing can rewrite the stored copy
+    through the run's name.
+
+    Best effort by design. If the two are already the same file, or the link
+    cannot be made, the copy stays and nothing is lost but the space.
+    """
+    try:
+        if not source.is_file() or not stored.is_file():
+            return False
+        if source.samefile(stored):
+            return True
+        staged = source.with_name(f".{source.name}.link")
+        staged.unlink(missing_ok=True)
+        os.link(stored, staged)
+        staged.replace(source)
+        return True
+    except OSError:
+        return False
+
+
+def place(stored: Path, destination: Path) -> None:
+    """Put a stored asset where a stage expects to find it, without copying.
+
+    Preparing a run materialises the source text and every voice reference into
+    the run's own data root. Copying them means a second set of bytes per run,
+    which for a cast of several voices is most of the conditioning audio again
+    each time. The stored asset is immutable and the stages read these, so one
+    inode under two names is the whole requirement.
+    """
+    destination.unlink(missing_ok=True)
+    try:
+        os.link(stored, destination)
+    except OSError:
+        shutil.copy2(stored, destination)
+
+
 def inside(root: Path, key: str) -> Path:
     path = (root / key).resolve()
     if not path.is_relative_to(root.resolve()):
@@ -81,8 +130,17 @@ class Catalog:
             raise StorageError("the requested library record does not exist")
         return rows[0]
 
-    def asset(self, source: Path) -> str:
-        """Hash the exact bytes copied, then publish once before registering."""
+    def asset(self, source: Path, collapse: bool = False) -> str:
+        """Hash the exact bytes copied, then publish once before registering.
+
+        `collapse` folds the source into the stored copy afterwards, leaving
+        one set of bytes under two names instead of two. Ask for it only where
+        the source is a run output this pipeline publishes by rename: a
+        rendered fragment or a finished export. A voice reference a person may
+        edit, or a book still sitting in someone's Downloads folder, must keep
+        its own bytes, or editing it would rewrite an asset whose name is the
+        hash of what it used to contain.
+        """
         store = self.root / "data/assets"
         store.mkdir(parents=True, exist_ok=True)
         fd, name = tempfile.mkstemp(dir=store, prefix=".incoming-")
@@ -103,12 +161,17 @@ class Catalog:
             existing = self.rows("SELECT * FROM assets WHERE id=?", (key,))
             if existing:
                 # Also heals a missing or externally damaged stored copy.
-                staged.replace(inside(self.root, existing[0]["storage_key"]))
+                destination = inside(self.root, existing[0]["storage_key"])
+                staged.replace(destination)
+                if collapse:
+                    self._collapse(source, destination)
                 return key
             destination = store / key[:2] / (key + suffix)
             destination.parent.mkdir(parents=True, exist_ok=True)
             # replace is safe here: every publisher of this name has identical bytes.
             staged.replace(destination)
+            if collapse:
+                self._collapse(source, destination)
             media: dict = {}
             if suffix == ".wav":
                 import wave
@@ -134,6 +197,19 @@ class Catalog:
             return key
         finally:
             staged.unlink(missing_ok=True)
+
+    def _collapse(self, source: Path, stored: Path) -> None:
+        """Fold a just-published file into the one copy the store now holds.
+
+        Only for sources already inside the library: an imported book still
+        sitting in someone's Downloads folder is theirs, and the catalog has no
+        business rewriting it into a link to its own store.
+        """
+        try:
+            source.resolve().relative_to(self.root)
+        except ValueError:
+            return
+        relink(source, stored)
 
     def asset_path(self, asset_id: str) -> Path:
         row = self.one("SELECT storage_key FROM assets WHERE id=?", (asset_id,))
@@ -366,7 +442,14 @@ class Catalog:
                     raise StorageError(f"rendered fragment {row['id']} does not match its approved inputs")
             stat = path.stat()
             seen = self._audio_seen.get((run_id, chunk["id"]))
-            asset_id = seen[2] if not refresh and seen and seen[:2] == (stat.st_mtime_ns, stat.st_size) else self.asset(path)
+            if not refresh and seen and seen[:2] == (stat.st_mtime_ns, stat.st_size):
+                asset_id = seen[2]
+            else:
+                # Fragments are the bulk of a library: a twenty-hour book is
+                # several gigabytes of them, and keeping a second copy per run
+                # doubles that for every voice compared.
+                asset_id = self.asset(path, collapse=True)
+                stat = path.stat()       # the link carries the asset's mtime
             self._audio_seen[run_id, chunk["id"]] = (stat.st_mtime_ns, stat.st_size, asset_id)
             fragments.append((run_id, chunk["id"], asset_id, row.get("fingerprint") or "",
                               float(row.get("duration_sec") or 0), encode(row)))
@@ -376,7 +459,8 @@ class Catalog:
                              "fragments": digest(sorted((f[1], f[2], f[3]) for f in fragments))}
         for path in (base / "data/out").glob(f"{run['slug']}.*"):
             if path.suffix in (".wav", ".mp3", ".m4b"):
-                exports.append((identity(), run_id, self.asset(path), path.suffix[1:], encode(assembly_metadata), now()))
+                exports.append((identity(), run_id, self.asset(path, collapse=True),
+                                path.suffix[1:], encode(assembly_metadata), now()))
         qa = read_json(audio / "qa_report.json")
         reports = {name: read_json(audio / name) for name in
                    ("report.json", "progress.json", ".dry-run.json", "qa_report.json") if (audio / name).is_file()}

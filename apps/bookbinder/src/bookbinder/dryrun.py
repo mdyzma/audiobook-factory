@@ -25,6 +25,7 @@ import typer
 from bookbinder.paths import project_root
 from bookbinder.cast import Cast
 from bookbinder.manifest import (
+    publish,
     RenderFailure,
     RenderProgress,
     RenderReport,
@@ -39,13 +40,26 @@ MIN_SILENCE_SEC = 0.2
 
 
 def write_silence(path: Path, seconds: float, sample_rate: int, channels: int) -> None:
-    subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-         "-f", "lavfi",
-         "-i", f"anullsrc=r={sample_rate}:cl={'mono' if channels == 1 else 'stereo'}",
-         "-t", f"{max(seconds, MIN_SILENCE_SEC):.3f}", "-c:a", "pcm_s16le", str(path)],
-        check=True,
-    )
+    """Published by rename, like every other file here.
+
+    ffmpeg's `-y` truncates the target before it writes, so an interrupted dry
+    run left a short wav under a name that says it is a whole fragment. It also
+    wrote through any hard link the catalog had made to its asset store, which
+    is how a file whose name is the hash of its contents stopped matching them.
+    """
+    def render(target: Path) -> None:
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-f", "lavfi",
+             "-i", f"anullsrc=r={sample_rate}:cl={'mono' if channels == 1 else 'stereo'}",
+             "-t", f"{max(seconds, MIN_SILENCE_SEC):.3f}", "-c:a", "pcm_s16le",
+             # Named, because publishing by rename hands ffmpeg a staged name
+             # ending in .part, and it picks the container from the extension.
+             "-f", "wav", str(target)],
+            check=True,
+        )
+
+    publish(path, render)
 
 
 @app.command()

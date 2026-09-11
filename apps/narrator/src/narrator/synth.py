@@ -406,7 +406,22 @@ def main(
         # Written at the engine's own rate. Assembly resamples once, explicitly,
         # at its own boundary; converting here would hide which rate the audio
         # was actually produced at.
-        sf.write(wav_path, wav, rate)
+        #
+        # Written beside the target and renamed in, like every other file this
+        # pipeline publishes. Two reasons. A run killed mid-write used to leave
+        # a truncated wav that the resume check had to detect by reading it
+        # back; now the name either does not exist or is whole. And a fragment
+        # the catalog has hard-linked into its asset store shares an inode with
+        # it, so writing through the name in place would rewrite the stored
+        # copy underneath. A rename replaces the directory entry and leaves the
+        # old inode alone.
+        staged = wav_path.with_name(f".{wav_path.name}.part")
+        try:
+            sf.write(staged, wav, rate)
+            staged.replace(wav_path)
+        except BaseException:
+            staged.unlink(missing_ok=True)
+            raise
         duration = len(wav) / rate
         rendered_rate = rate
         chunk["audio_path"] = str(wav_path.relative_to(root))

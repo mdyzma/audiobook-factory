@@ -423,6 +423,83 @@ def test_backup_restore_through_symlinked_parent(library, tmp_path):
     assert len(Catalog(actual / "restored").books()) == 1
 
 
+class TestOneCopyOfEveryFragment:
+    """A run's audio and the stored asset are one file under two names.
+
+    Copying meant a second set of bytes for every fragment ever rendered. A
+    twenty-hour book is several gigabytes of them, and comparing two voices for
+    the same book doubles it again, so this is most of the library's size.
+    """
+
+    def _rendered(self, library):
+        slug = imported(library)
+        run = prepare_run(library, slug, voice="michal")
+        assert execute_stage(library, run["id"], "chunk") == 0
+        assert execute_stage(library, run["id"], "dryrun") == 0
+        assert execute_stage(library, run["id"], "assemble", fmt="wav") == 0
+        return Catalog(library), run
+
+    def test_a_fragment_shares_its_inode_with_the_asset(self, library):
+        catalog, run = self._rendered(library)
+        row = catalog.one("SELECT * FROM render_fragments LIMIT 1")
+        stored = catalog.asset_path(row["asset_id"])
+        base = inside(library, catalog.run(run["id"])["root_key"])
+        fragment = next(iter(sorted(base.glob("data/audio/*/*.wav"))))
+        assert stored.stat().st_ino == fragment.stat().st_ino
+
+    def test_the_export_shares_its_inode_too(self, library):
+        catalog, run = self._rendered(library)
+        row = catalog.one("SELECT * FROM exports LIMIT 1")
+        stored = catalog.asset_path(row["asset_id"])
+        assert stored.stat().st_nlink > 1
+
+    def test_a_rendered_fragment_costs_its_bytes_once(self, library):
+        catalog, run = self._rendered(library)
+        base = inside(library, catalog.run(run["id"])["root_key"])
+        seen, bytes_on_disk = set(), 0
+        for path in sorted(base.glob("data/audio/*/*.wav")):
+            info = path.stat()
+            if info.st_ino not in seen:
+                seen.add(info.st_ino)
+                bytes_on_disk += info.st_size
+        stored = sum(p.stat().st_size for p in (library / "data/assets").rglob("*.wav")
+                     if p.stat().st_ino in seen)
+        assert stored == bytes_on_disk
+
+
+class TestWhatMustNotBeCollapsed:
+    """Linking is only safe where the writer publishes by rename.
+
+    A voice reference is a file a person may open and edit. Folding it into the
+    asset store means editing it rewrites a file whose name is the hash of what
+    it used to contain, and the catalog then disagrees with itself. This was
+    not hypothetical: the first attempt did exactly that.
+    """
+
+    def test_editing_a_voice_reference_leaves_the_asset_alone(self, library):
+        catalog = Catalog(library)
+        first = catalog.register_voice("michal")
+        path = library / "data/datasets/michal/wavs/seg_0000.wav"
+        original = path.read_bytes()
+
+        path.write_bytes(original + b"changed")
+
+        reference = catalog.one(
+            "SELECT * FROM voice_references WHERE revision_id=? AND kind='reference'",
+            (first,))
+        assert catalog.asset_path(reference["asset_id"]).read_bytes() == original
+
+    def test_the_imported_book_keeps_its_own_bytes(self, library):
+        # A book still in someone's Downloads folder is theirs; the catalog has
+        # no business rewriting it into a link to its own store.
+        catalog = Catalog(library)
+        source = library / "data/raw/books/probe.txt"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("Ocean falowal pod stacja." * 40, encoding="utf-8")
+        stored = catalog.asset_path(catalog.asset(source))
+        assert stored.stat().st_ino != source.stat().st_ino
+
+
 class TestTheJournalIsReconciledOnOpen:
     def test_a_database_left_in_rollback_mode_is_corrected(self, library):
         import sqlite3 as sqlite
