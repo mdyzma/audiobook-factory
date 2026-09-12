@@ -222,10 +222,35 @@ deliberately exceeds XTTS's 224-character Polish limit, and XTTS warned about
 truncation exactly as it should; that passage is where Chatterbox's assumed
 limit starts being measured.
 
-**Still to choose: the pinned settings per backend.** The harness takes them
-and records what it used, and the first run used the engine defaults because
-the registry pins none. Choosing them is a listening exercise with a bounded
-equal budget per backend, which is the rest of B-5.
+**Settings pinned per engine 2026-09-12, at their baselines rather than tuned.**
+Tuning needs listening; what could be settled without it was where each engine
+runs and whether that is written down.
+
+One `[synth]` block cannot serve two engines, and the numbers showed it:
+Chatterbox's `exaggeration`, `cfg_weight` and `min_p` have no counterpart in
+XTTS, so nothing ever set them and it would have run at whatever its library
+defaulted to, unrecorded. That is the single thing a comparison cannot rest on.
+The pins now live in the registry, per model, in each engine's own control
+names, and a pin naming a control the engine does not list is refused at load
+rather than sitting in the file looking effective.
+
+XTTS is pinned at what this project has been rendering with all along, which
+was duplicated between `[synth]` and hard-coded fallbacks in the adapter and
+written down nowhere. Those are not Coqui's own defaults, which are temperature
+0.75 and repetition penalty 10.0. Checked rather than assumed: the resolved
+settings are identical before and after, so no rendered book is invalidated by
+recording them.
+
+Chatterbox is pinned at its documented defaults, read from `generate` in 0.1.7.
+A baseline, not a choice, and the file says so.
+
+For a book, `[synth]` still wins over the pin where it names a control that
+engine implements, because that is the reader's own preference. For a benchmark
+it does not: a comparison left to `[synth]` would measure two engines at one
+engine's settings.
+
+**Still to choose: the tuned values,** with a bounded equal budget per backend.
+That is a listening exercise and the rest of B-5.
 
 **B-4 started 2026-09-12. What resolving it settled.**
 

@@ -31,11 +31,14 @@ REGISTRY = {
     "models": {
         "one": {"engine": "xtts", "environment": "narrator", "checkpoint": "c",
                 "narration_languages": ["pl", "en"], "reference_languages": ["pl"],
-                "controls": ["temperature"], "default_char_limit": 250,
-                "char_limits": {"pl": 224}},
+                "controls": ["temperature", "speed"], "default_char_limit": 250,
+                "char_limits": {"pl": 224},
+                "settings": {"temperature": 0.7, "speed": 1.0}},
         "two": {"engine": "chatterbox", "environment": "chatterbox", "checkpoint": "d",
                 "narration_languages": ["pl"], "reference_languages": ["pl"],
-                "controls": ["exaggeration"], "default_char_limit": 300},
+                "controls": ["exaggeration", "temperature"],
+                "default_char_limit": 300,
+                "settings": {"exaggeration": 0.5, "temperature": 0.8}},
         "english-only": {"engine": "qwen3-tts", "environment": "narrator", "checkpoint": "e",
                          "narration_languages": ["en"], "reference_languages": ["en"]},
     },
@@ -109,6 +112,54 @@ class TestWhoGetsRun:
             sorted(m.id for m in eligible(registry, "pl"))
 
 
+class TestEachEngineRunsAtItsOwnPin:
+    """One global settings block cannot serve two engines.
+
+    Their control names do not line up. Before the registry pinned them per
+    engine, Chatterbox's `exaggeration` and `cfg_weight` were never set at all
+    and it ran at whatever its library defaulted to, unrecorded, which is the
+    one thing a comparison cannot rest on.
+    """
+
+    def test_a_backend_runs_at_its_pin_by_default(self, registry):
+        assert choice_payload(registry.get("two"), "pl", {})["settings"] == \
+            {"exaggeration": 0.5, "temperature": 0.8}
+
+    def test_two_engines_get_different_pins(self, registry):
+        one = choice_payload(registry.get("one"), "pl", {})["settings"]
+        two = choice_payload(registry.get("two"), "pl", {})["settings"]
+        assert one != two
+        assert "exaggeration" in two and "exaggeration" not in one
+
+    def test_an_override_wins_over_the_pin(self, registry):
+        payload = choice_payload(registry.get("two"), "pl", {"temperature": 0.2})
+        assert payload["settings"]["temperature"] == 0.2
+
+    def test_an_override_does_not_wipe_the_rest_of_the_pin(self, registry):
+        payload = choice_payload(registry.get("two"), "pl", {"temperature": 0.2})
+        assert payload["settings"]["exaggeration"] == 0.5
+
+    def test_an_override_for_a_control_it_lacks_is_still_reported(self, registry):
+        payload = choice_payload(registry.get("two"), "pl", {"speed": 2.0})
+        assert "speed" not in payload["settings"]
+        assert payload["unsupported"] == ["speed"]
+
+    def test_a_pin_naming_an_unknown_control_is_refused(self):
+        # A typo that would otherwise sit in the file looking effective.
+        from bookbinder.models import RegistryError
+
+        broken = {
+            "defaults": {"pl": "one"},
+            "models": {"one": {
+                "engine": "xtts", "environment": "narrator", "checkpoint": "c",
+                "narration_languages": ["pl"], "reference_languages": ["pl"],
+                "controls": ["temperature"],
+                "settings": {"exaggeration": 0.5}}},
+        }
+        with pytest.raises(RegistryError, match="does not list under"):
+            Registry.from_dict(broken)
+
+
 class TestTheSettingsAreTheRegistrys:
     """A comparison run against settings no book would use measures nothing."""
 
@@ -118,19 +169,17 @@ class TestTheSettingsAreTheRegistrys:
 
     def test_a_control_the_model_has_is_passed(self, registry):
         payload = choice_payload(registry.get("one"), "pl", {"temperature": 0.8})
-        assert payload["settings"] == {"temperature": 0.8}
+        assert payload["settings"]["temperature"] == 0.8
 
     def test_a_control_it_lacks_is_named_rather_than_dropped(self, registry):
-        payload = choice_payload(registry.get("two"), "pl", {"temperature": 0.8})
-        assert payload["settings"] == {}
-        assert payload["unsupported"] == ["temperature"]
+        payload = choice_payload(registry.get("one"), "pl", {"exaggeration": 0.6})
+        assert "exaggeration" not in payload["settings"]
+        assert payload["unsupported"] == ["exaggeration"]
 
-    def test_two_engines_get_their_own_controls(self, registry):
+    def test_two_engines_take_their_own_half_of_one_override(self, registry):
         settings = {"temperature": 0.8, "exaggeration": 0.6}
-        assert choice_payload(registry.get("one"), "pl", settings)["settings"] == \
-            {"temperature": 0.8}
-        assert choice_payload(registry.get("two"), "pl", settings)["settings"] == \
-            {"exaggeration": 0.6}
+        assert choice_payload(registry.get("one"), "pl", settings)["settings"]["temperature"] == 0.8
+        assert choice_payload(registry.get("two"), "pl", settings)["settings"]["exaggeration"] == 0.6
 
 
 class TestAMissingEnvironment:

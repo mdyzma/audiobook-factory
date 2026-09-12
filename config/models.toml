@@ -53,6 +53,25 @@ validation = "baseline"
 # Source: Coqui TTS xtts.py char_limits.
 default_char_limit = 250
 
+# Where this backend is pinned. These are the values the project has been
+# rendering with all along, previously duplicated between `[synth]` in
+# pipeline.toml and hard-coded fallbacks in the XTTS adapter. Stated here so a
+# comparison rests on something written down, and so the two engines can be
+# pinned separately: their controls do not line up.
+#
+# Not Coqui's own signature defaults, which are temperature 0.75 and
+# repetition_penalty 10.0. The lower temperature reads more evenly for
+# audiobook narration and the lower repetition penalty stops it clipping
+# syllables; both predate this file and are kept unchanged so no rendered book
+# is invalidated by writing them down.
+[models.xtts-v2.settings]
+temperature = 0.70
+length_penalty = 1.0
+repetition_penalty = 2.0
+top_k = 50
+top_p = 0.85
+speed = 1.0
+
 [models.xtts-v2.char_limits]
 en = 250
 es = 239
@@ -105,3 +124,20 @@ validation = "unvalidated"
 # conservative working value until B-5 measures where it actually happens.
 # Treat it as an assumption, not a fact.
 default_char_limit = 300
+
+# Chatterbox's own documented defaults, read from `generate` in
+# chatterbox-tts 0.1.7 rather than copied from anywhere.
+#
+# Its baseline rather than a tuned setting: nothing has been listened to yet.
+# Three of these have no counterpart in XTTS and so were never set at all
+# before this block existed, which meant the engine ran at whatever its library
+# defaulted to, unrecorded. That is the specific thing a benchmark cannot rest
+# on. B-5 replaces these with tuned values once there is a comparison to tune
+# against, and the sheet records what changed and why.
+[models.chatterbox-multilingual.settings]
+exaggeration = 0.5
+cfg_weight = 0.5
+temperature = 0.8
+repetition_penalty = 2.0
+min_p = 0.05
+top_p = 1.0

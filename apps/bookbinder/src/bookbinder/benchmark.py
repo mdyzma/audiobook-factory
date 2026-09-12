@@ -85,7 +85,9 @@ def choice_payload(spec: ModelSpec, language: str, settings: dict) -> dict:
         "checkpoint": spec.checkpoint, "revision": spec.revision,
         "native_sample_rate": spec.native_sample_rate,
         "char_limit": spec.char_limit(language),
-        "settings": spec.supported_controls(settings),
+        # The engine's pin, and only then an explicit override. A benchmark
+        # left to `[synth]` would measure two engines at one engine's settings.
+        "settings": spec.pinned(settings),
         "unsupported": spec.unsupported_controls(settings),
     }
 

@@ -202,13 +202,19 @@ def main(
     # `retries` is how many times the pipeline re-rolls a rejected fragment,
     # not something the engine is asked to do, so it is not a control and its
     # absence from a backend is not worth reporting.
+    # The engine's pin first, then whatever `[synth]` says on top of it. The
+    # pin is per engine because control names differ between them; `[synth]` is
+    # the reader's own preference and still wins where it names a control this
+    # backend implements. For XTTS the two agree exactly, so books already
+    # rendered keep their fingerprints.
     configured = {k: float(v) for k, v in config.get("synth", {}).items()
                   if isinstance(v, (int, float)) and k != "retries"}
+    resolved = spec.pinned(configured)
     choice = ModelChoice(
         id=spec.id, engine=spec.engine, environment=spec.environment,
         checkpoint=spec.checkpoint, revision=spec.revision,
         native_sample_rate=spec.native_sample_rate, char_limit=limit,
-        settings=spec.supported_controls(configured),
+        settings=resolved,
         unsupported=spec.unsupported_controls(configured),
         source="override" if model else "default",
     )

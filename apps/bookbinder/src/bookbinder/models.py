@@ -57,6 +57,12 @@ class ModelSpec:
     revision: str = ""
     default_char_limit: int = 250
     char_limits: dict[str, int] = field(default_factory=dict)
+    # Where this backend is pinned, in its own control names. One global
+    # `[synth]` block cannot serve two engines: Chatterbox's `exaggeration` and
+    # `cfg_weight` have no counterpart in XTTS, so without this they were never
+    # set at all and the engine ran at whatever its library happened to
+    # default to, unrecorded. A comparison cannot rest on that.
+    settings: dict[str, float] = field(default_factory=dict)
 
     def narrates(self, language: str) -> bool:
         return language in self.narration_languages
@@ -86,6 +92,16 @@ class ModelSpec:
     def supported_controls(self, settings: dict) -> dict:
         """The subset of `settings` this backend actually implements."""
         return {k: v for k, v in settings.items() if k in self.controls}
+
+    def pinned(self, overrides: dict | None = None) -> dict:
+        """Where this backend runs: its pin, with any override on top.
+
+        The pin is the baseline a comparison rests on, so it is stated per
+        engine rather than inferred. An override still has to be a control this
+        backend implements; one that is not stays in `unsupported_controls`,
+        where it is reported rather than dropped.
+        """
+        return {**self.settings, **self.supported_controls(overrides or {})}
 
     def unsupported_controls(self, settings: dict) -> list[str]:
         """Settings this backend will ignore, so a caller can say so out loud."""
@@ -218,7 +234,25 @@ def _spec(model_id: str, entry: dict, source: str) -> ModelSpec:
         revision=str(entry.get("revision", "")),
         default_char_limit=int(entry.get("default_char_limit", 250)),
         char_limits={str(k): int(v) for k, v in (entry.get("char_limits") or {}).items()},
+        settings=_settings(model_id, entry, source),
     )
+
+
+def _settings(model_id: str, entry: dict, source: str) -> dict[str, float]:
+    """The pinned controls, checked against what the backend says it takes.
+
+    A pin naming a control the engine does not implement is a typo that would
+    otherwise sit there looking effective, so it is refused at load rather than
+    ignored at render.
+    """
+    pinned = entry.get("settings") or {}
+    controls = {str(x) for x in entry.get("controls") or ()}
+    unknown = sorted(k for k in pinned if k not in controls)
+    if unknown:
+        raise RegistryError(
+            f"{source}: model '{model_id}' pins {', '.join(unknown)}, which it does "
+            f"not list under `controls`. Add the control or remove the pin")
+    return {str(k): float(v) for k, v in pinned.items()}
 
 
 def load_registry(root: Path) -> Registry:
