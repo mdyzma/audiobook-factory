@@ -211,6 +211,18 @@ ten minutes of installing torch. uv's cache is keyed per environment on its own
 If you change a dependency, commit the regenerated lock in the same commit or
 CI will fail on the `locks` job.
 
+## Tagging
+
+A tag says a version is safe to start a twenty-hour render against, so it goes
+only on a commit where `just check` and CI are both green and where the
+pipeline has produced a real audiobook, not merely passed its tests. Annotated,
+never lightweight, so the reason survives in the object rather than only in
+`CHANGELOG.md`.
+
+Versions stay below 1.0 until the workplan's bar is met: narration evidence in
+both languages and at least one working alternative backend. A green suite and
+a model dropdown do not reach it.
+
 ## Working across two machines
 
 The stages are independent, so labelling and synthesis can run in different

@@ -528,7 +528,7 @@ Carried alongside the slices rather than sequenced.
 | AUTH-01, NET-01: session token, bind policy, Origin and Host checks | P1 while the dashboard stays on localhost. P0 the moment it is reachable from the LAN. CORS is not authentication. |
 | CI-01 | Extend the existing four-environment CI with the new fixtures and a manual real-model job. No observability platform. |
 | DX-04 debug bundle | Report decoding decisions, detector scores, engine and revision, voice cache identity, and failures. Exclude source text and voice audio by default. |
-| DX-06 tagging and changelog | Tag known-good versions once slice C lands, so a twenty-hour render can be pinned to one. |
+| DX-06 tagging and changelog | **Done 2026-09-12.** `v0.1.0`, with `CHANGELOG.md` and the convention in DEVELOPMENT.md. A tag goes only on a commit where `just check` and CI are green. Pre-1.0 until the completion bar below is met. |
 | TEST-02 contract tests | Follows B-1. Validate real engine writer output, encoding and language provenance, model selection, and sample-rate metadata across the environment boundary. |
 | SEC-03 dependency audit | Periodic and deliberate. Never relax the XTTS pins to clear a finding. |
 
