@@ -998,10 +998,7 @@ source = { editable = "." }
 dependencies = [
     { name = "librosa" },
     { name = "soundfile" },
-    { name = "torch" },
-    { name = "torchaudio" },
     { name = "tqdm" },
-    { name = "tts" },
     { name = "typer" },
 ]
 
@@ -1010,15 +1007,17 @@ dev = [
     { name = "pyright" },
     { name = "pytest" },
 ]
+xtts = [
+    { name = "torch" },
+    { name = "torchaudio" },
+    { name = "tts" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "librosa", specifier = ">=0.10.0" },
     { name = "soundfile", specifier = ">=0.12.1" },
-    { name = "torch", specifier = "==2.8.0" },
-    { name = "torchaudio", specifier = "==2.8.0" },
     { name = "tqdm", specifier = ">=4.66.0" },
-    { name = "tts", specifier = "==0.22.0" },
     { name = "typer", specifier = ">=0.12.0" },
 ]
 
@@ -1026,6 +1025,11 @@ requires-dist = [
 dev = [
     { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest", specifier = ">=9.1.1" },
+]
+xtts = [
+    { name = "torch", specifier = "==2.8.0" },
+    { name = "torchaudio", specifier = "==2.8.0" },
+    { name = "tts", specifier = "==0.22.0" },
 ]
 
 [[package]]

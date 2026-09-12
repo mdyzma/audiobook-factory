@@ -11,14 +11,11 @@ name = "narrator"
 version = "0.1.0"
 description = "XTTS-v2 voice cloning, fine-tuning and fragment synthesis"
 requires-python = ">=3.11,<3.12"
+# What stage 4 needs whatever engine is narrating: reading the manifest,
+# resuming, fingerprinting, progress, the report. Coqui and its torch pin are
+# not here, they are in the `xtts` group below. Nothing is relaxed by that; see
+# the group for why it is declared there instead.
 dependencies = [
-    "tts==0.22.0",
-    # torchaudio 2.9 dropped its native backends and routes audio loading through
-    # torchcodec, whose bundled library must find FFmpeg's shared objects at
-    # runtime. uv's standalone CPython has no Homebrew rpath, so that lookup fails
-    # on macOS. The 2.8 line still decodes via soundfile and needs no native shim.
-    "torch==2.8.0",
-    "torchaudio==2.8.0",
     "soundfile>=0.12.1",
     "librosa>=0.10.0",
     "typer>=0.12.0",
@@ -33,6 +30,11 @@ build-backend = "hatchling.build"
 packages = ["src/narrator"]
 
 [tool.uv]
+# The engine group is part of this environment, so `uv sync` here still
+# installs Coqui and its torch. It is a group only so that it does not follow
+# the package into another environment.
+default-groups = ["dev", "xtts"]
+
 # These are the pins that keep XTTS working. Each one is load-bearing:
 constraint-dependencies = [
     # numpy 2.x changed the API XTTS relies on; it fails at inference.
@@ -60,6 +62,23 @@ url = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
 [dependency-groups]
+# The XTTS engine itself. A group rather than a dependency because a second
+# backend lives in its own environment and runs stage 4 through this same
+# package: `apps/chatterbox` needs the orchestration and cannot have Coqui,
+# whose torch pin it contradicts. Groups are installed for this project and are
+# not propagated to anything depending on it, which is exactly that split.
+#
+# Nothing here is relaxed. `default-groups` below keeps this environment
+# resolving precisely as it did, and the lock is unchanged by the move.
+xtts = [
+    "tts==0.22.0",
+    # torchaudio 2.9 dropped its native backends and routes audio loading through
+    # torchcodec, whose bundled library must find FFmpeg's shared objects at
+    # runtime. uv's standalone CPython has no Homebrew rpath, so that lookup fails
+    # on macOS. The 2.8 line still decodes via soundfile and needs no native shim.
+    "torch==2.8.0",
+    "torchaudio==2.8.0",
+]
 dev = [
     "pyright>=1.1.411",
     "pytest>=9.1.1",
