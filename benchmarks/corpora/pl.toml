@@ -1,0 +1,83 @@
+# Polish benchmark corpus.
+#
+# The same passages go to every model that claims to narrate Polish, verbatim
+# and unchunked. That is the whole point: a comparison where each engine reads
+# slightly different text compares the text as much as the engines.
+#
+# Each passage names what it is there to expose. A model that reads narration
+# beautifully and mangles every number is not a model that reads well, and
+# without a category saying so the average hides it.
+#
+# Keep these stable. Changing a passage invalidates every result recorded
+# against it, so add rather than edit, and say why in the sheet.
+
+language = "pl"
+version = 1
+
+[[passage]]
+id = "narration-plain"
+category = "narration"
+text = "Ocean falował pod stacją, a wiatr wiał nieprzerwanie od trzech dni. Zszedłem po drabince do kabiny i zamknąłem właz za sobą, nasłuchując, czy ktoś odpowie."
+
+[[passage]]
+id = "narration-diacritics"
+category = "narration"
+# Every Polish diacritic in running prose. A model that drops one drops it
+# here, where it can be heard rather than inferred.
+text = "Zażółć gęślą jaźń. Śnieg padał na łąki pod Łodzią, a mgła osiadła na rzece o świcie. Ćma krążyła wokół lampy, źdźbło trawy drżało."
+
+[[passage]]
+id = "dialogue-two-speakers"
+category = "dialogue"
+text = "— Nie odpowiadają — powiedział Snaut, nie podnosząc wzroku. — Próbowałeś w nocy? — Trzy razy. Cisza."
+
+[[passage]]
+id = "dialogue-emotional"
+category = "dialogue"
+text = "— Zostaw to! — krzyknęła. — Nie masz pojęcia, co tam jest. Naprawdę myślisz, że ktokolwiek stamtąd wrócił?"
+
+[[passage]]
+id = "numbers"
+category = "numbers"
+# Polish inflects numerals, so these are where an engine that reads digits
+# naively will say something ungrammatical rather than merely odd.
+text = "W 1961 roku stacja liczyła 3 osoby. Temperatura spadła do minus 12 stopni, ciśnienie do 954 hektopaskali, a zapasy starczały na 21 dni."
+
+[[passage]]
+id = "abbreviations"
+category = "abbreviations"
+text = "Mieszkał przy ul. Morskiej 15, na 3 piętrze, nr 7. Dr Kelvin przyjmował od godz. 9 do 17, tj. przez osiem godzin, m.in. w soboty."
+
+[[passage]]
+id = "proper-names"
+category = "proper-names"
+text = "Kris Kelvin, Snaut i Sartorius spotkali się na Sołaris. Wcześniej pracowali w Instytucie w Warszawie, obok Wisły, niedaleko Żoliborza."
+
+[[passage]]
+id = "heading-short"
+category = "headings"
+# Short input is where several engines produce artefacts: a breath, a clipped
+# first phoneme, or a trailing noise longer than the words.
+text = "Rozdział trzeci"
+
+[[passage]]
+id = "heading-single-word"
+category = "headings"
+text = "Przybysz"
+
+[[passage]]
+id = "long-sentence"
+category = "long-sentences"
+# Deliberately past XTTS's 224-character Polish limit, which it warns about and
+# may truncate. That is the point: this is the case the chunker exists to
+# prevent, and what each engine does when it happens anyway is worth recording.
+# Chatterbox publishes no character limit at all, so this is also where the
+# number in its registry entry starts being measured rather than assumed.
+text = "Kiedy wreszcie zszedłem na sam dół i zobaczyłem, że korytarz ciągnie się dalej, niż pamiętałem z planów, które przeglądałem jeszcze na Ziemi, zrozumiałem, że stacja została przebudowana bez wiedzy kogokolwiek z nas, i że nikt, kto tu przyleciał, nie zna jej naprawdę."
+
+[[passage]]
+id = "chapter-transition"
+category = "transitions"
+# The join between a chapter's last line and the next one's heading, which is
+# where pacing errors are audible as a run-on.
+text = "Zamknąłem oczy i przestałem liczyć. Rozdział czwarty. Rano mgła opadła."

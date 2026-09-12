@@ -81,6 +81,20 @@ The dashboard's `/batch` page imports a folder, reviews what is in it, and
 queues the books it is told to. Set `AF_NO_DRAIN=1` when running a second
 dashboard beside a `just drain`, so only one of them takes work.
 
+## Comparing models
+
+Opt-in and never part of `just check`: it loads real models and takes real
+time. The corpora are checked in under `benchmarks/corpora/`, one per language,
+so every model reads the same text verbatim and unchunked.
+
+| Command | What it does |
+|---|---|
+| `just bench <language> <voice> <repeats="1"> <device="auto"> <model=""> <settings="">` | Runs that language's corpus through every registered model that claims to read it, each in the environment that can load it. Writes audio and numbers under `data/benchmarks/`. Give a model id to run just one, and a JSON file to pin controls across backends. |
+
+Nothing it prints is a verdict. It reports what failed, what came back silent
+or short, and how fast; voice likeness and long-form quality are decided by
+listening, and the answer goes in `docs/MODEL-EVAL-<language>.md`.
+
 ## Queue
 
 The work waiting to happen, kept in `data/audiobook.db` so it survives the

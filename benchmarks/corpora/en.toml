@@ -1,0 +1,71 @@
+# English benchmark corpus.
+#
+# Same rules as the Polish one: identical text to every eligible model,
+# verbatim and unchunked, each passage naming what it is there to expose.
+# Parallel in structure to pl.toml so the two sheets can be read side by side,
+# but not a translation: the categories that matter differ by language, and
+# English numbers and abbreviations fail in their own ways.
+#
+# Keep these stable. Add rather than edit, and say why in the sheet.
+
+language = "en"
+version = 1
+
+[[passage]]
+id = "narration-plain"
+category = "narration"
+text = "The ocean heaved beneath the station and the wind had not stopped for three days. I climbed down the ladder into the cabin and closed the hatch behind me, listening for an answer."
+
+[[passage]]
+id = "narration-punctuation"
+category = "narration"
+# Em dashes, semicolons, parentheses and quotation marks in one passage. These
+# are where an engine either phrases or gallops.
+text = "It was late — later than he had meant to stay; the corridor lights had already dimmed (they always did at eleven), and somewhere behind him a door closed with what he would later call \"a very deliberate sort of quiet\"."
+
+[[passage]]
+id = "dialogue-two-speakers"
+category = "dialogue"
+text = "\"They aren't answering,\" Snow said, without looking up. \"Did you try in the night?\" \"Three times. Nothing.\""
+
+[[passage]]
+id = "dialogue-emotional"
+category = "dialogue"
+text = "\"Leave it alone!\" she shouted. \"You have no idea what is down there. Do you honestly believe anyone came back?\""
+
+[[passage]]
+id = "numbers"
+category = "numbers"
+# Years, decimals, ordinals, currency, ranges and a time, which are read
+# correctly or not at all.
+text = "In 1961 the station held 3 people. The temperature fell to minus 12 degrees, the pressure to 954 millibars, and at 09:45 on the 3rd of March the reserves stood at £1,250.75, enough for 21 days."
+
+[[passage]]
+id = "abbreviations"
+category = "abbreviations"
+text = "Dr. Kelvin lived at 15 Ocean St., Apt. 7, and saw patients from 9 a.m. to 5 p.m., i.e. eight hours, incl. Saturdays, per the NHS and the WHO."
+
+[[passage]]
+id = "proper-names"
+category = "proper-names"
+text = "Kris Kelvin, Snow and Sartorius met aboard Solaris. Before that they had worked at the Institute in Warsaw, beside the Vistula, near Zoliborz."
+
+[[passage]]
+id = "heading-short"
+category = "headings"
+text = "Chapter Three"
+
+[[passage]]
+id = "heading-single-word"
+category = "headings"
+text = "Arrival"
+
+[[passage]]
+id = "long-sentence"
+category = "long-sentences"
+text = "When I finally reached the bottom and saw that the corridor ran further than I remembered from the plans I had studied back on Earth, I understood that the station had been rebuilt without the knowledge of anyone among us, and that nobody who had flown out here really knew it at all."
+
+[[passage]]
+id = "chapter-transition"
+category = "transitions"
+text = "I closed my eyes and stopped counting. Chapter Four. By morning the fog had lifted."

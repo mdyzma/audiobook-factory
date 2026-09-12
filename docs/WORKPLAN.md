@@ -158,7 +158,7 @@ this must not wait for XTTS to fail.
 | B-2 | Model registry in `config/models.toml`. Per entry: narration and reference languages, reference-audio and transcript requirements, cloning support, token and context limits, native rate, supported controls, runtime environment, exact checkpoint and tokenizer revision, asset hashes, validation status. Resolution order is explicit book or role override, then the validated default for the book language. Never substitute silently. (SEC-02, CONF-01) | M — **done** |
 | B-3 | Refactor the narrator behind the contract. `narrator/backends/xtts.py` implements it; `engine.py` stops being the only path. The pinned environment is untouched. | M — **done** |
 | B-4 | First alternative backend in its own environment. Chatterbox Multilingual, confirmed 2026-09-12. (ARCH-07, FEAT-18 adapters) | L — **started**; findings below |
-| B-5 | Benchmark harness and per-language corpora. Same content for every eligible model in that language, at least two reference speakers, MP3 and WAV sources, narration, dialogue, numbers, abbreviations, proper names, short headings, long sentences, chapter transitions. Short diagnostics, then 20 to 30 minutes of connected narration, then a full-chapter soak, with repeat generations to expose stochastic failures. Pinned settings and a bounded, equal tuning budget per backend. (TEST-01 opt-in, TEST-04) | L |
+| B-5 | **Harness started 2026-09-12**; the long runs need the CUDA box. Benchmark harness and per-language corpora. Same content for every eligible model in that language, at least two reference speakers, MP3 and WAV sources, narration, dialogue, numbers, abbreviations, proper names, short headings, long sentences, chapter transitions. Short diagnostics, then 20 to 30 minutes of connected narration, then a full-chapter soak, with repeat generations to expose stochastic failures. Pinned settings and a bounded, equal tuning budget per backend. (TEST-01 opt-in, TEST-04) | L |
 | B-6 | Result sheets: `docs/MODEL-EVAL-PL.md` and `docs/MODEL-EVAL-EN.md`. Content fidelity, language quality, voice likeness, long-form listening, practical performance, operational fit, each scored per language and never combined into one number. Samples, settings, errors, timing, chosen default, tested alternatives. | M |
 | B-7 | Resolve the model before final chunking. Retain stable source paragraph IDs and derive an engine-specific chunk plan inside that mapping. `char_limit` becomes registry-driven. A model change may require re-chunking the whole book. | M — **done** |
 | B-8 | Second and third English candidates once B-4 proves the adapter shape: Qwen3-TTS-12Hz-1.7B-Base, then Chatterbox-Turbo. Qwen's transcript requirement becomes an engine-specific preparation step, not a WhisperX dependency for every voice. | L |
@@ -193,6 +193,39 @@ advertised CUDA-compatible wheel is not evidence of a successful run.
 can override either, one saved voice compares across candidates, and eligibility
 or rejection is visible with its reason. Both defaults pass the longer narration
 checks on the target hardware.
+
+**B-5 harness started 2026-09-12.** Built and run for real, but only the short
+diagnostics: the connected-narration and full-chapter soaks need the CUDA box,
+and on this machine XTTS renders at about 0.67x realtime.
+
+The corpora are checked in, one per language, covering all eight categories the
+plan names. Identical text goes to every model verbatim and unchunked, because
+a comparison where each engine reads slightly different fragments compares the
+fragments as much as the engines. The two languages are parallel in shape but
+not translations: Polish has a diacritics passage and English a punctuation
+one, since those fail in their own ways.
+
+Nothing is averaged across categories. A model that narrates beautifully and
+mangles every number is not a model that reads well, and an average hides which
+is which, so the report breaks results down per category and says outright that
+it is not a verdict. Voice likeness and long-form quality are decided by
+listening, and that goes in the result sheets.
+
+The runner lives in the narrator package so it runs in whichever environment a
+model needs, the same way stage 4 does. It does not choose the model: the
+registry lives in bookbinder and the resolved choice is passed in, so a
+benchmark cannot measure settings no book would be rendered with.
+
+First real run, Polish through XTTS on the M1: 11 of 11 generated, 97 seconds of
+audio, 0.42x to 0.70x realtime by category. The long-sentence passage
+deliberately exceeds XTTS's 224-character Polish limit, and XTTS warned about
+truncation exactly as it should; that passage is where Chatterbox's assumed
+limit starts being measured.
+
+**Still to choose: the pinned settings per backend.** The harness takes them
+and records what it used, and the first run used the engine defaults because
+the registry pins none. Choosing them is a listening exercise with a bounded
+equal budget per backend, which is the rest of B-5.
 
 **B-4 started 2026-09-12. What resolving it settled.**
 

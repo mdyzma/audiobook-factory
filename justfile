@@ -229,6 +229,16 @@ dryrun slug strict="":
 assemble slug format="":
     cd apps/studio && uv run python -m studio.catalog_cli process {{quote(slug)}} assemble --fmt {{quote(format)}}
 
+# Run a language's benchmark corpus through every model that claims to read it.
+# Opt-in and never part of `just check`: it loads real models and takes real
+# time. Nothing it prints is a verdict; listening decides, and the numbers say
+# what failed. docs/MODEL-EVAL-<lang>.md is where the answer goes.
+bench language voice repeats="1" device="auto" model="" settings="":
+    cd apps/bookbinder && uv run python -m bookbinder.benchmark \
+      {{quote(language)}} {{quote(voice)}} --repeats {{quote(repeats)}} \
+      --device {{quote(device)}} --model {{quote(model)}} \
+      {{ if settings != "" { "--settings " + quote(settings) } else { "" } }}
+
 # How this book says a word. With no arguments, show the dictionary and what it
 # changes. With a word and its spoken form, add it. With a word alone, remove it.
 pronounce slug written="" spoken="":
