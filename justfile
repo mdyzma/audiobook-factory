@@ -32,7 +32,7 @@ default:
 # ---------------------------------------------------------------- setup ----
 
 # Install the interpreter and all three environments. Run once per machine.
-setup: python setup-transcriber setup-bookbinder setup-narrator setup-studio
+setup: python setup-transcriber setup-bookbinder setup-narrator setup-chatterbox setup-studio
     @printf '{{green}}{{bold}}all four environments ready{{nc}}  {{dim}}run `just doctor` to verify{{nc}}\n' 
 
 # uv downloads a prebuilt 3.11.9; nothing is compiled.
@@ -49,6 +49,12 @@ setup-bookbinder:
 setup-narrator:
     # Read the comments beside each pin there before changing any of them.
     cd apps/narrator && uv sync
+
+# The second synthesis backend, in its own environment because its transformers
+# and torch contradict the narrator's. It installs the narrator package for the
+# stage-4 orchestration; Coqui does not follow it, by design.
+setup-chatterbox:
+    cd apps/chatterbox && uv sync
 
 # Re-resolve from scratch, ignoring the lock. Use after changing a pin.
 relock env:
@@ -90,6 +96,7 @@ schemas-check:
 test:
     cd apps/bookbinder  && uv run pytest
     cd apps/narrator    && uv run pytest
+    cd apps/chatterbox  && uv run pytest
     cd apps/transcriber && uv run pytest
     cd apps/studio      && uv run pytest
 
@@ -97,6 +104,7 @@ test:
 typecheck:
     cd apps/bookbinder  && uv run pyright
     cd apps/narrator    && uv run pyright
+    cd apps/chatterbox  && uv run pyright
     cd apps/transcriber && uv run pyright
     cd apps/studio      && uv run pyright
 

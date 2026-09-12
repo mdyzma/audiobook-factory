@@ -279,10 +279,19 @@ def test_frozen_records_cannot_be_updated(library):
 
 
 def test_each_language_can_choose_a_different_model(library):
+    import re
+
     registry = library / "config/models.toml"
     text = registry.read_text()
-    extra = "[models.english-candidate]" + text.split("[models.xtts-v2]", 1)[1].replace("[models.xtts-v2.", "[models.english-candidate.")
-    registry.write_text(text.replace('en = "xtts-v2"', 'en = "english-candidate"') + "\n" + extra)
+    # Just the xtts block and its sub-tables, not everything after it. Taking
+    # the rest of the file assumed xtts was the last entry, so adding a second
+    # real backend copied that one in too and declared it twice.
+    block = re.search(
+        r"\[models\.xtts-v2\].*?(?=\n\[models\.(?!xtts-v2\.)|\Z)", text, re.S)
+    assert block, "the registry no longer has an xtts-v2 entry to copy"
+    extra = block.group(0).replace("[models.xtts-v2", "[models.english-candidate")
+    registry.write_text(
+        text.replace('en = "xtts-v2"', 'en = "english-candidate"') + "\n" + extra)
     polish = prepare_run(library, imported(library), voice="michal")
     source = library / "english.txt"
     source.write_text("The traveller walked quietly beside the ocean.")

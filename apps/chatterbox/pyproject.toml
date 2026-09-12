@@ -1,0 +1,64 @@
+# Environment D - "chatterbox": Resemble AI's Chatterbox Multilingual.
+#
+# The second synthesis backend, and the reason the backend seam exists. It
+# agrees with the narrator on numpy and contradicts it everywhere else:
+# transformers 5.2 against 4.40, torch 2.6 against 2.8, pandas 3.0 against 1.5.
+# Merging the two would break XTTS at inference, which is the failure
+# docs/DECISIONS.md exists to prevent.
+#
+# It depends on the narrator package for stage 4 itself: reading the manifest,
+# resuming, fingerprinting, retries, progress, the report, the level
+# correction. All of that is engine-agnostic. Coqui and its torch pin live in
+# narrator's `xtts` dependency group precisely so they do not follow the
+# package here.
+[project]
+name = "chatterbox-backend"
+version = "0.1.0"
+description = "Chatterbox Multilingual synthesis for stage 4"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "chatterbox-tts>=0.1.7",
+    "narrator",
+    "soundfile>=0.12.1",
+    "typer>=0.12.0",
+    "tqdm>=4.66.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chatterbox_backend"]
+
+[tool.uv.sources]
+narrator = { path = "../narrator", editable = true }
+
+[tool.uv]
+# Chatterbox brings its own resolution. The only pin stated here is the one it
+# shares with the narrator, recorded so a future bump cannot silently move it:
+# Chatterbox's s3tokenizer and the XTTS stack both sit on numpy 1.x.
+constraint-dependencies = [
+    "numpy==1.26.4",
+]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.411",
+    "pytest>=9.1.1",
+]
+
+[tool.pyright]
+include = ["src", "tests"]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+reportMissingImports = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+# Same reasoning as every other environment: a failed test keeps its scratch
+# directory, a passing one does not.
+tmp_path_retention_policy = "failed"

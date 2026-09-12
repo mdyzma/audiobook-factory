@@ -71,3 +71,37 @@ ja = 71
 hu = 224
 ko = 95
 hi = 150
+
+[models.chatterbox-multilingual]
+engine = "chatterbox"
+environment = "chatterbox"
+checkpoint = "ResembleAI/chatterbox"
+package = "chatterbox-tts>=0.1.7"
+# Resolved by the package's own downloader until a revision is recorded here
+# from the machine that validated it. Slice B-5 fills this in.
+revision = ""
+# All 23 it documents. Both of this project's languages are among them, which
+# is why this engine was chosen first: one environment serves both comparisons.
+narration_languages = [
+    "ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi", "it", "ja",
+    "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh",
+]
+reference_languages = [
+    "ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi", "it", "ja",
+    "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh",
+]
+cloning = "instant"
+needs_reference_transcript = false
+native_sample_rate = 24000
+controls = [
+    "exaggeration", "cfg_weight", "temperature", "repetition_penalty",
+    "min_p", "top_p",
+]
+validation = "unvalidated"
+# Not the model's documented limit, because it does not publish one. Unlike
+# XTTS, which truncates text past a per-language character count, Chatterbox
+# caps generation at 1000 new tokens, which bounds duration rather than input.
+# A fragment that outruns that is cut off, so this is a deliberately
+# conservative working value until B-5 measures where it actually happens.
+# Treat it as an assumption, not a fact.
+default_char_limit = 300

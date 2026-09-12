@@ -63,6 +63,21 @@ def backend_for(choice: "ModelChoice", root: Path, device: str) -> Backend:
 
         return XttsBackend(root, device)
 
+    if choice.engine == "chatterbox":
+        # Installed only in `apps/chatterbox`, whose transformers and torch
+        # contradict this environment's. Imported here rather than declared as
+        # a dependency, so the narrator environment stays exactly what it was
+        # and the refusal below is what a book bound to it gets here.
+        try:
+            # Absent here by design, so the type checker is right to say so.
+            from chatterbox_backend import (  # pyright: ignore[reportMissingImports]
+                ChatterboxBackend,
+            )
+        except ImportError:
+            pass
+        else:
+            return ChatterboxBackend(root, device)
+
     raise UnsupportedEngine(
         f"'{choice.id or choice.engine}' runs on engine '{choice.engine}', which "
         f"the narrator environment does not implement. It is configured to run "

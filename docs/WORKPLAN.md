@@ -157,7 +157,7 @@ this must not wait for XTTS to fail.
 | B-1 | Versioned backend request and result schemas in `docs/schemas/`, exported from `manifest.py` like the existing five. Backend-neutral: text, language, voice reference, effective settings, and the resulting audio plus its native rate and engine identity. (ARCH-05 subset) | M — **done** |
 | B-2 | Model registry in `config/models.toml`. Per entry: narration and reference languages, reference-audio and transcript requirements, cloning support, token and context limits, native rate, supported controls, runtime environment, exact checkpoint and tokenizer revision, asset hashes, validation status. Resolution order is explicit book or role override, then the validated default for the book language. Never substitute silently. (SEC-02, CONF-01) | M — **done** |
 | B-3 | Refactor the narrator behind the contract. `narrator/backends/xtts.py` implements it; `engine.py` stops being the only path. The pinned environment is untouched. | M — **done** |
-| B-4 | First alternative backend in its own environment. Recommended: Chatterbox Multilingual, because it documents both `pl` and `en` and so serves the Polish comparison and the English one from a single new environment. (ARCH-07, FEAT-18 adapters) | L |
+| B-4 | First alternative backend in its own environment. Chatterbox Multilingual, confirmed 2026-09-12. (ARCH-07, FEAT-18 adapters) | L — **started**; findings below |
 | B-5 | Benchmark harness and per-language corpora. Same content for every eligible model in that language, at least two reference speakers, MP3 and WAV sources, narration, dialogue, numbers, abbreviations, proper names, short headings, long sentences, chapter transitions. Short diagnostics, then 20 to 30 minutes of connected narration, then a full-chapter soak, with repeat generations to expose stochastic failures. Pinned settings and a bounded, equal tuning budget per backend. (TEST-01 opt-in, TEST-04) | L |
 | B-6 | Result sheets: `docs/MODEL-EVAL-PL.md` and `docs/MODEL-EVAL-EN.md`. Content fidelity, language quality, voice likeness, long-form listening, practical performance, operational fit, each scored per language and never combined into one number. Samples, settings, errors, timing, chosen default, tested alternatives. | M |
 | B-7 | Resolve the model before final chunking. Retain stable source paragraph IDs and derive an engine-specific chunk plan inside that mapping. `char_limit` becomes registry-driven. A model change may require re-chunking the whole book. | M — **done** |
@@ -193,6 +193,51 @@ advertised CUDA-compatible wheel is not evidence of a successful run.
 can override either, one saved voice compares across candidates, and eligibility
 or rejection is visible with its reason. Both defaults pass the longer narration
 checks on the target hardware.
+
+**B-4 started 2026-09-12. What resolving it settled.**
+
+Chatterbox 0.1.7 resolves cleanly on the project's Python 3.11.9 and carries
+both languages: 23 in total, `pl` and `en` among them. So one new environment
+does serve both comparisons, which was the reason for choosing it.
+
+It needs its own environment, and the numbers say why rather than the habit:
+
+| | numpy | torch | transformers | pandas |
+|---|---|---|---|---|
+| narrator (XTTS) | 1.26.4 | 2.8.0 | 4.40.2 | 1.5.3 |
+| transcriber (WhisperX) | 2.4.6 | 2.14.0 | 4.57.6 | 3.0.5 |
+| chatterbox | 1.26.4 | 2.6.0 | 5.2.0 | 3.0.5 |
+
+It agrees with narrator on numpy and disagrees on everything else, transformers
+by a major version. A fourth environment, exactly as `backends/__init__.py`
+anticipated.
+
+**The packaging problem that follows.** A run executes stage 4 as `python -m
+narrator.synth` in the environment its model names, so the new environment
+needs the narrator package: resume, fingerprints, retries, progress, the report,
+the level correction. All of it is engine-agnostic and only `backend_for` is
+not. But `narrator` declares `tts==0.22.0` and `torch==2.8.0` as hard
+dependencies, so installing it anywhere drags Coqui and a torch Chatterbox
+cannot use.
+
+The fix is to declare them where they belong rather than to relax them. Coqui
+and its torch pin move into a dependency group that uv installs for the
+narrator project itself and does not propagate to anything depending on the
+package. Nothing about narrator's own resolution changes, and the lock coming
+back identical is the proof. The XTTS backend is already imported lazily inside
+`backend_for`, so the package has never needed Coqui present to be imported.
+
+**Two differences the adapter has to carry, not hide.**
+
+Conditioning is a reference wav path, not cached latents: `generate` takes
+`audio_prompt_path`. A voice profile lists several reference clips, so the
+adapter has to choose or prepare one, and the choice is part of the voice's
+identity. This is the cross-engine conditioning cache that C-1 left open.
+
+The controls are different: `exaggeration`, `cfg_weight`, `repetition_penalty`,
+`min_p`, `top_p` alongside `temperature`. The registry already records which
+controls a backend implements and which it ignores, and the point of that field
+is comparisons like this one, so the ignored ones are named rather than dropped.
 
 ## Slice C — One dependable book — mostly done
 
