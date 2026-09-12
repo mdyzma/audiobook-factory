@@ -4,6 +4,53 @@ Versions exist so a twenty-hour render can be pinned to one. A tag is only
 applied to a commit where `just check` and CI are both green, and where the
 pipeline has produced a real audiobook rather than only passing its tests.
 
+## v0.2.0 — 2026-09-12
+
+Groundwork for choosing between synthesis engines. No audio in this release
+sounds different from the last one.
+
+### A second backend
+
+Chatterbox Multilingual, in a fourth environment because it contradicts the
+narrator on transformers, torch and pandas. It reads 23 languages including
+both of this project's, so one environment serves both comparisons.
+
+It reuses stage 4 rather than reimplementing it: resume, fingerprinting,
+retries and levelling are engine-agnostic, and Coqui moved into a dependency
+group so the narrator package can be installed without it. Nothing about the
+XTTS environment changed; its lock resolves identically.
+
+**Chatterbox has never generated a sample.** The adapter, the registry entry
+and the wiring are verified as far as they can be without model weights.
+
+### A benchmark that refuses to average
+
+`just bench <language> <voice>` runs a checked-in corpus through every model
+that claims to read that language, each in the environment that can load it.
+The same text goes to every engine verbatim and unchunked.
+
+Eleven passages per language across eight categories: narration, dialogue,
+numbers, abbreviations, proper names, short headings, long sentences and
+chapter transitions. Results are reported per category and never combined,
+because a model that narrates well and cannot say a number is not a model that
+reads well. Nothing it prints is a verdict.
+
+### Settings pinned per engine
+
+One settings block could not serve two engines whose controls have different
+names, so three of Chatterbox's were never set at all. Each engine is now
+pinned in the registry, in its own names, and a pin naming a control the engine
+does not implement is refused when the registry loads.
+
+These are baselines, not tuned values. XTTS is pinned at what the project has
+been rendering with all along, checked to resolve identically so no finished
+book is invalidated.
+
+### Still open
+
+Connected-narration and full-chapter soaks, the tuned settings, and the two
+result sheets. All three need the CUDA machine and someone listening.
+
 ## v0.1.0 — 2026-09-12
 
 The first tagged version. Everything the workplan sequenced is in it.
