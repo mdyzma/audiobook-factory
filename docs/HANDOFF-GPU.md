@@ -338,10 +338,24 @@ not comfortably faster than realtime, something is wrong with the CUDA setup.
   the other leaves records naming files that are not there. `just catalog-check`
   will say so.
 
-Prefer `just catalog-backup <destination>` over copying by hand. It takes a
-consistent snapshot of the database together with every asset it references,
-and `just catalog-restore` puts it back. Copying a live database file while
-Studio is running is the one way to get a torn one.
+Prefer `just catalog-backup <destination>` over copying the database and assets
+by hand. It takes a consistent snapshot of the database together with every
+asset it references, checksummed on the way out and again on the way in, and
+`just catalog-restore` puts it back. Copying a live database file while Studio
+is running is the one way to get a torn one.
+
+**It does not replace the whole list above.** Measured on 2026-09-13: the
+backup carries the database, all 55 assets and `config/`, and restore rebuilds
+`data/book/`, `data/voices/` and the runs from what the database knows. The
+cloned voice is inside it — `latents.pt`, `clone.json` and the audition are all
+catalog assets — which matters more than it sounds, because re-cloning on the
+other machine would produce a new voice revision and invalidate every fragment
+already rendered. What the backup does **not** carry is `data/raw/` and ten of
+the twenty-two files in `data/datasets/`. Copy those two directories alongside
+it or the fine-tuning input arrives incomplete.
+
+`data/audio/` and `data/out/` are worth leaving behind on purpose: this card
+re-renders them faster than a transfer takes.
 
 If you carry `data/` across without its database, `just catalog-migrate`
 rebuilds the catalog from the files and archives the existing audio as
