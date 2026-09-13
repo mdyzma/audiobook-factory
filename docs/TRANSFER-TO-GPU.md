@@ -99,7 +99,47 @@ they are noise rather than a problem.
 
 ---
 
-## 5. On the other side
+## 5. Send: Claude Code configuration — a few KB
+
+None of this is in the repository, and the parts that are not will not follow a
+clone.
+
+**Already handled.** The commit-message convention used to live only in this
+machine's assistant memory. It is now a bullet in the repository's `CLAUDE.md`,
+so it travels with the clone and applies in any client. Nothing needs copying
+for that rule to hold.
+
+**Worth copying**, from the Mac to `%USERPROFILE%\.claude\` on Windows:
+
+| From | Why |
+|---|---|
+| `~/.claude/CLAUDE.md` | Personal instructions across all projects. |
+| `~/.claude/settings.json` | Theme, and the enabled plugin list. 270 bytes. |
+
+`settings.json` enables the `context-mode` plugin from the `mksglu/context-mode`
+marketplace. Copying the file records the intent; the plugin itself still has to
+install on the new machine, and until it does, the instructions in
+`~/.claude/CLAUDE.md` will reference MCP tools that are not there.
+
+**The memory directory is keyed by absolute path.** On this machine it is:
+
+```
+~/.claude/projects/-Users-michaldyzma-projects-audiobook-factory/memory/
+```
+
+The Windows equivalent is named after the path there, so the folder has to be
+renamed to match — something like `C--Users-<you>-projects-audiobook-factory`.
+Copying it under the macOS name puts it somewhere nothing will read. It holds
+one note, and its content is now duplicated in `CLAUDE.md`, so skipping it
+loses nothing.
+
+**Do not copy** `~/.claude/projects/*/**.jsonl`. Those are session transcripts,
+27 MB for this project alone, full of macOS paths and tool results that no
+longer resolve. The work they describe is in the git history.
+
+---
+
+## 6. On the other side
 
 ```powershell
 .\install.ps1              # uv, just, ffmpeg, Git for Windows, then just setup

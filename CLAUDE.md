@@ -37,6 +37,11 @@ both consumers.
 - Run `just check` before committing: pyright and pytest in all three
   environments. Tests live in `<env>/tests/` and run against that environment's
   own dependencies.
+- Commit messages get a short subject line and a body that explains why, in the
+  style of the existing history. Never a bare one-liner, and never a
+  `Co-Authored-By` trailer of any kind. This convention lives here, in the
+  repository, rather than in one machine's assistant memory, so that it holds
+  on every machine and in every client.
 - Tests that need model weights or CUDA do not belong in the suite. Use
   `just check-narrator` for XTTS loading and the CUDA box for fine-tuning.
 - `docs/DECISIONS.md` records why the environments are split and which
