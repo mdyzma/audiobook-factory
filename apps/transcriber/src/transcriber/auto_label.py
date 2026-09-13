@@ -51,6 +51,9 @@ def main(
     max_sec: float = typer.Option(15.0),
     reference_count: int = typer.Option(12, help="Longest N segments kept as cloning references"),
 ) -> None:
+    from transcriber.cuda_libs import preload_ctranslate2_cuda
+
+    preload_ctranslate2_cuda()
     import whisperx
     from pydub import AudioSegment
     from tqdm import tqdm

@@ -164,6 +164,9 @@ def main(
             f"Run `just synth {slug}` first."
         )
 
+    from transcriber.cuda_libs import preload_ctranslate2_cuda
+
+    preload_ctranslate2_cuda()
     import whisperx
     from tqdm import tqdm
 

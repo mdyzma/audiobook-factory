@@ -234,12 +234,12 @@ On the CUDA box, after `just setup`:
 just gpu-status
 ```
 
-Do that before installing anything. The locked wheels come from PyPI, so each
-environment already has whatever CUDA its torch release shipped by default:
-narrator 12.8 and transcriber 13.0, both of which address Blackwell, and
-chatterbox 12.4, which does not. Only reach for `just gpu-torch <env> <index>`
-where the report says you need to, and note that it takes an explicit index
-now: its old cu124 default would have downgraded narrator off a working build.
+Do that before installing anything. narrator resolves CUDA 12.8 and
+transcriber 13.0, both of which address Blackwell, on Linux from PyPI and on
+Windows from the PyTorch indexes their `pyproject.toml` names, because PyPI's
+Windows torch is CPU-only. chatterbox's torch 2.6.0 does not address it at all.
+Only reach for `just gpu-torch <env> <index>` where the report says you need
+to: it changes the venv behind the lock, and the next `uv sync` undoes it.
 
 Skip all of it on Apple Silicon, where the default PyPI wheels carry MPS.
 

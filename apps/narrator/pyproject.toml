@@ -55,15 +55,19 @@ constraint-dependencies = [
     "huggingface-hub==0.23.5",
 ]
 
-# Dormant: explicit = true, so nothing resolves through it unless a dependency
-# names it. Kept as an escape hatch, but do not reach for it on a 5090. The
-# default PyPI torch 2.8.0 this environment locks is already a CUDA 12.8 build,
-# which addresses Blackwell; cu124 does not. `just gpu-status` reports what is
-# actually installed.
+# PyPI's torch is a CUDA 12.8 build on Linux but CPU-only on Windows: its CUDA
+# runtime packages are all marked `sys_platform == 'linux'`. So on Windows the
+# same pinned versions come from PyTorch's cu128 index, the first CUDA line
+# with Blackwell (sm_120) kernels. Linux and macOS resolve exactly as before.
+# explicit = true, so nothing else resolves through it.
 [[tool.uv.index]]
-name = "pytorch-cu124"
-url = "https://download.pytorch.org/whl/cu124"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128", marker = "sys_platform == 'win32'" }
+torchaudio = { index = "pytorch-cu128", marker = "sys_platform == 'win32'" }
 
 [dependency-groups]
 # The XTTS engine itself. A group rather than a dependency because a second

@@ -137,24 +137,27 @@ someone to listen rather than only to read numbers.
 
 ## Critical: which environments can address this card
 
-Re-measured from the locks on 2026-09-13. The earlier version of this section
-said "swap everything to cu128", which is now wrong in a direction that breaks
-a working setup.
+Measured on this card on 2026-09-13, after the first `just setup` here.
 
-The locked torch wheels come from PyPI, not from a pytorch index, so each
-environment gets whatever CUDA that torch release shipped as its default:
+PyPI's torch carries CUDA on Linux only: its `nvidia-*` runtime packages are
+all marked `sys_platform == 'linux'`, and the Windows wheel is CPU-only. The
+first `just setup` on this machine therefore gave all three environments
+`+cpu` torch. narrator and transcriber now take the same pinned versions from
+a PyTorch index on Windows, declared in their `pyproject.toml` under
+`[tool.uv.sources]` with a `sys_platform == 'win32'` marker, and locked:
 
-| Environment | torch | CUDA runtime | Addresses sm_120? |
+| Environment | torch on Windows | CUDA runtime | Addresses sm_120? |
 |---|---|---|---|
-| narrator | 2.8.0 | 12.8 | **yes**, as locked |
-| transcriber | 2.14.0 | 13.0 | **yes**, as locked |
-| chatterbox | 2.6.0 | 12.4 | **no** |
+| narrator | 2.8.0+cu128 | 12.8 | **yes**, verified: capability (12, 0), matmul, XTTS loads |
+| transcriber | 2.14.0+cu130 | 13.0 | **yes**, verified: WhisperX large-v3 labels on CUDA |
+| chatterbox | 2.6.0+cpu | — | **no** |
 | bookbinder | — | — | no torch at all |
 | studio | — | — | no torch at all |
 
-**So the first thing to do is nothing.** Run `just setup`, then
-`just gpu-status`. Two of the three ML environments should already report a
-CUDA build and capability `(12, 0)`. If they do, leave them alone.
+Linux and macOS resolve exactly as before. **So the first thing to do is
+nothing:** `just setup`, then `just gpu-status`, which should report the two
+builds above. Do not reach for `just gpu-torch` for them; it changes the venv
+behind the lock's back, and the next `uv sync` undoes it.
 
 **`just gpu-torch` no longer has a default index**, because it used to install
 cu124 into narrator, which would have replaced a working 12.8 build with one
@@ -167,10 +170,11 @@ torch 2.6.0 predates Blackwell support. There is no cu128 build of 2.6.0 to
 switch to — CUDA 12.8 wheels start at torch 2.7 — so this cannot be fixed by
 pointing at a different index. The version has to move.
 
-It is not pinned directly: `chatterbox-tts` pulls it. Check what that package
-actually requires before assuming 2.7 or 2.8 is safe, and if it does hold 2.6
-hard, that is a genuine conflict between the second engine and this card,
-worth reporting rather than working around. It is also the environment B-5
+It is not pinned directly: `chatterbox-tts` pulls it, and 0.1.7 declares
+`torch==2.6.0` and `torchaudio==2.6.0` for every Python below 3.14. That is a
+genuine conflict between the second engine and this card, and it is still
+open: an override would need evidence that Chatterbox generates correctly on
+a newer torch, and a newer release may lift the bound. It is also the environment B-5
 needs, so leaving it on CPU and running the benchmark anyway would produce
 numbers that mean nothing: one engine on a 5090, the other on a CPU.
 
@@ -204,12 +208,18 @@ proves XTTS still loads afterwards.
 ### A second CUDA stack, in transcriber only
 
 WhisperX runs its ASR through CTranslate2 (4.8.2 here), which does not use
-torch's CUDA at all — it links cuBLAS and cuDNN itself. A working torch is
-therefore not evidence that transcription will run on the GPU, and the usual
-symptom is a missing `cudnn64_*.dll` on Windows while torch reports everything
-fine. transcriber's lock carries `nvidia-cudnn-cu13`, matching its CUDA 13
-torch; whether CTranslate2 4.8.2 accepts that cuDNN is unverified and is worth
-checking early, because it decides whether `just verify` is minutes or hours.
+torch's CUDA at all — it loads cuBLAS and cuDNN itself. A working torch is
+therefore not evidence that transcription will run on the GPU.
+
+Measured here: CTranslate2's Windows wheel is built against CUDA 12 and failed
+at the first encode with `Library cublas64_12.dll is not found`, while torch
+reported everything fine. torch 2.14.0 has no cu128 build to align with (that
+index stops at 2.11), so transcriber carries `nvidia-cublas-cu12` on Windows
+and `transcriber/cuda_libs.py` loads it into the process before `import
+whisperx`. It has to be loaded, not just put on PATH: CTranslate2 asks for the
+DLL by bare name. cuDNN needed nothing, because CTranslate2 uses the
+`cudnn64_9.dll` torch has already loaded. Labelling the 1.7-minute sample with
+large-v3, VAD and Polish alignment took 30 s on the card.
 
 `onnxruntime` in the same environment is the CPU build, used for voice activity
 detection. That is cheap and deliberate; it does not need a GPU.
@@ -320,7 +330,8 @@ ffmpeg -f dshow -i audio="Microphone (Realtek)" -ar 48000 -ac 1 -t 240 data\raw\
 1. `just setup` then `just doctor`. Confirm numpy is 1.x in narrator and 2.x in
    transcriber. If narrator shows numpy 2.x, stop and read DECISIONS.md. Studio
    is set up by the same command, and every stage now needs it.
-2. Swap in cu128 wheels as above, and verify `get_device_capability` is `(12, 0)`.
+2. `just gpu-status`. narrator and transcriber should report capability
+   `(12, 0)` as locked; see above before changing any torch.
 3. `just check` for schemas, types and tests. Should take seconds.
 4. `just catalog-migrate` if you carried an existing `data/` across without its
    database, then `just catalog-check`. It reports the SQLite version Python

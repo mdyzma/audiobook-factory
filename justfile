@@ -60,9 +60,10 @@ setup-chatterbox:
 relock env:
     cd apps/{{env}} && uv lock --upgrade && uv sync
 
-# Measured from the locks on 2026-09-13: narrator resolves CUDA 12.8,
-# transcriber 13.0, chatterbox 12.4. Blackwell (sm_120) needs 12.8 or newer, so
-# chatterbox is the only one that cannot address this card as locked.
+# Measured on the RTX 5090 on 2026-09-13: narrator resolves CUDA 12.8 and
+# transcriber 13.0 on Linux and Windows alike (Windows through the PyTorch
+# indexes named in their pyproject.toml, since PyPI's Windows torch is CPU-only).
+# chatterbox resolves 2.6.0, which predates Blackwell (sm_120) on any index.
 # Report the CUDA build and device capability each environment resolved.
 gpu-status:
     @for env in narrator transcriber chatterbox; do \
