@@ -183,7 +183,7 @@ if [[ $DRY_RUN -eq 1 ]]; then
     just dryrun "$SLUG"
 else
     step "Synthesising (resumable: re-run this command to continue)"
-    just synth "$SLUG" ""
+    just synth "$SLUG"
 fi
 
 step "Assembling"

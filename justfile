@@ -209,7 +209,10 @@ chunk-single slug voice:
 # ------------------------------------------------ stages 4-5: the audio ----
 
 # 4. Render every fragment. Resumable: re-run to continue after a crash.
-synth slug voice device="auto":
+# `voice` defaults to the cast in config/cast.yml. It has a default so that
+# calling this with only a slug needs no empty argument: Windows PowerShell
+# drops those on the way to a native command.
+synth slug voice="" device="auto":
     cd apps/studio && uv run python -m studio.catalog_cli process {{quote(slug)}} synth \
       --voice {{quote(voice)}} --device {{quote(device)}}
 

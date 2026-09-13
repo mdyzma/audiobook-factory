@@ -3,12 +3,12 @@
     Bootstrap audiobook-factory on Windows.
 
 .DESCRIPTION
-    Installs the host tools (uv, just, ffmpeg, Git for Windows) with winget,
-    then builds the three Python environments.
+    Installs the host tools (uv, just, ffmpeg, Git for Windows) with scoop or
+    winget, then builds the Python environments.
 
     Git for Windows matters as much as the rest: the justfile runs every recipe
-    through bash, and bin/audiobook and scripts/preprocess.sh are bash scripts.
-    Without bash on PATH nothing in this project runs.
+    through bash. Without bash on PATH nothing in this project runs, even
+    though the everyday scripts now have PowerShell twins.
 
 .PARAMETER Check
     Report what is missing and change nothing.
@@ -34,28 +34,30 @@ function Write-Ok   { param($Text) Write-Host "  ok      $Text" -ForegroundColor
 function Write-Miss { param($Text) Write-Host "  missing $Text" -ForegroundColor Yellow }
 function Write-Fail { param($Text) Write-Host "  failed  $Text" -ForegroundColor Red }
 
-# id: what winget calls it. cmd: what to look for on PATH.
+# Cmd: what to look for on PATH. Scoop and winget name the same tools
+# differently, and neither carries all four under one name.
 $Tools = @(
-    @{ Name = 'uv';     Cmd = 'uv';     Id = 'astral-sh.uv' },
-    @{ Name = 'just';   Cmd = 'just';   Id = 'casey.just' },
-    @{ Name = 'ffmpeg'; Cmd = 'ffmpeg'; Id = 'Gyan.FFmpeg' },
-    @{ Name = 'bash (Git for Windows)'; Cmd = 'bash'; Id = 'Git.Git' }
+    @{ Name = 'uv';     Cmd = 'uv';     Scoop = 'main/uv';     Winget = 'astral-sh.uv' },
+    @{ Name = 'just';   Cmd = 'just';   Scoop = 'main/just';   Winget = 'casey.just' },
+    @{ Name = 'ffmpeg'; Cmd = 'ffmpeg'; Scoop = 'main/ffmpeg'; Winget = 'Gyan.FFmpeg' },
+    @{ Name = 'bash (Git for Windows)'; Cmd = 'bash'; Scoop = 'main/git'; Winget = 'Git.Git' }
 )
 
 Write-Bold "audiobook-factory bootstrap"
 Write-Host "  host: Windows $([System.Environment]::OSVersion.Version), $env:PROCESSOR_ARCHITECTURE"
 
-if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-    Write-Fail "winget not found. Install 'App Installer' from the Microsoft Store, or install the tools by hand."
-    exit 1
-}
+# scoop first: it installs per-user, needs no elevation, and is what this
+# project's workstation uses.
+$manager = ''
+if (Get-Command scoop -ErrorAction SilentlyContinue)      { $manager = 'scoop' }
+elseif (Get-Command winget -ErrorAction SilentlyContinue) { $manager = 'winget' }
+Write-Host "  package manager: $(if ($manager) { $manager } else { 'none found' })"
 Write-Host ""
 
 Write-Bold "Checking host tools"
 $Missing = @()
 foreach ($tool in $Tools) {
-    $found = Get-Command $tool.Cmd -ErrorAction SilentlyContinue
-    if ($found) {
+    if (Get-Command $tool.Cmd -ErrorAction SilentlyContinue) {
         Write-Ok $tool.Name
     } else {
         Write-Miss $tool.Name
@@ -72,16 +74,33 @@ if ($Missing.Count -eq 0) {
         Write-Bold ("Would install: " + ($Missing.Name -join ', '))
         exit 1
     }
+    if (-not $manager) {
+        Write-Fail "no scoop or winget found."
+        Write-Host "  Install scoop:  irm get.scoop.sh | iex"
+        Write-Host "  Or install 'App Installer' from the Microsoft Store for winget."
+        exit 1
+    }
     Write-Bold ("Installing: " + ($Missing.Name -join ', '))
     foreach ($tool in $Missing) {
-        Write-Host "  winget install $($tool.Id)"
-        winget install --id $tool.Id --accept-source-agreements --accept-package-agreements --silent
+        if ($manager -eq 'scoop') {
+            Write-Host "  scoop install $($tool.Scoop)"
+            scoop install $tool.Scoop
+        } else {
+            Write-Host "  winget install $($tool.Winget)"
+            winget install --id $tool.Winget --accept-source-agreements --accept-package-agreements --silent
+        }
     }
-    # winget updates the machine PATH but not this session's copy of it.
+    # The installers update the machine PATH but not this session's copy of it.
     $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
                 [System.Environment]::GetEnvironmentVariable('Path', 'User')
     Write-Host ""
-    Write-Host "  note: if a tool is still not found, close this window and open a new one."
+    foreach ($tool in $Missing) {
+        if (Get-Command $tool.Cmd -ErrorAction SilentlyContinue) {
+            Write-Ok $tool.Name
+        } else {
+            Write-Miss "$($tool.Name) still not on PATH; close this window and open a new one"
+        }
+    }
 }
 
 if ($Check) {
@@ -116,7 +135,7 @@ if ($autocrlf -eq 'true') {
 
 if (-not $NoSetup) {
     Write-Host ""
-    Write-Bold "Building the three Python environments"
+    Write-Bold "Building the Python environments"
     Write-Host "  This downloads roughly 3 GB and takes a few minutes."
     Write-Host "  uv installs its own Python 3.11.9; nothing is compiled."
     Write-Host ""
@@ -130,12 +149,13 @@ Write-Bold "Done."
 Write-Host @"
   Next:
     just doctor                      confirm the environments resolved
-    bash bin/audiobook --help        the one-command path (needs bash)
+    .\bin\audiobook.ps1 -Help        the one-command path
     docs\RUNBOOK.md                  everyday tasks
 
-  Run the pipeline from Git Bash rather than PowerShell: bin/audiobook and
-  scripts/preprocess.sh are bash scripts. 'just' works from either, because
-  the justfile invokes bash for every recipe.
+  The everyday scripts have PowerShell twins, so a bash prompt is optional:
+  install.ps1, bin\audiobook.ps1 and scripts\preprocess.ps1 alongside
+  install.sh, bin/audiobook and scripts/preprocess.sh. 'just' still invokes
+  bash for every recipe, which is why Git for Windows is checked above.
 
   On this machine's RTX 5090, read docs\HANDOFF-GPU.md before installing GPU
   wheels: the gpu-torch recipe still points at CUDA 12.4, which has no kernels

@@ -1,7 +1,9 @@
 # Handoff: moving to the Windows workstation with the RTX 5090
 
 Written on a MacBook M1 on 2026-09-06, for whoever picks this up on the GPU box.
-Everything below was either measured here or is explicitly flagged as unverified.
+Revised 2026-09-13 at `v0.2.0`, which added a second synthesis backend and the
+benchmark harness that compares it against the first. Everything below was
+either measured here or is explicitly flagged as unverified.
 
 Read this first, then [RUNBOOK.md](RUNBOOK.md) for day-to-day use and
 [DECISIONS.md](DECISIONS.md) for why the dependency pins exist.
@@ -23,12 +25,15 @@ in a real cloned voice on Apple Silicon.
 | Synthesise | Works. Resumable, 0.4x realtime on M1 |
 | Assemble | Works. m4b, mp3 or wav, with chapter marks |
 | Verify | Works. Re-transcribes and reports word error rate |
+| Synthesise with Chatterbox | **Adapter written, never run.** No weights on this machine |
+| Benchmark two engines | Harness works. **Has never had two engines to compare** |
 | **Fine-tune** | **Never run. Needs CUDA. This is the open task.** |
 | Dashboard | Works. `just ui`; browse, listen, run stages, correct roles |
 | Containers (CPU) | Works. `just docker-smoke` builds and runs with no GPU |
 | Containers (CUDA) | **Written, never built.** amd64 only; see below |
 
-356 tests, pyright and schema checks all pass, and CI is green on every commit.
+Tests, pyright and schema checks all pass in every environment, and CI is green
+on every commit.
 
 ## Studio is on the path for every stage now
 
@@ -91,6 +96,44 @@ real fine-tune; 30 to 60 minutes of clean audio is the guidance.
 
 ---
 
+## The second thing that needs this machine
+
+There are two synthesis engines now, and only one of them has ever made a sound.
+
+`apps/chatterbox/` is a fifth environment holding Chatterbox Multilingual. It
+exists because Chatterbox needs transformers 5.2 and torch 2.6 against the
+narrator's 4.40 and 2.8, which is the same reason every other environment is
+separate. The adapter implements the same `Backend` protocol XTTS does, its
+settings are pinned in `config/models.toml`, and its tests pass.
+
+**None of that is evidence it works.** No weights have been downloaded here and
+no audio has been generated. The tests prove the adapter has the right shape,
+not that the engine produces speech. Treat the first generation as bring-up.
+
+`benchmarks/corpora/pl.toml` and `en.toml` hold eleven passages each across
+eight categories: narration, dialogue, numbers, abbreviations, proper names,
+short headings, long sentences, chapter transitions. Every eligible model reads
+the same text, and results are reported per category and per language. The
+harness deliberately refuses to average them into a score, because a model that
+reads narration beautifully and mangles numbers is not the same as a mediocre
+one.
+
+The first useful command on this box, once CUDA is working, is one run:
+
+```bash
+just bench pl michal
+```
+
+Both arguments are required: the corpus language and the voice every model
+reads it in. `just bench pl michal 3` repeats each passage three times, which
+is how stochastic failures show themselves.
+
+That is what B-5 and B-6 in [WORKPLAN.md](WORKPLAN.md) are waiting for. B-6 is
+the write-up, `docs/MODEL-EVAL-PL.md` and `docs/MODEL-EVAL-EN.md`, and it needs
+someone to listen rather than only to read numbers.
+
+---
+
 ## Critical: the CUDA wheels are wrong for this card
 
 **Do not just run `just gpu-torch`.** It points at the CUDA 12.4 index, and those
@@ -140,41 +183,90 @@ does not repeat this.
 ## Windows specifics
 
 The project was built on macOS and CI runs on Linux. It has **never run on
-Windows**. Nothing here is known broken, but none of it is proven either.
+Windows**. As of 2026-09-13 the known obstacles have been removed and the
+PowerShell scripts exist, but none of it is proven: you are the first run.
 
-**You need bash.** The justfile declares `set shell := ["bash", "-uc"]`, and
-`bin/audiobook` and `scripts/preprocess.sh` are bash scripts. Git Bash or WSL
-both work; plain PowerShell or cmd will not. If you use WSL, note that GPU
-passthrough needs a recent WSL2 with the NVIDIA driver on the Windows side.
+**Native Windows is the intended path, not WSL.** WSL works, but it means
+installing ffmpeg and just a second time inside the distro — the scoop ones are
+not visible there under their bare names — and it puts GPU passthrough between
+you and the card while you are trying to judge whether CUDA is working at all.
 
-**Tooling:**
+**You still need bash, even natively.** The justfile declares
+`set shell := ["bash", "-uc"]`, so every recipe spawns bash. Git for Windows
+supplies it. Without it, `just setup` fails immediately with an unhelpful
+message about a missing program. This is the one prerequisite people lose an
+hour to, so `install.ps1` checks for it by name.
+
+**Setup:**
 
 ```powershell
-winget install astral-sh.uv
-winget install casey.just
-winget install Gyan.FFmpeg
+irm get.scoop.sh | iex          # if scoop is not already there
+.\install.ps1                   # installs uv, just, ffmpeg, git; then just setup
 ```
+
+`install.ps1 -Check` reports what is missing and changes nothing. winget works
+too and the script uses it when scoop is absent.
+
+**PowerShell twins of the bash scripts** landed at the same time, so nothing in
+the everyday path requires a bash prompt:
+
+| bash | PowerShell |
+|---|---|
+| `install.sh` | `install.ps1` |
+| `bin/audiobook` | `bin\audiobook.ps1` |
+| `scripts/preprocess.sh` | `scripts\preprocess.ps1` |
+
+The options are PowerShell-shaped rather than transliterated: `-Voice`,
+`-Book`, `-DryRun` instead of `-v`, `-b`, `--dry-run`. Same stages, same
+defaults, same output. If you change one of a pair, change the other.
+
+If PowerShell refuses to run them, that is the execution policy rather than the
+script: `powershell -ExecutionPolicy Bypass -File .\install.ps1`.
+
+**What was actually fixed for Windows.** All of it in
+`apps/studio/src/studio/process.py`, which is the one module allowed to know
+which platform it is on. Four things differed and each mattered:
+
+1. `os.kill(pid, 0)` is a liveness probe on POSIX. On Windows it is not a
+   question — it calls `TerminateProcess`. The dashboard would have killed
+   every job it looked at. Windows now opens the process and reads its exit
+   code.
+2. Jobs were launched through `/bin/sh`, which does not exist. The exit-code
+   shim is Python on Windows.
+3. Stopping a job used the POSIX process group. Windows kills the tree with
+   `taskkill /T`, because `just` spawns uv, which spawns python.
+4. The venv interpreter is `.venv\Scripts\python.exe`, not `.venv/bin/python`.
+
+Twelve tests cover the seam, including running the Windows exit-code shim on
+macOS, since it is ordinary Python. **They do not prove the Windows paths
+work** — nothing here can. They prove the branching is right and the logic in
+the one testable piece is correct.
 
 **Recording a voice sample.** The runbook's command is macOS-only. On Windows,
 ffmpeg uses DirectShow:
 
-```bash
+```powershell
 ffmpeg -list_devices true -f dshow -i dummy          # find the device name
-ffmpeg -f dshow -i audio="Microphone (Realtek)" -ar 48000 -ac 1 -t 240 data/raw/voices/you.wav
+ffmpeg -f dshow -i audio="Microphone (Realtek)" -ar 48000 -ac 1 -t 240 data\raw\voices\you.wav
 ```
 
-**Playing the audition clip.** `open` is macOS; use `start` in Git Bash.
+**Playing the audition clip.** `open` is macOS; use `start` in PowerShell.
 
 **Known portability risks**, in rough order of likelihood:
 
-1. Path separators. The Python code uses `pathlib` throughout, so it should be
+1. Line endings. If git converts to CRLF, the bash scripts fail with an odd
+   `\r` error. `git config core.autocrlf input` avoids it. The PowerShell
+   scripts do not care.
+2. Path separators. The Python code uses `pathlib` throughout, so it should be
    fine, but `data/audio/<slug>/rendered.jsonl` stores paths as strings and they
    are written on the machine that renders. Do not mix machines within one book.
-2. The ffmpeg concat list in `bookbinder/assemble.py` writes `as_posix()` paths.
+3. The ffmpeg concat list in `bookbinder/assemble.py` writes `as_posix()` paths.
    That is deliberate and should be right for ffmpeg on Windows, but it is
    untested there.
-3. Line endings. If git converts to CRLF, the bash scripts will fail with an
-   odd `\r` error. `git config core.autocrlf input` avoids it.
+4. The test suite itself is POSIX in places — `test_worker.py` spawns
+   `/bin/sh` and uses `killpg`. Tests are expected to run on macOS and Linux;
+   if you want `just check` green on Windows, that is unfinished work rather
+   than a bug in the pipeline.
 
 ---
 
@@ -191,15 +283,19 @@ ffmpeg -f dshow -i audio="Microphone (Realtek)" -ar 48000 -ac 1 -t 240 data/raw/
    fix is named there.
 5. `just check-narrator` to prove XTTS still loads after the torch swap.
 6. Re-run something known good before attempting anything new:
-   ```bash
-   bin/audiobook -v data/raw/voices/michal.wav -b data/raw/books/test-book.txt --dry-run
+   ```powershell
+   .\bin\audiobook.ps1 -Voice data\raw\voices\michal.wav -Book data\raw\books\test-book.txt -DryRun
    ```
+   The bash form is `bin/audiobook -v ... -b ... --dry-run`.
 7. Then a real render, and compare the realtime factor in that run's
    `report.json` against the 0.4x measured on the M1. `just catalog-runs <slug>`
    gives the run id and `data/runs/<id>/data/audio/<slug>/report.json` is the
    file. On this card expect it to be far above 1.0. If it is not, CUDA is not
    being used.
-8. Only then attempt `just train`.
+8. `just bench pl michal` for the first real comparison between the two
+   engines. Expect Chatterbox bring-up here: it has never generated audio, so a
+   failure at this step is information about the adapter, not about the card.
+9. Only then attempt `just train`.
 
 ---
 
@@ -250,6 +346,11 @@ Model weights are not in the repo. XTTS-v2 downloads on first use, about 1.7 GB.
   has been exercised: treat `just docker-build-gpu` as work, not a formality.
   The CPU profile is proven, so the pattern they follow is known good.
   Phases 3 to 5 in ROADMAP-DOCKER.md are the plan from there.
+- **Chatterbox has never generated a sample**, so B-5's soaks and B-6's result
+  sheets in [WORKPLAN.md](WORKPLAN.md) are both blocked on this machine.
+- **Windows has never run any of this.** The obstacles named above were fixed
+  blind, from the documented behaviour of the APIs. `just doctor` is the first
+  real test.
 - **PDF ingestion is untested** on a real book. EPUB and plain text are covered.
 - **The narrator's report shape is mirrored by hand** in `synth.py`, because it
   cannot import bookbinder's models. A test pins the two together; if you change
