@@ -145,8 +145,9 @@ available" error or a silent fall back to CPU.
 Use the CUDA 12.8 index instead:
 
 ```bash
-cd narrator    && uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128 --force-reinstall
+cd apps/narrator    && uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128 --force-reinstall
 cd apps/transcriber && uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128 --force-reinstall
+cd apps/chatterbox  && uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128 --force-reinstall
 ```
 
 Then confirm the card is actually usable, not merely detected:
@@ -169,15 +170,19 @@ reasons that have nothing to do with CUDA:
   backends XTTS needs.
 - transcriber is on **torch 2.14.0**, because pyannote-audio needs a torchcodec
   build that only recent torch satisfies.
+- chatterbox resolves to **torch 2.6.0**, pulled in by `chatterbox-tts` rather
+  than pinned directly. It is the oldest of the three and therefore the most
+  likely to have no cu128 build of that exact version. It is also the one the
+  benchmark needs, so do not leave it on CPU and call the comparison done.
 
 Get the cu128 build *of those versions* if you can. If a version is unavailable
 for cu128, that is a real conflict and worth solving deliberately rather than by
 drifting the pin. `just doctor` prints what each environment resolved, and
 `just check-narrator` proves XTTS still loads afterwards.
 
-Once torch is swapped, update `justfile`'s `gpu-torch` recipe and the
-`pytorch-cu124` index blocks in both `pyproject.toml` files, so the next machine
-does not repeat this.
+Once torch is swapped, update `justfile`'s `gpu-torch` recipe — it hardcodes
+cu124 and defaults to narrator alone — and the `pytorch-cu124` index blocks in
+the `pyproject.toml` files, so the next machine does not repeat this.
 
 ---
 
