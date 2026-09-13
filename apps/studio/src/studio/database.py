@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
+from studio.process import alive
+
 VERSION = 1
 
 
@@ -138,9 +140,7 @@ def migrate_queue(root: Path) -> Database:
     for path in (root / "data/.studio/jobs").glob("*.json"):
         job = json.loads(path.read_text())
         if job.get("status") in ("running", "reserved") and job.get("pid"):
-            try:
-                os.kill(int(job["pid"]), 0)
-            except ProcessLookupError:
+            if not alive(int(job["pid"])):
                 continue
             raise StorageError("stop active jobs and workers before migrating the queue")
     # Work on a consistent SQLite snapshot, never copy a live WAL main file.

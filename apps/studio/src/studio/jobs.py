@@ -25,8 +25,6 @@ from __future__ import annotations
 
 import json
 import os
-import signal
-import subprocess
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -36,6 +34,7 @@ from pathlib import Path
 from bookbinder.manifest import XTTS_CHAR_LIMITS
 
 from studio.data import UnsafeName, check_name
+from studio.process import alive as _alive, interpreter, launch, reap, terminate
 
 # What the speech model can actually read. Offering more would fail later.
 LANGUAGES = frozenset(XTTS_CHAR_LIMITS)
@@ -206,45 +205,6 @@ def _child_env() -> dict[str, str]:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def _alive(pid: int) -> bool:
-    """Whether a pid is still a live process.
-
-    A finished child that nobody has waited on stays a zombie and answers
-    signal 0, so this returns True until it is reaped. `reap()` clears them,
-    and the exit file is checked before this in any case.
-    """
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
-def reap() -> int:
-    """Clear finished children so they stop counting as alive.
-
-    Jobs are started and forgotten across separate HTTP requests, so nothing
-    waits on them. Without this, every completed render leaves a zombie for the
-    lifetime of the server.
-    """
-    reaped = 0
-    while True:
-        try:
-            pid, _status = os.waitpid(-1, os.WNOHANG)
-        except ChildProcessError:
-            break
-        except OSError:
-            break
-        if pid == 0:
-            break
-        reaped += 1
-    return reaped
 
 
 class JobStore:
@@ -565,22 +525,13 @@ class JobRunner:
         exit_file = self.store.exit_path(job.id)
         exit_file.unlink(missing_ok=True)
 
-        # A detached process cannot be waited on later, so record the exit code
-        # where a future request can read it. Arguments go through "$@" rather
-        # than into the script text: they are validated already, but building a
-        # shell string out of user input is not a habit worth having.
-        wrapper = 'exec_status=0; "$@" || exec_status=$?; printf %s "$exec_status" > "$0"'
         try:
             with log.open("wb") as handle:
-                process = subprocess.Popen(
-                    ["/bin/sh", "-c", wrapper, str(exit_file), *job.command],
+                process = launch(
+                    job.command,
+                    exit_file=exit_file,
+                    log=handle,
                     cwd=self.root,
-                    stdout=handle,
-                    stderr=subprocess.STDOUT,
-                    stdin=subprocess.DEVNULL,
-                    # Its own process group, so closing the browser, or this
-                    # server exiting, does not take a twelve-hour render with it.
-                    start_new_session=True,
                     env=_child_env() | {"AUDIOBOOK_FACTORY_ROOT": str(self.root), "AF_ATTEMPT_ID": job.id},
                 )
         except OSError as exc:
@@ -599,11 +550,8 @@ class JobRunner:
             raise JobError(f"no job {job_id}")
         if not job.running:
             return job
-        try:
-            # The whole group: `just` spawns uv, which spawns python.
-            os.killpg(os.getpgid(job.pid), signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            pass
+        # The whole tree: `just` spawns uv, which spawns python.
+        terminate(job.pid)
         if (self.root / "data/audiobook.db").exists():
             from studio.catalog import Catalog
             with Catalog(self.root).db.write() as conn:

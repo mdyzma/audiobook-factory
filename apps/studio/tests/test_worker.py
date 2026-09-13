@@ -14,14 +14,14 @@ import subprocess
 
 import pytest
 
-from studio import jobs
+from studio import process
 from studio.jobs import DEVICE_LOCK, Job, JobStore
 from studio.queue import CLAIMED, DONE, FAILED, PENDING, RUNNING, Queue
 from studio.worker import Worker
 
 PLAN = [("chunk", {}), ("synth", {"voice": "michal"}), ("assemble", {"format": "m4b"})]
 
-# Captured before anything is patched. `jobs.subprocess` is the stdlib module
+# Captured before anything is patched. `process.subprocess` is the stdlib module
 # itself, so patching Popen there patches it everywhere, this file included.
 REAL_POPEN = subprocess.Popen
 
@@ -45,7 +45,7 @@ class FakePopen:
 
 @pytest.fixture
 def worker(project, monkeypatch):
-    monkeypatch.setattr(jobs.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(process.subprocess, "Popen", FakePopen)
     yield Worker(project, name="test-worker")
     for proc in FakePopen.spawned:
         try:

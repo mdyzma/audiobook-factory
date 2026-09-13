@@ -23,6 +23,7 @@ from studio.catalog import (
     read_lines,
 )
 from studio.database import StorageError, now
+from studio.process import interpreter
 
 STAGES = ("chunk", "synth", "dryrun", "assemble", "verify")
 
@@ -245,12 +246,12 @@ def _execute_stage(root: Path, run_id: str, stage: str, *, fmt: str = "", device
             command += ["--single-voice"]
     else:
         environment = {"synth": snapshot["model"]["environment"], "verify": "transcriber"}.get(stage, "bookbinder")
-        interpreter = checkout / "apps" / environment / ".venv/bin/python"
-        if not interpreter.is_file():
+        python = interpreter(checkout / "apps" / environment)
+        if not python.is_file():
             raise StorageError(f"missing {environment} environment; run the project setup")
         module = {"synth": "narrator.synth", "verify": "transcriber.verify",
                   "dryrun": "bookbinder.dryrun", "assemble": "bookbinder.assemble"}[stage]
-        command = [str(interpreter), "-m", module, slug]
+        command = [str(python), "-m", module, slug]
         if stage == "synth":
             command += ["--voice", snapshot["voice"], "--device", device]
             env["COQUI_TOS_AGREED"] = "1"
