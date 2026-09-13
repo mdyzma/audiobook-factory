@@ -7,7 +7,18 @@
 # uv manages the interpreter, the virtualenvs and the locks. No pyenv, no poetry.
 
 set shell := ["bash", "-uc"]
+# On Windows, `bash` on PATH is System32's WSL launcher, which sits ahead of
+# Git for Windows on the machine PATH and fails outright when no Linux distro
+# is installed. So name Git's bash by path. bin\bash.exe, not usr\bin, because
+# the launcher puts the coreutils the recipes use (printf, tail, cut) on PATH.
+set windows-shell := ["C:/Program Files/Git/bin/bash.exe", "-uc"]
 set dotenv-load := true
+
+# Windows Python writes piped output and opens files in the ANSI code page
+# (cp1250 on a Polish machine). Everything that reads it back - job logs, the
+# dashboard, a file opened without an explicit encoding - expects UTF-8, so
+# Polish text turns into `�`. UTF-8 mode makes every stage agree.
+export PYTHONUTF8 := "1"
 
 python_version := "3.11.9"
 

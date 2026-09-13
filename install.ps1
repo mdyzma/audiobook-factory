@@ -7,8 +7,9 @@
     winget, then builds the Python environments.
 
     Git for Windows matters as much as the rest: the justfile runs every recipe
-    through bash. Without bash on PATH nothing in this project runs, even
-    though the everyday scripts now have PowerShell twins.
+    through its bash, by path, at C:\Program Files\Git\bin\bash.exe. Without
+    it nothing in this project runs, even though the everyday scripts now have
+    PowerShell twins.
 
 .PARAMETER Check
     Report what is missing and change nothing.
@@ -34,14 +35,26 @@ function Write-Ok   { param($Text) Write-Host "  ok      $Text" -ForegroundColor
 function Write-Miss { param($Text) Write-Host "  missing $Text" -ForegroundColor Yellow }
 function Write-Fail { param($Text) Write-Host "  failed  $Text" -ForegroundColor Red }
 
-# Cmd: what to look for on PATH. Scoop and winget name the same tools
-# differently, and neither carries all four under one name.
+# The justfile's windows-shell names this path. `bash` on PATH is no evidence:
+# System32\bash.exe is the WSL launcher, found first, and fails when no Linux
+# distro is installed. Keep the two in step.
+$GitBash = 'C:\Program Files\Git\bin\bash.exe'
+
+# Cmd: what to look for on PATH; Path: a file that must exist instead. Scoop
+# and winget name the same tools differently, and neither carries all four
+# under one name. Git comes from winget even under scoop, because scoop puts it
+# in the user profile rather than the path the justfile names.
 $Tools = @(
     @{ Name = 'uv';     Cmd = 'uv';     Scoop = 'main/uv';     Winget = 'astral-sh.uv' },
     @{ Name = 'just';   Cmd = 'just';   Scoop = 'main/just';   Winget = 'casey.just' },
     @{ Name = 'ffmpeg'; Cmd = 'ffmpeg'; Scoop = 'main/ffmpeg'; Winget = 'Gyan.FFmpeg' },
-    @{ Name = 'bash (Git for Windows)'; Cmd = 'bash'; Scoop = 'main/git'; Winget = 'Git.Git' }
+    @{ Name = "bash (Git for Windows, $GitBash)"; Path = $GitBash; Winget = 'Git.Git' }
 )
+
+function Test-Tool($tool) {
+    if ($tool.Path) { return Test-Path -PathType Leaf $tool.Path }
+    return [bool](Get-Command $tool.Cmd -ErrorAction SilentlyContinue)
+}
 
 Write-Bold "audiobook-factory bootstrap"
 Write-Host "  host: Windows $([System.Environment]::OSVersion.Version), $env:PROCESSOR_ARCHITECTURE"
@@ -57,7 +70,7 @@ Write-Host ""
 Write-Bold "Checking host tools"
 $Missing = @()
 foreach ($tool in $Tools) {
-    if (Get-Command $tool.Cmd -ErrorAction SilentlyContinue) {
+    if (Test-Tool $tool) {
         Write-Ok $tool.Name
     } else {
         Write-Miss $tool.Name
@@ -82,9 +95,11 @@ if ($Missing.Count -eq 0) {
     }
     Write-Bold ("Installing: " + ($Missing.Name -join ', '))
     foreach ($tool in $Missing) {
-        if ($manager -eq 'scoop') {
+        if ($manager -eq 'scoop' -and $tool.Scoop) {
             Write-Host "  scoop install $($tool.Scoop)"
             scoop install $tool.Scoop
+        } elseif (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+            Write-Fail "$($tool.Name) needs winget, or the installer from https://gitforwindows.org"
         } else {
             Write-Host "  winget install $($tool.Winget)"
             winget install --id $tool.Winget --accept-source-agreements --accept-package-agreements --silent
@@ -95,7 +110,7 @@ if ($Missing.Count -eq 0) {
                 [System.Environment]::GetEnvironmentVariable('Path', 'User')
     Write-Host ""
     foreach ($tool in $Missing) {
-        if (Get-Command $tool.Cmd -ErrorAction SilentlyContinue) {
+        if (Test-Tool $tool) {
             Write-Ok $tool.Name
         } else {
             Write-Miss "$($tool.Name) still not on PATH; close this window and open a new one"
@@ -155,9 +170,8 @@ Write-Host @"
   The everyday scripts have PowerShell twins, so a bash prompt is optional:
   install.ps1, bin\audiobook.ps1 and scripts\preprocess.ps1 alongside
   install.sh, bin/audiobook and scripts/preprocess.sh. 'just' still invokes
-  bash for every recipe, which is why Git for Windows is checked above.
+  Git for Windows' bash for every recipe, which is why it is checked above.
 
-  On this machine's RTX 5090, read docs\HANDOFF-GPU.md before installing GPU
-  wheels: the gpu-torch recipe still points at CUDA 12.4, which has no kernels
-  for Blackwell cards.
+  On this machine's RTX 5090, run 'just gpu-status' and read
+  docs\HANDOFF-GPU.md before installing any GPU wheels.
 "@

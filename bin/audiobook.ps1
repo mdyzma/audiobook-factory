@@ -90,9 +90,11 @@ foreach ($tool in 'just', 'ffmpeg') {
         Die "$tool is not installed (scoop install $tool). Run .\install.ps1 first."
     }
 }
-# Every just recipe runs under bash, so its absence fails later and obscurely.
-if (-not (Get-Command bash -ErrorAction SilentlyContinue)) {
-    Die 'bash is not installed, and every just recipe runs under it (scoop install git)'
+# Every just recipe runs under Git for Windows' bash, named by path in the
+# justfile, so its absence fails later and obscurely. `bash` on PATH proves
+# nothing: System32\bash.exe is the WSL launcher.
+if (-not (Test-Path -PathType Leaf 'C:\Program Files\Git\bin\bash.exe')) {
+    Die 'Git for Windows is not installed at C:\Program Files\Git, and every just recipe runs under its bash (winget install Git.Git)'
 }
 
 # Turn a path into a safe identifier: strip directories, extension and anything

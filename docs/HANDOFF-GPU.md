@@ -239,11 +239,20 @@ you and the card while you are trying to judge whether CUDA is working at all.
 If you use WSL anyway, passthrough needs a recent WSL2 with the NVIDIA driver
 installed on the Windows side, not inside the distro.
 
-**You still need bash, even natively.** The justfile declares
-`set shell := ["bash", "-uc"]`, so every recipe spawns bash. Git for Windows
-supplies it. Without it, `just setup` fails immediately with an unhelpful
-message about a missing program. This is the one prerequisite people lose an
-hour to, so `install.ps1` checks for it by name.
+**You still need bash, even natively.** Every recipe runs under bash, and
+Git for Windows supplies it. On Windows the justfile names it by path,
+`set windows-shell := ["C:/Program Files/Git/bin/bash.exe", "-uc"]`, because
+plain `bash` resolves to `C:\Windows\System32\bash.exe` first: the WSL
+launcher, which fails with `execvpe(/bin/bash) failed` when no Linux distro is
+installed. That made every recipe fail from PowerShell while working from a
+Git Bash prompt. `install.ps1` checks for the file at that path, since `bash`
+on PATH proves nothing, and installs Git with winget even under scoop, which
+would put it somewhere else.
+
+**Python runs in UTF-8 mode.** The justfile exports `PYTHONUTF8=1`. Without it
+Windows Python writes piped output and opens files in cp1250 on a Polish
+machine, so job logs and anything read back as UTF-8 show `�` for Polish
+letters. Three bookbinder and studio tests failed on exactly that.
 
 **Setup:**
 
