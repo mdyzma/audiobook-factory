@@ -117,7 +117,7 @@ def backup(root: Path, destination: Path) -> dict:
         check = copied.db.check()
         if not check["ok"]:
             raise StorageError(f"backup integrity failed: {check}")
-        (staged / "backup.json").write_text(encode({"format": 1, "assets": len(copied.rows('SELECT id FROM assets'))}))
+        (staged / "backup.json").write_text(encode({"format": 1, "assets": len(copied.rows('SELECT id FROM assets'))}), encoding="utf-8")
         staged.rename(destination)
         return check
     except BaseException:

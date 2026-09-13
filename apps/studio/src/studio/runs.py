@@ -55,7 +55,7 @@ def prepare_run(root: Path, slug: str, *, voice: str = "", model: str = "",
         raise StorageError(str(exc)) from exc
     import tomllib
     pipeline = root / "config/pipeline.toml"
-    config = tomllib.loads(pipeline.read_text()) if pipeline.is_file() else {}
+    config = tomllib.loads(pipeline.read_text(encoding="utf-8")) if pipeline.is_file() else {}
     settings = {k: float(v) for k, v in config.get("synth", {}).items()
                 if isinstance(v, (float, int)) and k != "retries"}
     # A recorded current plan has already resolved its own settings.
@@ -83,8 +83,8 @@ def prepare_run(root: Path, slug: str, *, voice: str = "", model: str = "",
         from bookbinder.cast import Cast
         cast_settings = {role: spec.supported_controls({"speed": setting.speed})
                          for role, setting in Cast.load(root / "config/cast.yml").roles.items()}
-    configuration = {p.name: p.read_text() for p in (root / "config").glob("*") if p.is_file()}
-    overrides = {p.name: p.read_text() for p in (root / "data/book" / slug).glob("*")
+    configuration = {p.name: p.read_text(encoding="utf-8") for p in (root / "config").glob("*") if p.is_file()}
+    overrides = {p.name: p.read_text(encoding="utf-8") for p in (root / "data/book" / slug).glob("*")
                  if p.name in ("role_overrides.json", "pronunciation.yml")}
     snapshot = {"slug": slug, "text_version_id": text["id"], "model": selected,
                 "voice": chosen_voice, "cast": cast, "cast_settings": cast_settings, "voice_revisions": revisions,
@@ -104,7 +104,7 @@ def prepare_run(root: Path, slug: str, *, voice: str = "", model: str = "",
     try:
         (staged / "config").mkdir()
         for name, content in configuration.items():
-            (staged / "config" / name).write_text(content)
+            (staged / "config" / name).write_text(content, encoding="utf-8")
         book_dir = staged / "data/book" / slug
         book_dir.mkdir(parents=True)
         publish_text(book_dir / "chapters.json", encode(payload))

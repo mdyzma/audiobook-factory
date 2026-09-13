@@ -110,8 +110,10 @@ def main(
         "sample_rate": 24000,
         "mode": "instant",
         "model_dir": None,
-        "reference_wavs": [str(Path("data/datasets") / voice / "wavs" / r[0]) for r in references],
-        "dataset_dir": str(Path("data/datasets") / voice),
+        # Forward slashes on every platform: the profile moves between
+        # machines, and its reference paths are hashed into the voice revision.
+        "reference_wavs": [f"data/datasets/{voice}/wavs/{r[0]}" for r in references],
+        "dataset_dir": f"data/datasets/{voice}",
         "segment_count": len(rows),
         "total_minutes": round(sum(r[2] for r in rows) / 60, 2),
     }

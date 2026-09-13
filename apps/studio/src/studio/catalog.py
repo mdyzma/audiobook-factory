@@ -30,7 +30,7 @@ def read_json(path: Path, default: Any = None) -> Any:
 
 
 def read_lines(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.is_file() else []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()] if path.is_file() else []
 
 
 def relink(source: Path, stored: Path) -> bool:
@@ -394,7 +394,7 @@ class Catalog:
         if run["status"] != "legacy" and (audio / "fingerprints.jsonl").is_file():
             import wave
             ledger = {}
-            for line in (audio / "fingerprints.jsonl").read_text().splitlines():
+            for line in (audio / "fingerprints.jsonl").read_text(encoding="utf-8").splitlines():
                 try:
                     record = json.loads(line)
                     ledger[record["id"]] = record["fingerprint"]

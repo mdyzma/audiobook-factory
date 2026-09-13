@@ -71,7 +71,10 @@ class VoiceProfile:
             language=raw.get("language", "pl"),
             reference_wavs=[str(root / p) for p in raw["reference_wavs"]],
             mode=raw.get("mode", "instant"),
-            model_dir=raw.get("model_dir"),
+            # Written relative to the root by train.py. Left relative, loading
+            # resolved it against the working directory, which `just` sets to
+            # apps/narrator, so a fine-tuned voice never found its checkpoint.
+            model_dir=str(root / raw["model_dir"]) if raw.get("model_dir") else None,
             sample_rate=raw.get("sample_rate", 24000),
         )
 

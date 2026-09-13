@@ -52,7 +52,9 @@ class TestVoiceProfile:
         write_profile(tmp_path, mode="finetuned", model_dir="training/v")
         p = VoiceProfile.load(tmp_path, "v")
         assert p.mode == "finetuned"
-        assert p.model_dir == "training/v"
+        # Relative to the root like the references, not to the working
+        # directory the stage happens to run in.
+        assert p.model_dir == str(tmp_path / "training/v")
 
 
 class TestCheckpointKey:

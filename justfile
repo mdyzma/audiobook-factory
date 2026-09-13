@@ -397,17 +397,16 @@ docker-run service *args:
     docker compose --profile cpu --profile gpu run --rm {{service}} {{args}}
 
 # Ingest, chunk, silence and assemble entirely in containers. No GPU, no models.
+# Plain recipe lines rather than a shebang: on Windows just needs cygpath to run
+# a shebang recipe, and cygpath is only on PATH inside a Git Bash prompt.
+# MSYS_NO_PATHCONV stops Git Bash rewriting the in-container /app path into a
+# Windows one before docker sees it; elsewhere it is an unused variable.
 docker-smoke slug="dockersmoke" source="data/raw/books/test-book.txt":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    run() { docker compose --profile cpu run --rm bookbinder "$@"; }
-    slug={{quote(slug)}}
-    source={{quote("/app/" + source)}}
-    run python -m bookbinder.ingest "$source" --slug "$slug" --language pl
-    run python -m bookbinder.chunk "$slug"
-    run python -m bookbinder.dryrun "$slug"
-    run python -m bookbinder.assemble "$slug"
-    echo "-> data/out/$slug.m4b"
+    MSYS_NO_PATHCONV=1 docker compose --profile cpu run --rm bookbinder python -m bookbinder.ingest {{quote("/app/" + source)}} --slug {{quote(slug)}} --language pl
+    docker compose --profile cpu run --rm bookbinder python -m bookbinder.chunk {{quote(slug)}}
+    docker compose --profile cpu run --rm bookbinder python -m bookbinder.dryrun {{quote(slug)}}
+    docker compose --profile cpu run --rm bookbinder python -m bookbinder.assemble {{quote(slug)}}
+    @echo "-> data/out/{{slug}}.m4b"
 
 # The dashboard in a container, on http://127.0.0.1:8765
 docker-ui:

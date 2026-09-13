@@ -72,7 +72,7 @@ class Database:
                 # Schema and version commit together, including concurrent first opens.
                 conn.execute("BEGIN IMMEDIATE")
                 if conn.execute("PRAGMA user_version").fetchone()[0] == 0:
-                    script = Path(__file__).with_name("storage_schema.sql").read_text()
+                    script = Path(__file__).with_name("storage_schema.sql").read_text(encoding="utf-8")
                     statement = ""
                     for line in script.splitlines(keepends=True):
                         statement += line
@@ -138,7 +138,7 @@ def migrate_queue(root: Path) -> Database:
     if not legacy.exists():
         return Database(root)
     for path in (root / "data/.studio/jobs").glob("*.json"):
-        job = json.loads(path.read_text())
+        job = json.loads(path.read_text(encoding="utf-8"))
         if job.get("status") in ("running", "reserved") and job.get("pid"):
             if not alive(int(job["pid"])):
                 continue
