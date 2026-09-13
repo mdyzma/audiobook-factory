@@ -116,10 +116,11 @@ for that rule to hold.
 | `~/.claude/CLAUDE.md` | Personal instructions across all projects. |
 | `~/.claude/settings.json` | Theme, and the enabled plugin list. 270 bytes. |
 
-`settings.json` enables the `context-mode` plugin from the `mksglu/context-mode`
-marketplace. Copying the file records the intent; the plugin itself still has to
-install on the new machine, and until it does, the instructions in
-`~/.claude/CLAUDE.md` will reference MCP tools that are not there.
+`context-mode` is already installed on the workstation (confirmed 2026-09-13),
+so `~/.claude/CLAUDE.md` can be copied as it stands and the MCP tools its rules
+mandate will resolve. `settings.json` is then only the theme and the plugin
+enablement, and may already say the right thing there; copy it if the two
+machines should match, skip it otherwise.
 
 **The memory directory is keyed by absolute path.** On this machine it is:
 
