@@ -241,3 +241,6 @@ data/.studio/
 # pytest tmpdir when TMPDIR points at the repo, and uv resolver scratch
 pytest-of-*/
 uv-*.lock
+# mkdtemp's default prefix, rooted so it only catches strays at the top level.
+# One of these was committed by accident in 33e27ce and lived here until 0acb390.
+/tmp*/
