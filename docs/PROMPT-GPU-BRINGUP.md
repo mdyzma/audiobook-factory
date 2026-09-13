@@ -32,12 +32,17 @@ previous one actually worked.
    (install.ps1, bin/audiobook.ps1, scripts/preprocess.ps1) have never been
    parsed, let alone run.
 
-3. Get CUDA working. This is the real task and it is unsolved. `just gpu-torch`
-   installs CUDA 12.4 wheels, which contain no kernels for Blackwell (sm_120).
-   HANDOFF-GPU.md has the cu128 commands and the verification. Three
-   environments need it, not two: narrator, transcriber and chatterbox. A
-   matrix multiply on the device must succeed and get_device_capability must
-   report (12, 0). `torch.cuda.is_available()` returning True proves nothing.
+3. Get CUDA working. Start with `just gpu-status` and change nothing until you
+   have read it. Three environments have torch - narrator, transcriber and
+   chatterbox - and two of them already resolve a CUDA build that addresses
+   Blackwell, so the first correct action is usually no action. chatterbox is
+   the one that cannot: it resolves torch 2.6.0 with CUDA 12.4, and there is no
+   cu128 build of 2.6.0 to switch to, so that version has to move and may
+   conflict with what chatterbox-tts requires. HANDOFF-GPU.md has the detail.
+   A matrix multiply on the device must succeed and get_device_capability must
+   report (12, 0); `torch.cuda.is_available()` returning True proves nothing.
+   Also check early whether CTranslate2 finds a cuDNN it accepts, because
+   WhisperX does not use torch's CUDA and a working torch says nothing about it.
 
 4. Prove the pipeline end to end with a dry run, then a real render of a short
    book. Compare the realtime factor in the run's report.json against the 0.4x

@@ -26,7 +26,7 @@ jobs:
           enable-cache: true
       - name: Check every lock matches its manifest
         run: |
-          for env in bookbinder studio narrator transcriber; do
+          for env in bookbinder studio narrator chatterbox transcriber; do
             echo "::group::$env"
             uv lock --check --directory "apps/$env"
             echo "::endgroup::"

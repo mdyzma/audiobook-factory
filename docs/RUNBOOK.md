@@ -399,9 +399,11 @@ on the GPU box. Copy `data/` across; nothing else is needed.
 
 ```bash
 just setup
-just gpu-torch narrator
-just gpu-torch transcriber
+just gpu-status
 ```
+
+`gpu-status` reports what each environment resolved. Two of the three already
+address Blackwell as locked; see HANDOFF-GPU.md before changing any of them.
 
 Fine-tuning needs CUDA outright and will refuse to start without it. Instant
 cloning does not, and covers most books.

@@ -60,10 +60,23 @@ setup-chatterbox:
 relock env:
     cd apps/{{env}} && uv lock --upgrade && uv sync
 
-# Swap in CUDA wheels. PC with the RTX 5090 only; skip on Apple Silicon.
-gpu-torch env="narrator":
+# Measured from the locks on 2026-09-13: narrator resolves CUDA 12.8,
+# transcriber 13.0, chatterbox 12.4. Blackwell (sm_120) needs 12.8 or newer, so
+# chatterbox is the only one that cannot address this card as locked.
+# Report the CUDA build and device capability each environment resolved.
+gpu-status:
+    @for env in narrator transcriber chatterbox; do \
+      printf '{{bold}}%s{{nc}}\n' "$env"; \
+      (cd apps/$env && uv run python -c "import torch; print('  torch', torch.__version__, '| cuda build', torch.version.cuda); print('  available', torch.cuda.is_available(), '| capability', torch.cuda.get_device_capability(0) if torch.cuda.is_available() else 'n/a')" 2>&1 | tail -3); \
+    done
+
+# No default index, deliberately: this recipe used to default to cu124, which
+# would silently downgrade narrator from the 12.8 build it already resolves and
+# leave it with no kernels for Blackwell. Run `just gpu-status` afterwards.
+# Reinstall torch from a named CUDA index. Both arguments are required.
+gpu-torch env index:
     cd apps/{{env}} && uv pip install torch torchaudio \
-      --index-url https://download.pytorch.org/whl/cu124
+      --index-url https://download.pytorch.org/whl/{{index}}
 
 # --------------------------------------------------------------- checks ----
 

@@ -231,12 +231,17 @@ places. Move `data/` between them; nothing else is needed.
 On the CUDA box, after `just setup`:
 
 ```bash
-just gpu-torch narrator
-just gpu-torch transcriber
+just gpu-status
 ```
 
-That swaps in the CUDA 12.4 wheels. Skip it on Apple Silicon, where the default
-PyPI wheels already carry MPS.
+Do that before installing anything. The locked wheels come from PyPI, so each
+environment already has whatever CUDA its torch release shipped by default:
+narrator 12.8 and transcriber 13.0, both of which address Blackwell, and
+chatterbox 12.4, which does not. Only reach for `just gpu-torch <env> <index>`
+where the report says you need to, and note that it takes an explicit index
+now: its old cu124 default would have downgraded narrator off a working build.
+
+Skip all of it on Apple Silicon, where the default PyPI wheels carry MPS.
 
 Measured on an M1, synthesis runs at roughly 0.8x realtime, so a ten-hour book
 takes about twelve hours. That workload belongs on the GPU.

@@ -30,8 +30,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/transcriber"]
 
-# CUDA 12.4 wheels for the RTX 5090 box. Unused on Apple Silicon, which resolves
-# to the default PyPI wheels with MPS support. Switch with: just gpu-torch
+# Dormant: explicit = true, so nothing resolves through it unless a dependency
+# names it. The default PyPI torch 2.14.0 this environment locks is a CUDA 13.0
+# build and already addresses Blackwell, so switching to cu124 here would be a
+# downgrade. On Apple Silicon the same default wheels carry MPS.
 [tool.uv]
 # whisperx 3.8.1 declares torchaudio>=2.8,<2.9. That bound is stricter than
 # reality and it strands torchcodec, which pyannote-audio requires: torchcodec

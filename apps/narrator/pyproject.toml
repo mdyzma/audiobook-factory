@@ -55,7 +55,11 @@ constraint-dependencies = [
     "huggingface-hub==0.23.5",
 ]
 
-# CUDA 12.4 wheels for the RTX 5090 box. Switch with: just gpu-torch
+# Dormant: explicit = true, so nothing resolves through it unless a dependency
+# names it. Kept as an escape hatch, but do not reach for it on a 5090. The
+# default PyPI torch 2.8.0 this environment locks is already a CUDA 12.8 build,
+# which addresses Blackwell; cu124 does not. `just gpu-status` reports what is
+# actually installed.
 [[tool.uv.index]]
 name = "pytorch-cu124"
 url = "https://download.pytorch.org/whl/cu124"

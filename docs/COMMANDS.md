@@ -21,7 +21,8 @@ pass `""` for the ones between.
 | `just setup-studio` | Syncs the dashboard environment. |
 | `just setup-narrator` | Syncs the XTTS environment in one pass. Pins live in its `[tool.uv] constraint-dependencies`. |
 | `just relock <env>` | Re-resolves from scratch, ignoring the lock. Use after changing a pin. |
-| `just gpu-torch <env="narrator">` | Swaps in CUDA 12.4 wheels. CUDA host only; skip on Apple Silicon. |
+| `just gpu-status` | What CUDA build and device capability each ML environment resolved. Read it before touching torch. |
+| `just gpu-torch <env> <index>` | Reinstalls torch from a named CUDA index, e.g. `just gpu-torch chatterbox cu128`. Both arguments required: the old cu124 default would downgrade narrator off a working 12.8 build. |
 
 ## Checks
 

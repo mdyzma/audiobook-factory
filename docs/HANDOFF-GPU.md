@@ -135,22 +135,46 @@ someone to listen rather than only to read numbers.
 
 ---
 
-## Critical: the CUDA wheels are wrong for this card
+## Critical: which environments can address this card
 
-**Do not just run `just gpu-torch`.** It points at the CUDA 12.4 index, and those
-builds predate Blackwell. The RTX 5090 is compute capability sm_120, and cu124
-wheels contain no kernels for it. You will get either a "no kernel image is
-available" error or a silent fall back to CPU.
+Re-measured from the locks on 2026-09-13. The earlier version of this section
+said "swap everything to cu128", which is now wrong in a direction that breaks
+a working setup.
 
-Use the CUDA 12.8 index instead:
+The locked torch wheels come from PyPI, not from a pytorch index, so each
+environment gets whatever CUDA that torch release shipped as its default:
 
-```bash
-cd apps/narrator    && uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128 --force-reinstall
-cd apps/transcriber && uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128 --force-reinstall
-cd apps/chatterbox  && uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128 --force-reinstall
-```
+| Environment | torch | CUDA runtime | Addresses sm_120? |
+|---|---|---|---|
+| narrator | 2.8.0 | 12.8 | **yes**, as locked |
+| transcriber | 2.14.0 | 13.0 | **yes**, as locked |
+| chatterbox | 2.6.0 | 12.4 | **no** |
+| bookbinder | — | — | no torch at all |
+| studio | — | — | no torch at all |
 
-Then confirm the card is actually usable, not merely detected:
+**So the first thing to do is nothing.** Run `just setup`, then
+`just gpu-status`. Two of the three ML environments should already report a
+CUDA build and capability `(12, 0)`. If they do, leave them alone.
+
+**`just gpu-torch` no longer has a default index**, because it used to install
+cu124 into narrator, which would have replaced a working 12.8 build with one
+that has no Blackwell kernels. It now requires both the environment and the
+index, and `just gpu-status` reports what you actually got.
+
+### chatterbox is the real problem
+
+torch 2.6.0 predates Blackwell support. There is no cu128 build of 2.6.0 to
+switch to — CUDA 12.8 wheels start at torch 2.7 — so this cannot be fixed by
+pointing at a different index. The version has to move.
+
+It is not pinned directly: `chatterbox-tts` pulls it. Check what that package
+actually requires before assuming 2.7 or 2.8 is safe, and if it does hold 2.6
+hard, that is a genuine conflict between the second engine and this card,
+worth reporting rather than working around. It is also the environment B-5
+needs, so leaving it on CPU and running the benchmark anyway would produce
+numbers that mean nothing: one engine on a 5090, the other on a CPU.
+
+### Verifying, whatever you end up with
 
 ```bash
 cd apps/narrator && uv run python -c "
@@ -160,29 +184,35 @@ print(torch.cuda.get_device_name(0), torch.cuda.get_device_capability(0))
 print((torch.randn(1000,1000,device='cuda') @ torch.randn(1000,1000,device='cuda')).sum().item())"
 ```
 
-`get_device_capability` should print `(12, 0)`. If the matrix multiply throws,
-the wheels are wrong regardless of what `is_available()` said.
+`get_device_capability` must print `(12, 0)`. If the matrix multiply throws,
+the wheels are wrong regardless of what `is_available()` said. `is_available()`
+returning True is not evidence.
 
-**Mind the version pins while doing this.** Both environments pin torch for
-reasons that have nothing to do with CUDA:
+### If you do have to move a pin
+
+Both narrator and transcriber pin torch for reasons that have nothing to do
+with CUDA, and those reasons still hold:
 
 - narrator is on **torch 2.8.0**, because torchaudio 2.9 dropped the native
   backends XTTS needs.
 - transcriber is on **torch 2.14.0**, because pyannote-audio needs a torchcodec
   build that only recent torch satisfies.
-- chatterbox resolves to **torch 2.6.0**, pulled in by `chatterbox-tts` rather
-  than pinned directly. It is the oldest of the three and therefore the most
-  likely to have no cu128 build of that exact version. It is also the one the
-  benchmark needs, so do not leave it on CPU and call the comparison done.
 
-Get the cu128 build *of those versions* if you can. If a version is unavailable
-for cu128, that is a real conflict and worth solving deliberately rather than by
-drifting the pin. `just doctor` prints what each environment resolved, and
-`just check-narrator` proves XTTS still loads afterwards.
+`just doctor` prints what each environment resolved, and `just check-narrator`
+proves XTTS still loads afterwards.
 
-Once torch is swapped, update `justfile`'s `gpu-torch` recipe — it hardcodes
-cu124 and defaults to narrator alone — and the `pytorch-cu124` index blocks in
-the `pyproject.toml` files, so the next machine does not repeat this.
+### A second CUDA stack, in transcriber only
+
+WhisperX runs its ASR through CTranslate2 (4.8.2 here), which does not use
+torch's CUDA at all — it links cuBLAS and cuDNN itself. A working torch is
+therefore not evidence that transcription will run on the GPU, and the usual
+symptom is a missing `cudnn64_*.dll` on Windows while torch reports everything
+fine. transcriber's lock carries `nvidia-cudnn-cu13`, matching its CUDA 13
+torch; whether CTranslate2 4.8.2 accepts that cuDNN is unverified and is worth
+checking early, because it decides whether `just verify` is minutes or hours.
+
+`onnxruntime` in the same environment is the CPU build, used for voice activity
+detection. That is cheap and deliberate; it does not need a GPU.
 
 ---
 
