@@ -621,7 +621,7 @@ def api_save_pronunciation(slug: str, payload: dict = Body(...)):
     name = safe(slug)
     clean = {str(k): str(v) for k, v in entries.items()}
     path = _pronounce(save, root(), name, clean)
-    return {"path": str(path.relative_to(root())),
+    return {"path": path.relative_to(root()).as_posix(),
             **_preview_payload(_pronounce(preview, root(), name, clean))}
 
 
@@ -655,7 +655,7 @@ async def api_upload(kind: str, file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="kind must be voice or book")
     upload = _authoring(authoring.store_upload, root(), kind,
                         file.filename or "", file.file)
-    return {"path": str(upload.path.relative_to(root())),
+    return {"path": upload.path.relative_to(root()).as_posix(),
             "name": upload.path.name, "bytes": upload.bytes_written}
 
 
@@ -696,4 +696,4 @@ def api_set_cast(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="expected {'roles': {...}}")
     authoring.backup_cast(root())
     path = _authoring(authoring.write_cast, root(), roles)
-    return {"path": str(path.relative_to(root())), "roles": authoring.read_cast(root())}
+    return {"path": path.relative_to(root()).as_posix(), "roles": authoring.read_cast(root())}

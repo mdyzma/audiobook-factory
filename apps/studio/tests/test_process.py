@@ -23,7 +23,8 @@ import pytest
 from studio import process
 
 
-def test_interpreter_follows_the_platform(tmp_path: Path) -> None:
+def test_interpreter_on_posix(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(process, "WINDOWS", False)
     assert process.interpreter(tmp_path).parts[-2:] == ("bin", "python")
 
 
@@ -119,6 +120,50 @@ def test_terminate_kills_the_tree_on_windows(monkeypatch: pytest.MonkeyPatch) ->
     process.terminate(4321)
     assert seen[0][:2] == ["taskkill", "/PID"]
     assert "/T" in seen[0]
+
+
+class TestExclusive:
+    """The file lock the catalog and every run stage take, on this platform.
+
+    Two handles in one process contend exactly as two processes do, with flock
+    and with msvcrt alike, so the real lock can be exercised without spawning.
+    """
+
+    def test_a_held_lock_refuses_without_waiting(self, tmp_path: Path) -> None:
+        lock = tmp_path / ".lock"
+        with process.exclusive(lock, wait=False):
+            with pytest.raises(BlockingIOError):
+                with process.exclusive(lock, wait=False):
+                    pass
+
+    def test_it_is_free_again_once_released(self, tmp_path: Path) -> None:
+        lock = tmp_path / ".lock"
+        with process.exclusive(lock, wait=False):
+            pass
+        with process.exclusive(lock, wait=False):
+            pass
+
+    def test_a_waiting_caller_gets_it_after_release(self, tmp_path: Path) -> None:
+        import threading
+
+        lock = tmp_path / ".lock"
+        order: list[str] = []
+        held = threading.Event()
+
+        def holder() -> None:
+            with process.exclusive(lock, wait=False):
+                held.set()
+                order.append("first")
+                threading.Event().wait(0.3)
+                order.append("released")
+
+        thread = threading.Thread(target=holder)
+        thread.start()
+        held.wait(5)
+        with process.exclusive(lock, wait=True):
+            order.append("second")
+        thread.join()
+        assert order == ["first", "released", "second"]
 
 
 def test_terminate_ignores_a_dead_process() -> None:

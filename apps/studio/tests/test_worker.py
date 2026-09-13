@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 
 import pytest
 
@@ -36,9 +37,23 @@ class FakePopen:
 
     spawned: "list[subprocess.Popen]" = []
 
+    def __new__(cls, *args, **kwargs):
+        # Cancelling a job on Windows runs taskkill through subprocess.run,
+        # which is this same patched Popen. That one has to really run, or
+        # the stand-in child is never stopped.
+        command = args[0] if args else kwargs.get("args")
+        if isinstance(command, list) and command and command[0] == "taskkill":
+            return REAL_POPEN(*args, **kwargs)
+        return super().__new__(cls)
+
     def __init__(self, *args, **kwargs) -> None:
-        self._proc = REAL_POPEN(["/bin/sh", "-c", "sleep 30"],
-                                start_new_session=True)
+        # The interpreter running the tests, not /bin/sh, so this holds on
+        # Windows too; the same kwargs process.launch uses to detach it.
+        argv = [sys.executable, "-c", "import time; time.sleep(30)"]
+        if process.WINDOWS:
+            self._proc = REAL_POPEN(argv, creationflags=process._CREATE_NEW_PROCESS_GROUP)
+        else:
+            self._proc = REAL_POPEN(argv, start_new_session=True)
         self.pid = self._proc.pid
         FakePopen.spawned.append(self._proc)
 
@@ -49,7 +64,10 @@ def worker(project, monkeypatch):
     yield Worker(project, name="test-worker")
     for proc in FakePopen.spawned:
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            if process.WINDOWS:
+                proc.kill()
+            else:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)  # type: ignore[attr-defined]
         except (ProcessLookupError, PermissionError, OSError):
             pass
         proc.wait(timeout=5)

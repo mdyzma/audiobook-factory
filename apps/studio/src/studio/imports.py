@@ -17,10 +17,9 @@ from studio.database import StorageError, now
 
 def import_sources(root: Path, sources: list[Path], **options) -> dict:
     """Serialize publication of current authoring files, without holding SQL locks."""
-    import fcntl
+    from studio.process import exclusive
     (root / "data").mkdir(parents=True, exist_ok=True)
-    with (root / "data/.import.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with exclusive(root / "data/.import.lock", wait=True):
         return _import_sources(root, sources, **options)
 
 
@@ -70,7 +69,7 @@ def _import_sources(root: Path, sources: list[Path], *, folder: str = "",
                         found = result.extraction
                         meta = dict(found.meta)
                         meta.update({"slug": chosen, "title": result.title, "author": result.author,
-                                     "language": result.language, "source_file": str(catalog.asset_path(asset_id).relative_to(root)),
+                                     "language": result.language, "source_file": catalog.asset_path(asset_id).relative_to(root).as_posix(),
                                      "original_source": str(source.resolve()), "source_sha256": asset_id,
                                      "encoding": found.encoding,
                                      "language_decision": asdict(cast(Any, result.decision)) if result.decision else {},

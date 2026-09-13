@@ -128,7 +128,7 @@ def run_model(root: Path, spec: ModelSpec, language: str, voice: str,
         try:
             outcome.generations = json.loads(
                 result.read_text(encoding="utf-8")).get("generations", [])
-            outcome.result_path = str(result.relative_to(root))
+            outcome.result_path = result.relative_to(root).as_posix()
         except ValueError:
             outcome.error = "the result file could not be read"
     elif not outcome.error:
@@ -194,7 +194,7 @@ def run(root: Path, language: str, voice: str, repeats: int = 1,
                "device": device, "started": stamp,
                "models": [r.model for r in runs],
                "ok": all(r.ok for r in runs),
-               "path": str(base.relative_to(root))}
+               "path": base.relative_to(root).as_posix()}
     (base / "summary.json").write_text(
         json.dumps(summary | {"runs": [vars(r) for r in runs]},
                    ensure_ascii=False, indent=2, default=str), encoding="utf-8")

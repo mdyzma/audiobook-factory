@@ -146,7 +146,7 @@ longer resolve. The work they describe is in the git history.
 .\install.ps1              # uv, just, ffmpeg, Git for Windows, then just setup
 just doctor                # numpy 1.x in narrator, 2.x in transcriber
 just catalog-check         # integrity, and the SQLite version actually loaded
-just check                 # will not pass on Windows yet; see HANDOFF-GPU.md
+just check                 # schemas, types and tests, from PowerShell too
 ```
 
 `just catalog-check` is the one that proves the transfer worked: it verifies

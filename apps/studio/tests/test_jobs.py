@@ -238,6 +238,7 @@ class TestReconciliation:
 
 
 class TestReaping:
+    @pytest.mark.skipif(os.name == "nt", reason="zombies are a POSIX state; Windows has nothing to reap")
     def test_reap_clears_finished_children(self):
         import subprocess
         from studio.jobs import _alive

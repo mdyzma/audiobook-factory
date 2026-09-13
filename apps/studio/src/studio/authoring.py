@@ -122,7 +122,7 @@ def list_raw(root: Path, kind: str) -> list[dict]:
         return []
     return sorted(
         ({"name": p.name, "bytes": p.stat().st_size,
-          "path": str(p.relative_to(root))}
+          "path": p.relative_to(root).as_posix()}
          for p in directory.iterdir()
          if p.is_file() and p.suffix.lower() in allowed),
         key=lambda d: d["name"],

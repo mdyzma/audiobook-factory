@@ -132,7 +132,7 @@ def main(
         except subprocess.CalledProcessError as exc:
             report.failures.append(RenderFailure(chunk_id=chunk.id, error=str(exc)))
             continue
-        chunk.audio_path = str(wav.relative_to(root))
+        chunk.audio_path = wav.relative_to(root).as_posix()
         chunk.duration_sec = round(max(chunk.est_seconds, MIN_SILENCE_SEC), 3)
         report.chunks_rendered += 1
         report.audio_sec += chunk.duration_sec

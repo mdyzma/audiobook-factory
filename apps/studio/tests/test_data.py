@@ -235,24 +235,24 @@ class TestContainment:
         with pytest.raises(UnsafeName):
             data.contained(project, leak)
 
-    def test_a_symlinked_output_is_not_served(self, project, outside):
+    def test_a_symlinked_output_is_not_served(self, project, outside, symlink):
         secret = outside / "secret.m4b"
         secret.write_bytes(b"not yours")
-        (project / "data" / "out" / "solaris.m4b").symlink_to(secret)
+        symlink(project / "data" / "out" / "solaris.m4b", secret)
 
         assert data.output_file(project, "solaris", "solaris.m4b") is None
 
-    def test_a_symlinked_output_is_not_listed(self, project, outside):
+    def test_a_symlinked_output_is_not_listed(self, project, outside, symlink):
         secret = outside / "secret.m4b"
         secret.write_bytes(b"not yours")
-        (project / "data" / "out" / "solaris.m4b").symlink_to(secret)
+        symlink(project / "data" / "out" / "solaris.m4b", secret)
 
         assert data.find_outputs(project, "solaris") == []
 
-    def test_a_symlinked_fragment_is_not_served(self, project, outside):
+    def test_a_symlinked_fragment_is_not_served(self, project, outside, symlink):
         secret = outside / "secret.wav"
         secret.write_bytes(b"not yours")
-        (project / "data" / "audio" / "solaris" / "ch001_0000.wav").symlink_to(secret)
+        symlink(project / "data" / "audio" / "solaris" / "ch001_0000.wav", secret)
 
         assert data.rendered_audio(project, "solaris", "ch001_0000") is None
 

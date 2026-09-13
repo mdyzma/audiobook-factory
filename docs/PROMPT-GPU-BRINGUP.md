@@ -64,9 +64,8 @@ task is worth:
 - Every command goes through `just`. Add a recipe rather than documenting a raw
   `uv run`, and update docs/COMMANDS.md when you do.
 - Tests that need CUDA or model weights do not belong in `just check`.
-- `just check` does not currently pass on Windows: test_worker.py spawns
-  /bin/sh and uses killpg. That is known and is not your blocker unless you
-  choose to fix it.
+- `just check` passes on Windows. If it stops passing, that is a regression,
+  not a known gap.
 - Commit messages: short subject, a body explaining why, never a one-liner and
   never a Co-Authored-By trailer.
 

@@ -228,9 +228,10 @@ detection. That is cheap and deliberate; it does not need a GPU.
 
 ## Windows specifics
 
-The project was built on macOS and CI runs on Linux. It has **never run on
-Windows**. As of 2026-09-13 the known obstacles have been removed and the
-PowerShell scripts exist, but none of it is proven: you are the first run.
+The project was built on macOS and CI runs on Linux. It first ran on this
+Windows workstation on 2026-09-13. `just check` passes here from PowerShell,
+and XTTS loading and WhisperX labelling have run on the card. A full render
+and the dashboard driving real jobs have not yet.
 
 **Native Windows is the intended path, not WSL.** WSL works, but it means
 installing ffmpeg and just a second time inside the distro — the scoop ones are
@@ -287,9 +288,9 @@ defaults, same output. If you change one of a pair, change the other.
 If PowerShell refuses to run them, that is the execution policy rather than the
 script: `powershell -ExecutionPolicy Bypass -File .\install.ps1`.
 
-**What was actually fixed for Windows.** All of it in
-`apps/studio/src/studio/process.py`, which is the one module allowed to know
-which platform it is on. Four things differed and each mattered:
+**What was actually fixed for Windows.** Everything about processes and locks
+is in `apps/studio/src/studio/process.py`, which is the one module allowed to
+know which platform it is on. Five things differed and each mattered:
 
 1. `os.kill(pid, 0)` is a liveness probe on POSIX. On Windows it is not a
    question — it calls `TerminateProcess`. The dashboard would have killed
@@ -300,11 +301,22 @@ which platform it is on. Four things differed and each mattered:
 3. Stopping a job used the POSIX process group. Windows kills the tree with
    `taskkill /T`, because `just` spawns uv, which spawns python.
 4. The venv interpreter is `.venv\Scripts\python.exe`, not `.venv/bin/python`.
+5. Catalog imports and run stages locked with `fcntl.flock`, and `fcntl` does
+   not exist on Windows, so importing it failed and took both down. Found only
+   by running the suite here; the blind fixes above had missed it.
+   `process.exclusive` locks with `msvcrt.locking` on Windows instead.
 
-Twelve tests cover the seam, including running the Windows exit-code shim on
-macOS, since it is ordinary Python. **They do not prove the Windows paths
-work** — nothing here can. They prove the branching is right and the logic in
-the one testable piece is correct.
+Three more surfaced the same way, outside that module. Stored relative paths
+(`source_file`, `audio_path`, a voice's `model_dir`, benchmark results) were
+written with `str()`, so a Windows machine wrote backslashes into files a Mac
+or Linux machine reads; they are `as_posix()` now. Publishing the migrated
+catalog fsynced a file opened read-only, which Windows refuses. And `bash`
+resolved to the WSL launcher, covered above.
+
+The tests now run here: `test_worker.py` spawns its stand-in child with the
+test interpreter rather than `/bin/sh`, the zombie-reaping test is skipped as
+POSIX-only, and the three symlink containment tests skip unless Developer Mode
+allows creating file symlinks (a directory symlink falls back to a junction).
 
 **Recording a voice sample.** The runbook's command is macOS-only. On Windows,
 ffmpeg uses DirectShow:
@@ -321,16 +333,11 @@ ffmpeg -f dshow -i audio="Microphone (Realtek)" -ar 48000 -ac 1 -t 240 data\raw\
 1. Line endings. If git converts to CRLF, the bash scripts fail with an odd
    `\r` error. `git config core.autocrlf input` avoids it. The PowerShell
    scripts do not care.
-2. Path separators. The Python code uses `pathlib` throughout, so it should be
-   fine, but `data/audio/<slug>/rendered.jsonl` stores paths as strings and they
-   are written on the machine that renders. Do not mix machines within one book.
+2. Path separators. Stored relative paths are written with forward slashes on
+   every platform now, but books rendered before that fix on Windows would
+   carry backslashes. None exist yet; this machine had not rendered one.
 3. The ffmpeg concat list in `bookbinder/assemble.py` writes `as_posix()` paths.
-   That is deliberate and should be right for ffmpeg on Windows, but it is
-   untested there.
-4. The test suite itself is POSIX in places — `test_worker.py` spawns
-   `/bin/sh` and uses `killpg`. Tests are expected to run on macOS and Linux;
-   if you want `just check` green on Windows, that is unfinished work rather
-   than a bug in the pipeline.
+   The assembly tests pass here against real ffmpeg, so that holds on Windows.
 
 ---
 
@@ -430,9 +437,9 @@ Model weights are not in the repo. XTTS-v2 downloads on first use, about 1.7 GB.
   Phases 3 to 5 in ROADMAP-DOCKER.md are the plan from there.
 - **Chatterbox has never generated a sample**, so B-5's soaks and B-6's result
   sheets in [WORKPLAN.md](WORKPLAN.md) are both blocked on this machine.
-- **Windows has never run any of this.** The obstacles named above were fixed
-  blind, from the documented behaviour of the APIs. `just doctor` is the first
-  real test.
+- **Windows has run the checks but not the pipeline.** `just check` passes and
+  both CUDA environments work on the card, but no book has been rendered here
+  and the dashboard has not driven a real job on Windows.
 - **PDF ingestion is untested** on a real book. EPUB and plain text are covered.
 - **The narrator's report shape is mirrored by hand** in `synth.py`, because it
   cannot import bookbinder's models. A test pins the two together; if you change

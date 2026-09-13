@@ -243,7 +243,7 @@ def main(
     if profile_path.exists():
         profile = json.loads(profile_path.read_text(encoding="utf-8"))
         profile["mode"] = "finetuned"
-        profile["model_dir"] = str(run_dir.relative_to(root))
+        profile["model_dir"] = run_dir.relative_to(root).as_posix()
         profile_path.write_text(
             json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8"
         )

@@ -386,7 +386,7 @@ def main(
                     reusable = False
 
             if reusable and info is not None:
-                chunk["audio_path"] = str(wav_path.relative_to(root))
+                chunk["audio_path"] = wav_path.relative_to(root).as_posix()
                 chunk["duration_sec"] = round(info.duration, 3)
                 chunk["voice"] = chunk_voice
                 chunk["fingerprint"] = wanted_fingerprint
@@ -468,7 +468,7 @@ def main(
             raise
         duration = len(wav) / rate
         rendered_rate = rate
-        chunk["audio_path"] = str(wav_path.relative_to(root))
+        chunk["audio_path"] = wav_path.relative_to(root).as_posix()
         chunk["duration_sec"] = round(duration, 3)
         chunk["voice"] = chunk_voice
         chunk["fingerprint"] = wanted_fingerprint

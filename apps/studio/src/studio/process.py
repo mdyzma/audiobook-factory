@@ -24,8 +24,12 @@ unambiguously present because it is what is running.
 **Reaping.** A POSIX child that nobody waits on stays a zombie and keeps
 answering signal 0. Windows has no such state and nothing to reap.
 
-The Windows halves have never run. They are written from the documented
-behaviour of the APIs, and the first honest test of them is the workstation.
+**Holding a file lock.** `fcntl.flock` does not exist on Windows, and importing
+`fcntl` there fails outright, which took every catalog import and every run
+stage down with it. Windows locks a byte range with `msvcrt.locking` instead.
+
+The Windows halves were written from the documented behaviour of the APIs and
+first ran on the RTX workstation.
 """
 
 from __future__ import annotations
@@ -34,8 +38,10 @@ import os
 import signal
 import subprocess
 import sys
+import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import IO, Sequence
+from typing import IO, Iterator, Sequence
 
 WINDOWS = sys.platform == "win32"
 
@@ -62,6 +68,44 @@ _STILL_ACTIVE = 259
 # Enough to read the exit code, and grantable for processes this one did not
 # start, which PROCESS_QUERY_INFORMATION is not always.
 _QUERY_LIMITED = 0x1000
+
+
+@contextmanager
+def exclusive(path: Path, *, wait: bool) -> Iterator[None]:
+    """Hold an exclusive lock on `path` for the duration of the block.
+
+    With `wait`, block until the lock is free. Without it, raise
+    BlockingIOError at once if another process holds it. The lock belongs to
+    the open file, so a process that dies releases it on both platforms.
+    """
+    with path.open("a+b") as handle:
+        if WINDOWS:
+            import msvcrt
+
+            # The first byte stands for the whole file. Locking past the end
+            # is allowed, and nothing is ever written to a lock file.
+            handle.seek(0)
+            while True:
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
+                    break
+                except OSError as exc:
+                    if not wait:
+                        raise BlockingIOError(str(exc)) from exc
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
+        else:
+            import fcntl
+
+            fcntl.flock(handle, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)  # type: ignore[attr-defined]
+            try:
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)  # type: ignore[attr-defined]
 
 
 def interpreter(environment: Path) -> Path:
@@ -128,7 +172,7 @@ def reap() -> int:
     reaped = 0
     while True:
         try:
-            pid, _status = os.waitpid(-1, os.WNOHANG)
+            pid, _status = os.waitpid(-1, os.WNOHANG)  # type: ignore[attr-defined]
         except ChildProcessError:
             break
         except OSError:
@@ -189,6 +233,6 @@ def terminate(pid: int) -> None:
         )
         return
     try:
-        os.killpg(os.getpgid(pid), signal.SIGTERM)
+        os.killpg(os.getpgid(pid), signal.SIGTERM)  # type: ignore[attr-defined]
     except (ProcessLookupError, PermissionError):
         pass

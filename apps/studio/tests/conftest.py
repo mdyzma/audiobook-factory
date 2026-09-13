@@ -4,9 +4,35 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
+
+# ERROR_PRIVILEGE_NOT_HELD: Windows creates symlinks only with Developer Mode
+# or elevation.
+_NO_SYMLINK_PRIVILEGE = 1314
+
+
+@pytest.fixture
+def symlink():
+    """Make `link` point at `target`, as far as this machine allows.
+
+    A directory falls back to a junction, which needs no privilege and which
+    path resolution follows the same way. A file has no such stand-in, so the
+    test is skipped rather than reported as a containment failure it is not.
+    """
+    def make(link: Path, target: Path, *, directory: bool = False) -> None:
+        try:
+            link.symlink_to(target, target_is_directory=directory)
+        except OSError as exc:
+            if sys.platform != "win32" or getattr(exc, "winerror", None) != _NO_SYMLINK_PRIVILEGE:
+                raise
+            if not directory:
+                pytest.skip("file symlinks on Windows need Developer Mode or elevation")
+            import _winapi
+            _winapi.CreateJunction(str(target), str(link))  # type: ignore[attr-defined]
+    return make
 
 
 @pytest.fixture

@@ -428,7 +428,7 @@ class JobRunner:
         path = self.root / "data" / "raw" / "voices" / candidate.name
         if not path.is_file():
             raise JobError(f"no uploaded sample named {name!r}")
-        return str(path.relative_to(self.root))
+        return path.relative_to(self.root).as_posix()
 
     def _raw_book(self, name: str) -> str:
         from studio.authoring import BOOK_SUFFIXES
@@ -439,7 +439,7 @@ class JobRunner:
         path = self.root / "data" / "raw" / "books" / candidate.name
         if not path.is_file():
             raise JobError(f"no uploaded book named {name!r}")
-        return str(path.relative_to(self.root))
+        return path.relative_to(self.root).as_posix()
 
     def check_space(self, action: str, args: dict[str, str]) -> None:
         """Refuse a job that would very likely run the disk out.

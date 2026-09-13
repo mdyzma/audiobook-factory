@@ -551,7 +551,7 @@ def import_book(
         json.dumps({
             "meta": meta | {
                 "slug": book_slug,
-                "source_file": str(staged.relative_to(root)),
+                "source_file": staged.relative_to(root).as_posix(),
                 "original_source": str(source),
                 "source_sha256": sha256_bytes(staged.read_bytes()),
                 "encoding": found.encoding,

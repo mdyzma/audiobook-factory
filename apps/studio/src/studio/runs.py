@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import ExitStack
 from pathlib import Path
 
 from bookbinder.models import RegistryError, load_registry
@@ -23,7 +24,7 @@ from studio.catalog import (
     read_lines,
 )
 from studio.database import StorageError, now
-from studio.process import interpreter
+from studio.process import exclusive, interpreter
 
 STAGES = ("chunk", "synth", "dryrun", "assemble", "verify")
 
@@ -188,7 +189,6 @@ def attach_plan(catalog: Catalog, run_id: str) -> str:
 
 def execute_stage(root: Path, run_id: str, stage: str, *, fmt: str = "", device: str = "auto",
                   only: str = "", sample: str = "0", limit: int = 0, strict: bool = False) -> int:
-    import fcntl
     catalog = Catalog(root)
     run_root = inside(root, catalog.run(run_id)["root_key"])
     if not run_root.is_dir():
@@ -200,9 +200,9 @@ def execute_stage(root: Path, run_id: str, stage: str, *, fmt: str = "", device:
             f"run {run_id} has no working directory at {run_root.relative_to(root)}; "
             f"it was removed outside the catalog. Drop the run with "
             f"`just catalog-forget {run_id}` and prepare a new one")
-    with (run_root / ".execution.lock").open("a") as lock:
+    with ExitStack() as held:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            held.enter_context(exclusive(run_root / ".execution.lock", wait=False))
         except BlockingIOError as exc:
             raise StorageError("this audiobook run already has an active stage") from exc
         try:

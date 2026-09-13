@@ -421,12 +421,12 @@ def test_request_key_cannot_return_another_book(library):
         prepare_run(library, "another-book", request_key="submission")
 
 
-def test_backup_restore_through_symlinked_parent(library, tmp_path):
+def test_backup_restore_through_symlinked_parent(library, tmp_path, symlink):
     imported(library)
     link = tmp_path / "alias"
     actual = tmp_path / "physical"
     actual.mkdir()
-    link.symlink_to(actual, target_is_directory=True)
+    symlink(link, actual, directory=True)
     assert backup(library, link / "backup")["ok"]
     assert restore(link / "backup", link / "restored")["ok"]
     assert len(Catalog(actual / "restored").books()) == 1

@@ -184,7 +184,7 @@ def migrate_queue(root: Path) -> Database:
                     conn.backup(published)
                 finally:
                     published.close()
-            with publication.open("rb") as handle:
+            with publication.open("r+b") as handle:
                 os.fsync(handle.fileno())
             # Publish only a complete database, and never replace a concurrent one.
             os.link(publication, target)
