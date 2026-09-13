@@ -32,8 +32,9 @@ in a real cloned voice on Apple Silicon.
 | Containers (CPU) | Works. `just docker-smoke` builds and runs with no GPU |
 | Containers (CUDA) | **Written, never built.** amd64 only; see below |
 
-Tests, pyright and schema checks all pass in every environment, and CI is green
-on every commit.
+1169 tests across five environments (586 bookbinder, 456 studio, 78 narrator,
+33 transcriber, 16 chatterbox), pyright and schema checks all pass, and CI is
+green on every commit.
 
 ## Studio is on the path for every stage now
 
@@ -190,6 +191,8 @@ PowerShell scripts exist, but none of it is proven: you are the first run.
 installing ffmpeg and just a second time inside the distro — the scoop ones are
 not visible there under their bare names — and it puts GPU passthrough between
 you and the card while you are trying to judge whether CUDA is working at all.
+If you use WSL anyway, passthrough needs a recent WSL2 with the NVIDIA driver
+installed on the Windows side, not inside the distro.
 
 **You still need bash, even natively.** The justfile declares
 `set shell := ["bash", "-uc"]`, so every recipe spawns bash. Git for Windows
@@ -205,7 +208,14 @@ irm get.scoop.sh | iex          # if scoop is not already there
 ```
 
 `install.ps1 -Check` reports what is missing and changes nothing. winget works
-too and the script uses it when scoop is absent.
+too and the script uses it when scoop is absent; by hand that is:
+
+```powershell
+winget install astral-sh.uv
+winget install casey.just
+winget install Gyan.FFmpeg
+winget install Git.Git        # for bash
+```
 
 **PowerShell twins of the bash scripts** landed at the same time, so nothing in
 the everyday path requires a bash prompt:
@@ -286,7 +296,10 @@ ffmpeg -f dshow -i audio="Microphone (Realtek)" -ar 48000 -ac 1 -t 240 data\raw\
    ```powershell
    .\bin\audiobook.ps1 -Voice data\raw\voices\michal.wav -Book data\raw\books\test-book.txt -DryRun
    ```
-   The bash form is `bin/audiobook -v ... -b ... --dry-run`.
+   The bash form, unchanged:
+   ```bash
+   bin/audiobook -v data/raw/voices/michal.wav -b data/raw/books/test-book.txt --dry-run
+   ```
 7. Then a real render, and compare the realtime factor in that run's
    `report.json` against the 0.4x measured on the M1. `just catalog-runs <slug>`
    gives the run id and `data/runs/<id>/data/audio/<slug>/report.json` is the
